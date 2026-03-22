@@ -12,13 +12,13 @@
           </router-link>
         </li>
         <li class="nav-item">
-          <router-link to="/nodes" class="nav-link text-white" active-class="bg-primary rounded">
-            <i class="bi bi-hdd-network me-2"></i>节点管理
+          <router-link to="/topology" class="nav-link text-white" active-class="bg-primary rounded">
+            <i class="bi bi-diagram-3 me-2"></i>基础设施拓扑
           </router-link>
         </li>
         <li class="nav-item">
-          <router-link to="/groups" class="nav-link text-white" active-class="bg-primary rounded">
-            <i class="bi bi-collection me-2"></i>节点分组
+          <router-link to="/nodes" class="nav-link text-white" active-class="bg-primary rounded">
+            <i class="bi bi-hdd-network me-2"></i>节点管理
           </router-link>
         </li>
         <li class="nav-item">

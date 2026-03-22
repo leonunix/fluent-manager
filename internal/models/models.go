@@ -6,6 +6,10 @@ import (
 	"gorm.io/gorm"
 )
 
+// ============================================================================
+// Auth & RBAC
+// ============================================================================
+
 // User represents a system user (local, LDAP, or SAML).
 type User struct {
 	ID           uint           `gorm:"primaryKey" json:"id"`
@@ -37,37 +41,102 @@ type Role struct {
 // Permission represents a fine-grained permission.
 type Permission struct {
 	ID       uint   `gorm:"primaryKey" json:"id"`
-	Resource string `gorm:"size:64;not null" json:"resource"` // nodes, configs, users, roles, groups
-	Action   string `gorm:"size:32;not null" json:"action"`   // create, read, update, delete, deploy
+	Resource string `gorm:"size:64;not null" json:"resource"`
+	Action   string `gorm:"size:32;not null" json:"action"`
 	Name     string `gorm:"uniqueIndex;size:128;not null" json:"name"`
 }
 
-// NodeGroup allows organizing nodes into logical groups.
-type NodeGroup struct {
+// ============================================================================
+// Environment
+// ============================================================================
+
+// Environment separates infrastructure (production, staging, development, etc.).
+type Environment struct {
 	ID          uint           `gorm:"primaryKey" json:"id"`
-	Name        string         `gorm:"uniqueIndex;size:128;not null" json:"name"`
-	Description string         `gorm:"size:512" json:"description"`
-	Nodes       []Node         `gorm:"foreignKey:GroupID" json:"nodes,omitempty"`
+	Name        string         `gorm:"uniqueIndex;size:64;not null" json:"name"` // production, staging, dev
+	Alias       string         `gorm:"size:64" json:"alias"`                     // 生产, 预发布, 开发
+	Color       string         `gorm:"size:16" json:"color"`                     // #28a745, #ffc107, #17a2b8
+	SortOrder   int            `gorm:"default:0" json:"sort_order"`
+	Description string         `gorm:"size:256" json:"description"`
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
 	DeletedAt   gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
+// ============================================================================
+// Topology: DataCenter → Region → Cluster → Node
+// ============================================================================
+
+// DataCenter represents a physical data center or cloud provider.
+type DataCenter struct {
+	ID          uint           `gorm:"primaryKey" json:"id"`
+	Name        string         `gorm:"uniqueIndex;size:128;not null" json:"name"` // e.g. "aws-us", "ali-cn-hz"
+	Alias       string         `gorm:"size:128" json:"alias"`                     // 阿里云-杭州
+	Provider    string         `gorm:"size:64" json:"provider"`                   // aws, aliyun, azure, idc
+	Location    string         `gorm:"size:256" json:"location"`                  // physical location
+	Description string         `gorm:"size:512" json:"description"`
+	Regions     []Region       `gorm:"foreignKey:DataCenterID" json:"regions,omitempty"`
+	Tags        string         `gorm:"type:text" json:"tags"` // JSON key-value
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	DeletedAt   gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+// Region represents a logical region within a data center (e.g. cn-east-1, us-west-2).
+type Region struct {
+	ID           uint           `gorm:"primaryKey" json:"id"`
+	Name         string         `gorm:"size:128;not null" json:"name"` // e.g. "cn-east-1"
+	Alias        string         `gorm:"size:128" json:"alias"`         // 华东一区
+	DataCenterID uint           `gorm:"index;not null" json:"datacenter_id"`
+	DataCenter   *DataCenter    `json:"datacenter,omitempty"`
+	Clusters     []Cluster      `gorm:"foreignKey:RegionID" json:"clusters,omitempty"`
+	Description  string         `gorm:"size:512" json:"description"`
+	Tags         string         `gorm:"type:text" json:"tags"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+	DeletedAt    gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+// Cluster represents a HA cluster / availability group within a region.
+type Cluster struct {
+	ID            uint           `gorm:"primaryKey" json:"id"`
+	Name          string         `gorm:"size:128;not null" json:"name"` // e.g. "log-cluster-01"
+	Alias         string         `gorm:"size:128" json:"alias"`
+	RegionID      uint           `gorm:"index;not null" json:"region_id"`
+	Region        *Region        `json:"region,omitempty"`
+	EnvironmentID *uint          `gorm:"index" json:"environment_id"`
+	Environment   *Environment   `json:"environment,omitempty"`
+	Nodes         []Node         `gorm:"foreignKey:ClusterID" json:"nodes,omitempty"`
+	ConfigID      *uint          `json:"config_id"`                                    // inherited config for all nodes in cluster
+	Config        *ConfigVersion `gorm:"foreignKey:ConfigID" json:"config,omitempty"`
+	Description   string         `gorm:"size:512" json:"description"`
+	Tags          string         `gorm:"type:text" json:"tags"`
+	CreatedAt     time.Time      `json:"created_at"`
+	UpdatedAt     time.Time      `json:"updated_at"`
+	DeletedAt     gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+// ============================================================================
+// Node
+// ============================================================================
+
 // Node represents a Fluent Bit / Fluentd agent node.
 type Node struct {
 	ID            uint           `gorm:"primaryKey" json:"id"`
-	NodeUID       string         `gorm:"uniqueIndex;size:128;not null" json:"node_uid"` // unique agent identifier
+	NodeUID       string         `gorm:"uniqueIndex;size:128;not null" json:"node_uid"`
 	Hostname      string         `gorm:"size:256;not null" json:"hostname"`
 	IPAddress     string         `gorm:"size:64" json:"ip_address"`
 	OS            string         `gorm:"size:64" json:"os"`
 	AgentVersion  string         `gorm:"size:32" json:"agent_version"`
-	FluentType    string         `gorm:"size:32" json:"fluent_type"` // fluentbit, fluentd
+	FluentType    string         `gorm:"size:32" json:"fluent_type"`    // fluentbit, fluentd
 	FluentVersion string         `gorm:"size:32" json:"fluent_version"`
 	Status        string         `gorm:"size:32;default:offline" json:"status"` // online, offline, error
-	GroupID       *uint          `json:"group_id"`
-	Group         *NodeGroup     `json:"group,omitempty"`
+	ClusterID     *uint          `gorm:"index" json:"cluster_id"`
+	Cluster       *Cluster       `json:"cluster,omitempty"`
+	EnvironmentID *uint          `gorm:"index" json:"environment_id"` // can override cluster's environment
+	Environment   *Environment   `json:"environment,omitempty"`
 	Labels        string         `gorm:"type:text" json:"labels"` // JSON key-value pairs
-	ConfigID      *uint          `json:"config_id"`
+	ConfigID      *uint          `json:"config_id"`                // node-level config (overrides cluster config)
 	Config        *ConfigVersion `gorm:"foreignKey:ConfigID" json:"config,omitempty"`
 	LastHeartbeat *time.Time     `json:"last_heartbeat"`
 	CreatedAt     time.Time      `json:"created_at"`
@@ -75,14 +144,40 @@ type Node struct {
 	DeletedAt     gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
+// EffectiveConfigID returns the config to use: node-level overrides cluster-level.
+func (n *Node) EffectiveConfigID() *uint {
+	if n.ConfigID != nil {
+		return n.ConfigID
+	}
+	if n.Cluster != nil && n.Cluster.ConfigID != nil {
+		return n.Cluster.ConfigID
+	}
+	return nil
+}
+
+// EffectiveEnvironmentID returns the environment: node-level overrides cluster-level.
+func (n *Node) EffectiveEnvironmentID() *uint {
+	if n.EnvironmentID != nil {
+		return n.EnvironmentID
+	}
+	if n.Cluster != nil && n.Cluster.EnvironmentID != nil {
+		return n.Cluster.EnvironmentID
+	}
+	return nil
+}
+
+// ============================================================================
+// Configuration Management
+// ============================================================================
+
 // ConfigTemplate is a reusable Fluent configuration template.
 type ConfigTemplate struct {
 	ID          uint            `gorm:"primaryKey" json:"id"`
 	Name        string          `gorm:"uniqueIndex;size:128;not null" json:"name"`
 	Description string          `gorm:"size:512" json:"description"`
-	FluentType  string          `gorm:"size:32;not null" json:"fluent_type"` // fluentbit, fluentd
-	Content     string          `gorm:"type:text;not null" json:"content"`   // template with variables
-	Variables   string          `gorm:"type:text" json:"variables"`          // JSON schema of variables
+	FluentType  string          `gorm:"size:32;not null" json:"fluent_type"`
+	Content     string          `gorm:"type:text;not null" json:"content"`
+	Variables   string          `gorm:"type:text" json:"variables"`
 	Versions    []ConfigVersion `gorm:"foreignKey:TemplateID" json:"versions,omitempty"`
 	CreatedBy   uint            `json:"created_by"`
 	Creator     *User           `gorm:"foreignKey:CreatedBy" json:"creator,omitempty"`
@@ -93,25 +188,31 @@ type ConfigTemplate struct {
 
 // ConfigVersion is a versioned, immutable snapshot of a rendered configuration.
 type ConfigVersion struct {
-	ID         uint           `gorm:"primaryKey" json:"id"`
-	TemplateID uint           `json:"template_id"`
+	ID         uint            `gorm:"primaryKey" json:"id"`
+	TemplateID uint            `json:"template_id"`
 	Template   *ConfigTemplate `gorm:"foreignKey:TemplateID" json:"template,omitempty"`
-	Version    int            `gorm:"not null" json:"version"`
-	Content    string         `gorm:"type:text;not null" json:"content"` // rendered config
-	Hash       string         `gorm:"size:64;not null" json:"hash"`     // SHA-256 of content
-	Comment    string         `gorm:"size:512" json:"comment"`
-	CreatedBy  uint           `json:"created_by"`
-	Creator    *User          `gorm:"foreignKey:CreatedBy" json:"creator,omitempty"`
-	CreatedAt  time.Time      `json:"created_at"`
-	DeletedAt  gorm.DeletedAt `gorm:"index" json:"-"`
+	Version    int             `gorm:"not null" json:"version"`
+	Content    string          `gorm:"type:text;not null" json:"content"`
+	Hash       string          `gorm:"size:64;not null" json:"hash"`
+	Comment    string          `gorm:"size:512" json:"comment"`
+	CreatedBy  uint            `json:"created_by"`
+	Creator    *User           `gorm:"foreignKey:CreatedBy" json:"creator,omitempty"`
+	CreatedAt  time.Time       `json:"created_at"`
+	DeletedAt  gorm.DeletedAt  `gorm:"index" json:"-"`
 }
 
-// DeployTask tracks a configuration deployment to nodes.
+// ============================================================================
+// Deployment
+// ============================================================================
+
+// DeployTask tracks a configuration deployment.
 type DeployTask struct {
 	ID           uint           `gorm:"primaryKey" json:"id"`
 	ConfigID     uint           `json:"config_id"`
 	Config       *ConfigVersion `gorm:"foreignKey:ConfigID" json:"config,omitempty"`
-	Status       string         `gorm:"size:32;default:pending" json:"status"` // pending, running, completed, failed
+	Scope        string         `gorm:"size:32" json:"scope"` // node, cluster, region, datacenter
+	ScopeID      uint           `json:"scope_id"`             // ID of the target scope entity
+	Status       string         `gorm:"size:32;default:pending" json:"status"`
 	TotalNodes   int            `json:"total_nodes"`
 	SuccessCount int            `json:"success_count"`
 	FailCount    int            `json:"fail_count"`
@@ -127,11 +228,15 @@ type DeployRecord struct {
 	DeployTaskID uint      `gorm:"index" json:"deploy_task_id"`
 	NodeID       uint      `gorm:"index" json:"node_id"`
 	Node         *Node     `gorm:"foreignKey:NodeID" json:"node,omitempty"`
-	Status       string    `gorm:"size:32;default:pending" json:"status"` // pending, success, failed
+	Status       string    `gorm:"size:32;default:pending" json:"status"`
 	Message      string    `gorm:"type:text" json:"message"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
+
+// ============================================================================
+// Agent Communication
+// ============================================================================
 
 // NodeMetrics stores the latest metrics snapshot from an agent.
 type NodeMetrics struct {
@@ -160,9 +265,9 @@ type RemoteCommand struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	NodeID    uint      `gorm:"index" json:"node_id"`
 	Node      *Node     `gorm:"foreignKey:NodeID" json:"node,omitempty"`
-	Action    string    `gorm:"size:64;not null" json:"action"` // restart, reload, stop, start, status, validate, rollback, show_config, exec
+	Action    string    `gorm:"size:64;not null" json:"action"`
 	Args      string    `gorm:"type:text" json:"args"`
-	Status    string    `gorm:"size:32;default:pending" json:"status"` // pending, delivered, success, failed
+	Status    string    `gorm:"size:32;default:pending" json:"status"`
 	Output    string    `gorm:"type:text" json:"output"`
 	CreatedBy uint      `json:"created_by"`
 	Creator   *User     `gorm:"foreignKey:CreatedBy" json:"creator,omitempty"`
@@ -174,10 +279,14 @@ type RemoteCommand struct {
 type NodeLog struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	NodeID    uint      `gorm:"index" json:"node_id"`
-	Lines     string    `gorm:"type:text" json:"lines"` // newline-separated log lines
+	Lines     string    `gorm:"type:text" json:"lines"`
 	LineCount int       `json:"line_count"`
 	CreatedAt time.Time `gorm:"index" json:"created_at"`
 }
+
+// ============================================================================
+// Audit
+// ============================================================================
 
 // AuditLog records all important operations.
 type AuditLog struct {

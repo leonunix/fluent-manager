@@ -87,14 +87,34 @@
           </div>
           <div class="modal-body">
             <div class="mb-3">
-              <label class="form-label">选择目标分组</label>
-              <select v-model="deployForm.group_id" class="form-select">
-                <option :value="null">不按分组</option>
-                <option v-for="g in groups" :key="g.id" :value="g.id">{{ g.name }}</option>
+              <label class="form-label">部署范围</label>
+              <select v-model="deployForm.scope" class="form-select">
+                <option value="cluster">按集群</option>
+                <option value="region">按区域</option>
+                <option value="datacenter">按数据中心</option>
+                <option value="node">指定节点</option>
               </select>
             </div>
-            <div class="mb-3">
-              <label class="form-label">或指定节点ID (逗号分隔)</label>
+            <div v-if="deployForm.scope === 'cluster'" class="mb-3">
+              <label class="form-label">选择集群</label>
+              <select v-model="deployForm.cluster_id" class="form-select">
+                <option v-for="cl in clusters" :key="cl.id" :value="cl.id">{{ cl.alias || cl.name }}</option>
+              </select>
+            </div>
+            <div v-if="deployForm.scope === 'region'" class="mb-3">
+              <label class="form-label">选择区域</label>
+              <select v-model="deployForm.region_id" class="form-select">
+                <option v-for="r in regions" :key="r.id" :value="r.id">{{ r.alias || r.name }}</option>
+              </select>
+            </div>
+            <div v-if="deployForm.scope === 'datacenter'" class="mb-3">
+              <label class="form-label">选择数据中心</label>
+              <select v-model="deployForm.datacenter_id" class="form-select">
+                <option v-for="dc in datacenters" :key="dc.id" :value="dc.id">{{ dc.alias || dc.name }}</option>
+              </select>
+            </div>
+            <div v-if="deployForm.scope === 'node'" class="mb-3">
+              <label class="form-label">节点ID (逗号分隔)</label>
               <input v-model="deployForm.node_ids_text" type="text" class="form-control" placeholder="1,2,3">
             </div>
           </div>
@@ -111,17 +131,19 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getTemplate, getVersions, createVersion, createDeploy, getGroups } from '../api'
+import { getTemplate, getVersions, createVersion, createDeploy, getClusters, getRegions, getDataCenters } from '../api'
 
 const route = useRoute()
 const router = useRouter()
 const template = ref(null)
 const versions = ref([])
 const selectedVersion = ref(null)
-const groups = ref([])
+const clusters = ref([])
+const regions = ref([])
+const datacenters = ref([])
 
 const versionForm = reactive({ content: '', comment: '' })
-const deployForm = reactive({ group_id: null, node_ids_text: '' })
+const deployForm = reactive({ scope: 'cluster', cluster_id: null, region_id: null, datacenter_id: null, node_ids_text: '' })
 let versionModal = null
 let deployModal = null
 
@@ -131,14 +153,18 @@ function formatTime(t) {
 
 async function loadData() {
   const id = route.params.id
-  const [tplRes, versRes, grpRes] = await Promise.all([
+  const [tplRes, versRes, clRes, rRes, dcRes] = await Promise.all([
     getTemplate(id),
     getVersions(id),
-    getGroups(),
+    getClusters(),
+    getRegions(),
+    getDataCenters(),
   ])
   template.value = tplRes.data
   versions.value = versRes.data.data || []
-  groups.value = grpRes.data.data || []
+  clusters.value = clRes.data.data || []
+  regions.value = rRes.data.data || []
+  datacenters.value = dcRes.data.data || []
   if (versions.value.length) {
     selectedVersion.value = versions.value[0]
   }
@@ -158,7 +184,10 @@ async function saveVersion() {
 }
 
 function openDeploy() {
-  deployForm.group_id = null
+  deployForm.scope = 'cluster'
+  deployForm.cluster_id = clusters.value[0]?.id || null
+  deployForm.region_id = regions.value[0]?.id || null
+  deployForm.datacenter_id = datacenters.value[0]?.id || null
   deployForm.node_ids_text = ''
   if (!deployModal) deployModal = new window.bootstrap.Modal(document.getElementById('deployModal'))
   deployModal.show()
@@ -166,8 +195,10 @@ function openDeploy() {
 
 async function submitDeploy() {
   const data = { config_version_id: selectedVersion.value.id }
-  if (deployForm.group_id) data.group_id = deployForm.group_id
-  if (deployForm.node_ids_text) {
+  if (deployForm.scope === 'cluster' && deployForm.cluster_id) data.cluster_id = deployForm.cluster_id
+  if (deployForm.scope === 'region' && deployForm.region_id) data.region_id = deployForm.region_id
+  if (deployForm.scope === 'datacenter' && deployForm.datacenter_id) data.datacenter_id = deployForm.datacenter_id
+  if (deployForm.scope === 'node' && deployForm.node_ids_text) {
     data.node_ids = deployForm.node_ids_text.split(',').map(s => parseInt(s.trim())).filter(n => n > 0)
   }
   await createDeploy(data)

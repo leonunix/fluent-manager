@@ -12,19 +12,31 @@ type NodeHandler struct{}
 
 func (h *NodeHandler) List(c *gin.Context) {
 	var nodes []models.Node
-	query := models.DB.Preload("Group").Preload("Config")
+	query := models.DB.Preload("Cluster.Region.DataCenter").Preload("Cluster.Environment").Preload("Environment").Preload("Config.Template")
 
 	if status := c.Query("status"); status != "" {
-		query = query.Where("status = ?", status)
+		query = query.Where("nodes.status = ?", status)
 	}
-	if groupID := c.Query("group_id"); groupID != "" {
-		query = query.Where("group_id = ?", groupID)
+	if clusterID := c.Query("cluster_id"); clusterID != "" {
+		query = query.Where("nodes.cluster_id = ?", clusterID)
+	}
+	if envID := c.Query("environment_id"); envID != "" {
+		query = query.Where("nodes.environment_id = ? OR nodes.cluster_id IN (SELECT id FROM clusters WHERE environment_id = ?)", envID, envID)
 	}
 	if fluentType := c.Query("fluent_type"); fluentType != "" {
-		query = query.Where("fluent_type = ?", fluentType)
+		query = query.Where("nodes.fluent_type = ?", fluentType)
+	}
+	if dcID := c.Query("datacenter_id"); dcID != "" {
+		query = query.Joins("JOIN clusters ON clusters.id = nodes.cluster_id").
+			Joins("JOIN regions ON regions.id = clusters.region_id").
+			Where("regions.data_center_id = ?", dcID)
+	}
+	if regionID := c.Query("region_id"); regionID != "" {
+		query = query.Joins("JOIN clusters ON clusters.id = nodes.cluster_id").
+			Where("clusters.region_id = ?", regionID)
 	}
 	if search := c.Query("search"); search != "" {
-		query = query.Where("hostname LIKE ? OR ip_address LIKE ? OR node_uid LIKE ?",
+		query = query.Where("nodes.hostname LIKE ? OR nodes.ip_address LIKE ? OR nodes.node_uid LIKE ?",
 			"%"+search+"%", "%"+search+"%", "%"+search+"%")
 	}
 
@@ -52,7 +64,7 @@ func (h *NodeHandler) List(c *gin.Context) {
 func (h *NodeHandler) Get(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
 	var node models.Node
-	if err := models.DB.Preload("Group").Preload("Config.Template").First(&node, id).Error; err != nil {
+	if err := models.DB.Preload("Cluster.Region.DataCenter").Preload("Cluster.Environment").Preload("Environment").Preload("Config.Template").First(&node, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
 		return
 	}
@@ -60,9 +72,10 @@ func (h *NodeHandler) Get(c *gin.Context) {
 }
 
 type UpdateNodeRequest struct {
-	GroupID  *uint  `json:"group_id"`
-	ConfigID *uint  `json:"config_id"`
-	Labels  string `json:"labels"`
+	ClusterID     *uint  `json:"cluster_id"`
+	EnvironmentID *uint  `json:"environment_id"`
+	ConfigID      *uint  `json:"config_id"`
+	Labels        string `json:"labels"`
 }
 
 func (h *NodeHandler) Update(c *gin.Context) {
@@ -80,8 +93,11 @@ func (h *NodeHandler) Update(c *gin.Context) {
 	}
 
 	updates := map[string]interface{}{}
-	if req.GroupID != nil {
-		updates["group_id"] = req.GroupID
+	if req.ClusterID != nil {
+		updates["cluster_id"] = req.ClusterID
+	}
+	if req.EnvironmentID != nil {
+		updates["environment_id"] = req.EnvironmentID
 	}
 	if req.ConfigID != nil {
 		updates["config_id"] = req.ConfigID
@@ -91,7 +107,7 @@ func (h *NodeHandler) Update(c *gin.Context) {
 	}
 
 	models.DB.Model(&node).Updates(updates)
-	models.DB.Preload("Group").Preload("Config").First(&node, node.ID)
+	models.DB.Preload("Cluster.Region.DataCenter").Preload("Environment").Preload("Config").First(&node, node.ID)
 	c.JSON(http.StatusOK, node)
 }
 
@@ -106,19 +122,18 @@ func (h *NodeHandler) Delete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "node deleted"})
 }
 
-// BatchUpdateGroup assigns multiple nodes to a group.
-func (h *NodeHandler) BatchUpdateGroup(c *gin.Context) {
+// BatchMoveCluster assigns multiple nodes to a cluster.
+func (h *NodeHandler) BatchMoveCluster(c *gin.Context) {
 	var req struct {
-		NodeIDs []uint `json:"node_ids" binding:"required"`
-		GroupID uint   `json:"group_id" binding:"required"`
+		NodeIDs   []uint `json:"node_ids" binding:"required"`
+		ClusterID uint   `json:"cluster_id" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
-	models.DB.Model(&models.Node{}).Where("id IN ?", req.NodeIDs).Update("group_id", req.GroupID)
-	c.JSON(http.StatusOK, gin.H{"message": "nodes updated", "count": len(req.NodeIDs)})
+	models.DB.Model(&models.Node{}).Where("id IN ?", req.NodeIDs).Update("cluster_id", req.ClusterID)
+	c.JSON(http.StatusOK, gin.H{"message": "nodes moved", "count": len(req.NodeIDs)})
 }
 
 // Stats returns node status summary.
@@ -133,8 +148,20 @@ func (h *NodeHandler) Stats(c *gin.Context) {
 	var total int64
 	models.DB.Model(&models.Node{}).Count(&total)
 
+	// Per-environment counts
+	type EnvCount struct {
+		Environment string `json:"environment"`
+		Count       int64  `json:"count"`
+	}
+	var envCounts []EnvCount
+	models.DB.Model(&models.Node{}).
+		Joins("LEFT JOIN environments ON environments.id = nodes.environment_id").
+		Select("COALESCE(environments.name, 'unassigned') as environment, count(*) as count").
+		Group("environments.name").Scan(&envCounts)
+
 	c.JSON(http.StatusOK, gin.H{
-		"total":    total,
-		"statuses": counts,
+		"total":        total,
+		"statuses":     counts,
+		"environments": envCounts,
 	})
 }

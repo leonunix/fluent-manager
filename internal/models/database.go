@@ -39,7 +39,10 @@ func InitDB(cfg *config.DatabaseConfig) error {
 		&User{},
 		&Role{},
 		&Permission{},
-		&NodeGroup{},
+		&Environment{},
+		&DataCenter{},
+		&Region{},
+		&Cluster{},
 		&Node{},
 		&NodeMetrics{},
 		&RemoteCommand{},
@@ -58,12 +61,27 @@ func InitDB(cfg *config.DatabaseConfig) error {
 }
 
 func seedDefaults() {
+	// Seed default environments
+	defaultEnvs := []Environment{
+		{Name: "production", Alias: "生产环境", Color: "#dc3545", SortOrder: 1, Description: "Production environment"},
+		{Name: "staging", Alias: "预发布环境", Color: "#ffc107", SortOrder: 2, Description: "Staging / pre-production"},
+		{Name: "development", Alias: "开发环境", Color: "#17a2b8", SortOrder: 3, Description: "Development environment"},
+		{Name: "testing", Alias: "测试环境", Color: "#6c757d", SortOrder: 4, Description: "Testing / QA environment"},
+	}
+	for _, env := range defaultEnvs {
+		DB.FirstOrCreate(&env, Environment{Name: env.Name})
+	}
+
 	// Seed permissions
 	permissions := []Permission{
 		{Name: "nodes:create", Resource: "nodes", Action: "create"},
 		{Name: "nodes:read", Resource: "nodes", Action: "read"},
 		{Name: "nodes:update", Resource: "nodes", Action: "update"},
 		{Name: "nodes:delete", Resource: "nodes", Action: "delete"},
+		{Name: "topology:create", Resource: "topology", Action: "create"},
+		{Name: "topology:read", Resource: "topology", Action: "read"},
+		{Name: "topology:update", Resource: "topology", Action: "update"},
+		{Name: "topology:delete", Resource: "topology", Action: "delete"},
 		{Name: "configs:create", Resource: "configs", Action: "create"},
 		{Name: "configs:read", Resource: "configs", Action: "read"},
 		{Name: "configs:update", Resource: "configs", Action: "update"},
@@ -77,10 +95,6 @@ func seedDefaults() {
 		{Name: "roles:read", Resource: "roles", Action: "read"},
 		{Name: "roles:update", Resource: "roles", Action: "update"},
 		{Name: "roles:delete", Resource: "roles", Action: "delete"},
-		{Name: "groups:create", Resource: "groups", Action: "create"},
-		{Name: "groups:read", Resource: "groups", Action: "read"},
-		{Name: "groups:update", Resource: "groups", Action: "update"},
-		{Name: "groups:delete", Resource: "groups", Action: "delete"},
 		{Name: "audit:read", Resource: "audit", Action: "read"},
 	}
 	for _, p := range permissions {

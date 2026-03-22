@@ -59,7 +59,7 @@ func main() {
 	userHandler := &handlers.UserHandler{}
 	roleHandler := &handlers.RoleHandler{}
 	nodeHandler := &handlers.NodeHandler{}
-	groupHandler := &handlers.GroupHandler{}
+	topoHandler := &handlers.TopologyHandler{}
 	configHandler := &handlers.ConfigHandler{}
 	deployHandler := &handlers.DeployHandler{}
 	agentHandler := &handlers.AgentHandler{}
@@ -139,6 +139,48 @@ func main() {
 		}
 		authed.GET("/permissions", middleware.RequirePermission("roles", "read"), roleHandler.ListPermissions)
 
+		// ---- Topology: DataCenter → Region → Cluster ----
+		authed.GET("/topology/tree", middleware.RequirePermission("topology", "read"), topoHandler.GetTree)
+
+		// Environments
+		envs := authed.Group("/environments")
+		{
+			envs.GET("", middleware.RequirePermission("topology", "read"), topoHandler.ListEnvironments)
+			envs.POST("", middleware.RequirePermission("topology", "create"), topoHandler.CreateEnvironment)
+			envs.PUT("/:id", middleware.RequirePermission("topology", "update"), topoHandler.UpdateEnvironment)
+			envs.DELETE("/:id", middleware.RequirePermission("topology", "delete"), topoHandler.DeleteEnvironment)
+		}
+
+		// DataCenters
+		dcs := authed.Group("/datacenters")
+		{
+			dcs.GET("", middleware.RequirePermission("topology", "read"), topoHandler.ListDataCenters)
+			dcs.GET("/:id", middleware.RequirePermission("topology", "read"), topoHandler.GetDataCenter)
+			dcs.POST("", middleware.RequirePermission("topology", "create"), topoHandler.CreateDataCenter)
+			dcs.PUT("/:id", middleware.RequirePermission("topology", "update"), topoHandler.UpdateDataCenter)
+			dcs.DELETE("/:id", middleware.RequirePermission("topology", "delete"), topoHandler.DeleteDataCenter)
+		}
+
+		// Regions
+		regions := authed.Group("/regions")
+		{
+			regions.GET("", middleware.RequirePermission("topology", "read"), topoHandler.ListRegions)
+			regions.GET("/:id", middleware.RequirePermission("topology", "read"), topoHandler.GetRegion)
+			regions.POST("", middleware.RequirePermission("topology", "create"), topoHandler.CreateRegion)
+			regions.PUT("/:id", middleware.RequirePermission("topology", "update"), topoHandler.UpdateRegion)
+			regions.DELETE("/:id", middleware.RequirePermission("topology", "delete"), topoHandler.DeleteRegion)
+		}
+
+		// Clusters
+		clusters := authed.Group("/clusters")
+		{
+			clusters.GET("", middleware.RequirePermission("topology", "read"), topoHandler.ListClusters)
+			clusters.GET("/:id", middleware.RequirePermission("topology", "read"), topoHandler.GetCluster)
+			clusters.POST("", middleware.RequirePermission("topology", "create"), topoHandler.CreateCluster)
+			clusters.PUT("/:id", middleware.RequirePermission("topology", "update"), topoHandler.UpdateCluster)
+			clusters.DELETE("/:id", middleware.RequirePermission("topology", "delete"), topoHandler.DeleteCluster)
+		}
+
 		// Nodes
 		nodes := authed.Group("/nodes")
 		{
@@ -147,22 +189,12 @@ func main() {
 			nodes.GET("/:id", middleware.RequirePermission("nodes", "read"), nodeHandler.Get)
 			nodes.PUT("/:id", middleware.RequirePermission("nodes", "update"), nodeHandler.Update)
 			nodes.DELETE("/:id", middleware.RequirePermission("nodes", "delete"), nodeHandler.Delete)
-			nodes.POST("/batch-group", middleware.RequirePermission("nodes", "update"), nodeHandler.BatchUpdateGroup)
+			nodes.POST("/batch-move", middleware.RequirePermission("nodes", "update"), nodeHandler.BatchMoveCluster)
 			// Node metrics, logs, remote commands
 			nodes.GET("/:id/metrics", middleware.RequirePermission("nodes", "read"), agentHandler.GetNodeMetrics)
 			nodes.GET("/:id/logs", middleware.RequirePermission("nodes", "read"), agentHandler.GetNodeLogs)
 			nodes.POST("/:id/commands", middleware.RequirePermission("nodes", "update"), agentHandler.SendCommand)
 			nodes.GET("/:id/commands", middleware.RequirePermission("nodes", "read"), agentHandler.ListNodeCommands)
-		}
-
-		// Node Groups
-		groups := authed.Group("/groups")
-		{
-			groups.GET("", middleware.RequirePermission("groups", "read"), groupHandler.List)
-			groups.GET("/:id", middleware.RequirePermission("groups", "read"), groupHandler.Get)
-			groups.POST("", middleware.RequirePermission("groups", "create"), groupHandler.Create)
-			groups.PUT("/:id", middleware.RequirePermission("groups", "update"), groupHandler.Update)
-			groups.DELETE("/:id", middleware.RequirePermission("groups", "delete"), groupHandler.Delete)
 		}
 
 		// Config Templates
@@ -173,8 +205,6 @@ func main() {
 			configs.POST("/templates", middleware.RequirePermission("configs", "create"), configHandler.CreateTemplate)
 			configs.PUT("/templates/:id", middleware.RequirePermission("configs", "update"), configHandler.UpdateTemplate)
 			configs.DELETE("/templates/:id", middleware.RequirePermission("configs", "delete"), configHandler.DeleteTemplate)
-
-			// Config Versions
 			configs.GET("/templates/:id/versions", middleware.RequirePermission("configs", "read"), configHandler.ListVersions)
 			configs.POST("/templates/:id/versions", middleware.RequirePermission("configs", "create"), configHandler.CreateVersion)
 			configs.GET("/versions/:version_id", middleware.RequirePermission("configs", "read"), configHandler.GetVersion)
