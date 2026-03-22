@@ -15,6 +15,7 @@ const routes = [
     children: [
       { path: '', name: 'Dashboard', component: () => import('../views/Dashboard.vue') },
       { path: 'nodes', name: 'Nodes', component: () => import('../views/Nodes.vue') },
+      { path: 'nodes/:id', name: 'NodeDetail', component: () => import('../views/NodeDetail.vue') },
       { path: 'groups', name: 'Groups', component: () => import('../views/Groups.vue') },
       { path: 'configs', name: 'Configs', component: () => import('../views/Configs.vue') },
       { path: 'configs/:id', name: 'ConfigDetail', component: () => import('../views/ConfigDetail.vue') },

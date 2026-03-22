@@ -105,6 +105,8 @@ func main() {
 		agentAPI.POST("/register", agentHandler.Register)
 		agentAPI.POST("/heartbeat", agentHandler.Heartbeat)
 		agentAPI.POST("/report", agentHandler.ReportStatus)
+		agentAPI.POST("/command-result", agentHandler.ReportCommandResult)
+		agentAPI.POST("/logs", agentHandler.UploadLogs)
 	}
 
 	// Authenticated routes
@@ -146,6 +148,11 @@ func main() {
 			nodes.PUT("/:id", middleware.RequirePermission("nodes", "update"), nodeHandler.Update)
 			nodes.DELETE("/:id", middleware.RequirePermission("nodes", "delete"), nodeHandler.Delete)
 			nodes.POST("/batch-group", middleware.RequirePermission("nodes", "update"), nodeHandler.BatchUpdateGroup)
+			// Node metrics, logs, remote commands
+			nodes.GET("/:id/metrics", middleware.RequirePermission("nodes", "read"), agentHandler.GetNodeMetrics)
+			nodes.GET("/:id/logs", middleware.RequirePermission("nodes", "read"), agentHandler.GetNodeLogs)
+			nodes.POST("/:id/commands", middleware.RequirePermission("nodes", "update"), agentHandler.SendCommand)
+			nodes.GET("/:id/commands", middleware.RequirePermission("nodes", "read"), agentHandler.ListNodeCommands)
 		}
 
 		// Node Groups

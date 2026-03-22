@@ -52,6 +52,10 @@ export const updateNode = (id, data) => api.put(`/nodes/${id}`, data)
 export const deleteNode = (id) => api.delete(`/nodes/${id}`)
 export const getNodeStats = () => api.get('/nodes/stats')
 export const batchUpdateGroup = (data) => api.post('/nodes/batch-group', data)
+export const getNodeMetrics = (id) => api.get(`/nodes/${id}/metrics`)
+export const getNodeLogs = (id) => api.get(`/nodes/${id}/logs`)
+export const sendNodeCommand = (id, data) => api.post(`/nodes/${id}/commands`, data)
+export const getNodeCommands = (id) => api.get(`/nodes/${id}/commands`)
 
 // Groups
 export const getGroups = () => api.get('/groups')

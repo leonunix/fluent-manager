@@ -133,6 +133,52 @@ type DeployRecord struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
+// NodeMetrics stores the latest metrics snapshot from an agent.
+type NodeMetrics struct {
+	ID               uint      `gorm:"primaryKey" json:"id"`
+	NodeID           uint      `gorm:"uniqueIndex" json:"node_id"`
+	CPUUsagePercent  float64   `json:"cpu_usage_percent"`
+	MemTotalMB       uint64    `json:"mem_total_mb"`
+	MemUsedMB        uint64    `json:"mem_used_mb"`
+	MemUsagePercent  float64   `json:"mem_usage_percent"`
+	DiskTotalGB      uint64    `json:"disk_total_gb"`
+	DiskUsedGB       uint64    `json:"disk_used_gb"`
+	DiskUsagePercent float64   `json:"disk_usage_percent"`
+	LoadAvg1         float64   `json:"load_avg_1"`
+	LoadAvg5         float64   `json:"load_avg_5"`
+	LoadAvg15        float64   `json:"load_avg_15"`
+	FluentRunning    bool      `json:"fluent_running"`
+	FluentPID        int       `json:"fluent_pid"`
+	FluentCPUPercent float64   `json:"fluent_cpu_percent"`
+	FluentMemMB      float64   `json:"fluent_mem_mb"`
+	FluentOpenFDs    int       `json:"fluent_open_fds"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+// RemoteCommand is a pending command to be delivered to a node via heartbeat.
+type RemoteCommand struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	NodeID    uint      `gorm:"index" json:"node_id"`
+	Node      *Node     `gorm:"foreignKey:NodeID" json:"node,omitempty"`
+	Action    string    `gorm:"size:64;not null" json:"action"` // restart, reload, stop, start, status, validate, rollback, show_config, exec
+	Args      string    `gorm:"type:text" json:"args"`
+	Status    string    `gorm:"size:32;default:pending" json:"status"` // pending, delivered, success, failed
+	Output    string    `gorm:"type:text" json:"output"`
+	CreatedBy uint      `json:"created_by"`
+	Creator   *User     `gorm:"foreignKey:CreatedBy" json:"creator,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// NodeLog stores log snippets uploaded by agents.
+type NodeLog struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	NodeID    uint      `gorm:"index" json:"node_id"`
+	Lines     string    `gorm:"type:text" json:"lines"` // newline-separated log lines
+	LineCount int       `json:"line_count"`
+	CreatedAt time.Time `gorm:"index" json:"created_at"`
+}
+
 // AuditLog records all important operations.
 type AuditLog struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`

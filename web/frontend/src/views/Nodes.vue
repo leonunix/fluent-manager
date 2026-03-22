@@ -31,7 +31,9 @@
           <tbody>
             <tr v-for="node in nodes" :key="node.id">
               <td>
-                <strong>{{ node.hostname }}</strong>
+                <router-link :to="`/nodes/${node.id}`" class="text-decoration-none">
+                  <strong>{{ node.hostname }}</strong>
+                </router-link>
                 <div class="text-muted small">{{ node.node_uid }}</div>
               </td>
               <td>{{ node.ip_address }}</td>
