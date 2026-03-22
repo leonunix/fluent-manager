@@ -17,6 +17,11 @@
           </router-link>
         </li>
         <li class="nav-item">
+          <router-link to="/environments" class="nav-link text-white" active-class="bg-primary rounded">
+            <i class="bi bi-layers me-2"></i>环境管理
+          </router-link>
+        </li>
+        <li class="nav-item">
           <router-link to="/nodes" class="nav-link text-white" active-class="bg-primary rounded">
             <i class="bi bi-hdd-network me-2"></i>节点管理
           </router-link>

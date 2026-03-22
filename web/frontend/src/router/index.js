@@ -15,6 +15,7 @@ const routes = [
     children: [
       { path: '', name: 'Dashboard', component: () => import('../views/Dashboard.vue') },
       { path: 'topology', name: 'Topology', component: () => import('../views/Topology.vue') },
+      { path: 'environments', name: 'Environments', component: () => import('../views/Environments.vue') },
       { path: 'nodes', name: 'Nodes', component: () => import('../views/Nodes.vue') },
       { path: 'nodes/:id', name: 'NodeDetail', component: () => import('../views/NodeDetail.vue') },
       { path: 'configs', name: 'Configs', component: () => import('../views/Configs.vue') },
