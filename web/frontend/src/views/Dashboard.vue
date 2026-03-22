@@ -1,57 +1,57 @@
 <template>
   <div>
-    <h4 class="mb-4">仪表盘</h4>
+    <h4 class="mb-4">{{ t('dashboard.title') }}</h4>
 
     <!-- KPI Cards -->
     <div class="row g-4 mb-4">
       <div class="col-md-3">
-        <div class="card border-0 shadow-sm">
-          <div class="card-body">
-            <div class="d-flex justify-content-between align-items-center">
-              <div>
-                <div class="text-muted small">节点总数</div>
-                <h3>{{ stats.total || 0 }}</h3>
-              </div>
-              <i class="bi bi-hdd-network text-primary" style="font-size: 2rem;"></i>
+        <div class="stat-card">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <div class="text-muted small">{{ t('dashboard.total_nodes') }}</div>
+              <h3 class="mb-0 mt-1">{{ stats.total || 0 }}</h3>
+            </div>
+            <div class="stat-icon" style="background: var(--fm-primary-100); color: var(--fm-primary);">
+              <i class="bi bi-hdd-network"></i>
             </div>
           </div>
         </div>
       </div>
       <div class="col-md-3">
-        <div class="card border-0 shadow-sm">
-          <div class="card-body">
-            <div class="d-flex justify-content-between align-items-center">
-              <div>
-                <div class="text-muted small">在线节点</div>
-                <h3 class="text-success">{{ getStatusCount('online') }}</h3>
-              </div>
-              <i class="bi bi-check-circle text-success" style="font-size: 2rem;"></i>
+        <div class="stat-card">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <div class="text-muted small">{{ t('dashboard.online_nodes') }}</div>
+              <h3 class="mb-0 mt-1 text-success">{{ getStatusCount('online') }}</h3>
+            </div>
+            <div class="stat-icon" style="background: #d1fae5; color: var(--fm-success);">
+              <i class="bi bi-check-circle"></i>
             </div>
           </div>
         </div>
       </div>
       <div class="col-md-3">
-        <div class="card border-0 shadow-sm">
-          <div class="card-body">
-            <div class="d-flex justify-content-between align-items-center">
-              <div>
-                <div class="text-muted small">离线节点</div>
-                <h3 class="text-warning">{{ getStatusCount('offline') }}</h3>
-              </div>
-              <i class="bi bi-x-circle text-warning" style="font-size: 2rem;"></i>
+        <div class="stat-card">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <div class="text-muted small">{{ t('dashboard.offline_nodes') }}</div>
+              <h3 class="mb-0 mt-1 text-warning">{{ getStatusCount('offline') }}</h3>
+            </div>
+            <div class="stat-icon" style="background: #fef3c7; color: var(--fm-warning);">
+              <i class="bi bi-x-circle"></i>
             </div>
           </div>
         </div>
       </div>
       <div class="col-md-3">
-        <div class="card border-0 shadow-sm">
-          <div class="card-body">
-            <div class="d-flex justify-content-between align-items-center">
-              <div>
-                <div class="text-muted small">异常节点</div>
-                <h3 class="text-danger">{{ getStatusCount('error') }}</h3>
-              </div>
-              <i class="bi bi-exclamation-triangle text-danger" style="font-size: 2rem;"></i>
+        <div class="stat-card">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <div class="text-muted small">{{ t('dashboard.error_nodes') }}</div>
+              <h3 class="mb-0 mt-1 text-danger">{{ getStatusCount('error') }}</h3>
+            </div>
+            <div class="stat-icon" style="background: #fee2e2; color: var(--fm-danger);">
+              <i class="bi bi-exclamation-triangle"></i>
             </div>
           </div>
         </div>
@@ -61,38 +61,38 @@
     <!-- Charts Row -->
     <div class="row g-4 mb-4">
       <div class="col-md-4">
-        <div class="card border-0 shadow-sm">
-          <div class="card-header bg-white"><h6 class="mb-0">节点状态分布</h6></div>
+        <div class="card border-0">
+          <div class="card-header"><h6 class="mb-0">{{ t('dashboard.status_dist') }}</h6></div>
           <div class="card-body">
             <v-chart :option="statusPieOption" style="height: 240px;" :autoresize="true" />
           </div>
         </div>
       </div>
       <div class="col-md-8">
-        <div class="card border-0 shadow-sm">
-          <div class="card-header bg-white"><h6 class="mb-0">数据中心节点概览</h6></div>
+        <div class="card border-0">
+          <div class="card-header"><h6 class="mb-0">{{ t('dashboard.dc_overview') }}</h6></div>
           <div class="card-body">
             <v-chart v-if="dcBarOption.series" :option="dcBarOption" style="height: 240px;" :autoresize="true" />
-            <div v-else class="text-center text-muted py-5">暂无数据中心</div>
+            <div v-else class="text-center text-muted py-5">{{ t('dashboard.no_dc') }}</div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Topology mini + tables -->
+    <!-- Bottom row -->
     <div class="row g-4">
       <div class="col-md-4">
-        <div class="card border-0 shadow-sm">
-          <div class="card-header bg-white d-flex justify-content-between align-items-center">
-            <h6 class="mb-0">拓扑概览</h6>
-            <router-link to="/topology" class="btn btn-sm btn-outline-primary">查看详情</router-link>
+        <div class="card border-0">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <h6 class="mb-0">{{ t('dashboard.topo_overview') }}</h6>
+            <router-link to="/topology" class="btn btn-sm btn-outline-primary">{{ t('dashboard.view_detail') }}</router-link>
           </div>
           <div class="card-body p-0">
             <div v-for="dc in tree" :key="dc.id" class="border-bottom px-3 py-2">
               <div class="d-flex align-items-center mb-1">
                 <i class="bi bi-building text-primary me-2"></i>
                 <strong class="small">{{ dc.alias || dc.name }}</strong>
-                <span class="badge bg-secondary ms-auto small">{{ dc.provider }}</span>
+                <span class="badge bg-secondary ms-auto">{{ dc.provider }}</span>
               </div>
               <div v-for="r in dc.regions" :key="r.id" class="ps-3">
                 <div class="small text-muted"><i class="bi bi-globe2 me-1"></i>{{ r.alias || r.name }}</div>
@@ -104,17 +104,17 @@
                 </div>
               </div>
             </div>
-            <div v-if="!tree.length" class="text-center text-muted py-3 small">暂无拓扑数据</div>
+            <div v-if="!tree.length" class="text-center text-muted py-3 small">{{ t('dashboard.no_dc') }}</div>
           </div>
         </div>
       </div>
 
       <div class="col-md-4">
-        <div class="card border-0 shadow-sm">
-          <div class="card-header bg-white"><h6 class="mb-0">最近部署</h6></div>
+        <div class="card border-0">
+          <div class="card-header"><h6 class="mb-0">{{ t('dashboard.recent_deploys') }}</h6></div>
           <div class="card-body p-0">
-            <table class="table table-hover table-sm mb-0">
-              <thead><tr><th>ID</th><th>状态</th><th>成功/失败/总</th><th>时间</th></tr></thead>
+            <table class="table table-hover mb-0">
+              <thead><tr><th>{{ t('dashboard.deploy_id') }}</th><th>{{ t('dashboard.deploy_status') }}</th><th>{{ t('dashboard.deploy_result') }}</th><th>{{ t('dashboard.time') }}</th></tr></thead>
               <tbody>
                 <tr v-for="d in deploys" :key="d.id">
                   <td>#{{ d.id }}</td>
@@ -122,7 +122,7 @@
                   <td>{{ d.success_count }}/{{ d.fail_count }}/{{ d.total_nodes }}</td>
                   <td class="small">{{ formatTime(d.created_at) }}</td>
                 </tr>
-                <tr v-if="!deploys.length"><td colspan="4" class="text-center text-muted">暂无</td></tr>
+                <tr v-if="!deploys.length"><td colspan="4" class="text-center text-muted">{{ t('dashboard.no_deploy') }}</td></tr>
               </tbody>
             </table>
           </div>
@@ -130,11 +130,11 @@
       </div>
 
       <div class="col-md-4">
-        <div class="card border-0 shadow-sm">
-          <div class="card-header bg-white"><h6 class="mb-0">最近审计日志</h6></div>
+        <div class="card border-0">
+          <div class="card-header"><h6 class="mb-0">{{ t('dashboard.recent_audit') }}</h6></div>
           <div class="card-body p-0">
-            <table class="table table-hover table-sm mb-0">
-              <thead><tr><th>用户</th><th>操作</th><th>资源</th><th>时间</th></tr></thead>
+            <table class="table table-hover mb-0">
+              <thead><tr><th>{{ t('dashboard.user') }}</th><th>{{ t('dashboard.action') }}</th><th>{{ t('dashboard.resource') }}</th><th>{{ t('dashboard.time') }}</th></tr></thead>
               <tbody>
                 <tr v-for="log in auditLogs" :key="log.id">
                   <td>{{ log.username }}</td>
@@ -142,7 +142,7 @@
                   <td class="text-truncate small" style="max-width: 120px;">{{ log.resource }}</td>
                   <td class="small">{{ formatTime(log.created_at) }}</td>
                 </tr>
-                <tr v-if="!auditLogs.length"><td colspan="4" class="text-center text-muted">暂无</td></tr>
+                <tr v-if="!auditLogs.length"><td colspan="4" class="text-center text-muted">{{ t('dashboard.no_log') }}</td></tr>
               </tbody>
             </table>
           </div>
@@ -160,9 +160,11 @@ import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/compon
 import { CanvasRenderer } from 'echarts/renderers'
 import VChart from 'vue-echarts'
 import { getNodeStats, getDeploys, getAuditLogs, getTopologyTree } from '../api'
+import { useI18n } from '../i18n'
 
 use([CanvasRenderer, PieChart, BarChart, TooltipComponent, LegendComponent, GridComponent])
 
+const { t } = useI18n()
 const stats = ref({})
 const deploys = ref([])
 const auditLogs = ref([])
@@ -181,15 +183,12 @@ const statusPieOption = computed(() => {
     tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
     legend: { bottom: 0, textStyle: { fontSize: 11 } },
     series: [{
-      type: 'pie',
-      radius: ['40%', '70%'],
-      center: ['50%', '45%'],
-      avoidLabelOverlap: true,
-      label: { show: false },
+      type: 'pie', radius: ['40%', '70%'], center: ['50%', '45%'],
+      avoidLabelOverlap: true, label: { show: false },
       data: [
-        { value: online, name: '在线', itemStyle: { color: '#198754' } },
-        { value: offline, name: '离线', itemStyle: { color: '#ffc107' } },
-        { value: error, name: '异常', itemStyle: { color: '#dc3545' } },
+        { value: online, name: t('dashboard.online'), itemStyle: { color: '#10b981' } },
+        { value: offline, name: t('dashboard.offline'), itemStyle: { color: '#f59e0b' } },
+        { value: error, name: t('dashboard.error'), itemStyle: { color: '#ef4444' } },
       ].filter(d => d.value > 0),
       emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.2)' } },
     }],
@@ -198,32 +197,23 @@ const statusPieOption = computed(() => {
 
 const dcBarOption = computed(() => {
   if (!tree.value.length) return {}
-  const dcNames = []
-  const onlineCounts = []
-  const offlineCounts = []
-
+  const dcNames = [], onlineCounts = [], offlineCounts = []
   for (const dc of tree.value) {
     let online = 0, total = 0
-    for (const r of (dc.regions || [])) {
-      for (const cl of (r.clusters || [])) {
-        online += cl.online_count || 0
-        total += cl.node_count || 0
-      }
-    }
+    for (const r of (dc.regions || [])) for (const cl of (r.clusters || [])) { online += cl.online_count || 0; total += cl.node_count || 0 }
     dcNames.push(dc.alias || dc.name)
     onlineCounts.push(online)
     offlineCounts.push(total - online)
   }
-
   return {
     tooltip: { trigger: 'axis' },
-    legend: { data: ['在线', '离线/异常'], bottom: 0, textStyle: { fontSize: 11 } },
+    legend: { data: [t('dashboard.online'), t('dashboard.offline_error')], bottom: 0, textStyle: { fontSize: 11 } },
     grid: { left: '3%', right: '4%', bottom: '15%', top: '5%', containLabel: true },
     xAxis: { type: 'category', data: dcNames, axisLabel: { fontSize: 11 } },
     yAxis: { type: 'value', minInterval: 1 },
     series: [
-      { name: '在线', type: 'bar', stack: 'total', data: onlineCounts, itemStyle: { color: '#198754' } },
-      { name: '离线/异常', type: 'bar', stack: 'total', data: offlineCounts, itemStyle: { color: '#ffc107' } },
+      { name: t('dashboard.online'), type: 'bar', stack: 'total', data: onlineCounts, itemStyle: { color: '#10b981', borderRadius: [4, 4, 0, 0] } },
+      { name: t('dashboard.offline_error'), type: 'bar', stack: 'total', data: offlineCounts, itemStyle: { color: '#f59e0b', borderRadius: [4, 4, 0, 0] } },
     ],
   }
 })
@@ -235,18 +225,11 @@ function formatTime(t) { return t ? new Date(t).toLocaleString('zh-CN') : '-' }
 
 onMounted(async () => {
   try {
-    const [s, d, a, t] = await Promise.all([
-      getNodeStats(),
-      getDeploys({ page_size: 5 }),
-      getAuditLogs({ page_size: 8 }),
-      getTopologyTree(),
-    ])
+    const [s, d, a, tr] = await Promise.all([getNodeStats(), getDeploys({ page_size: 5 }), getAuditLogs({ page_size: 8 }), getTopologyTree()])
     stats.value = s.data
     deploys.value = d.data.data || []
     auditLogs.value = a.data.data || []
-    tree.value = t.data.data || []
-  } catch (e) {
-    console.error('Dashboard load error:', e)
-  }
+    tree.value = tr.data.data || []
+  } catch (e) { console.error('Dashboard load error:', e) }
 })
 </script>
