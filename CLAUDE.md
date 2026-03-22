@@ -2,6 +2,9 @@
 
 Enterprise-grade centralized management platform for Fluent Bit / Fluentd agents. Provides hierarchical infrastructure topology, configuration management, remote deployment, and real-time monitoring.
 
+**Author**: do not add claude here. use default
+**License**: MIT
+
 ## Architecture
 
 ```
