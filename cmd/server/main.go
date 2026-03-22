@@ -112,6 +112,7 @@ func main() {
 	// Authenticated routes
 	authed := api.Group("")
 	authed.Use(middleware.JWTAuth(jwtSvc))
+	authed.Use(middleware.ScopeFilter())
 	authed.Use(middleware.AuditLog())
 	{
 		// Profile
@@ -179,7 +180,16 @@ func main() {
 			clusters.POST("", middleware.RequirePermission("topology", "create"), topoHandler.CreateCluster)
 			clusters.PUT("/:id", middleware.RequirePermission("topology", "update"), topoHandler.UpdateCluster)
 			clusters.DELETE("/:id", middleware.RequirePermission("topology", "delete"), topoHandler.DeleteCluster)
+			// Match rules
+			clusters.GET("/:id/rules", middleware.RequirePermission("topology", "read"), topoHandler.ListMatchRules)
+			clusters.POST("/:id/rules", middleware.RequirePermission("topology", "create"), topoHandler.CreateMatchRule)
+			clusters.PUT("/:id/rules/:rule_id", middleware.RequirePermission("topology", "update"), topoHandler.UpdateMatchRule)
+			clusters.DELETE("/:id/rules/:rule_id", middleware.RequirePermission("topology", "delete"), topoHandler.DeleteMatchRule)
 		}
+
+		// User Scopes (admin only)
+		authed.GET("/users/:id/scopes", middleware.RequirePermission("users", "read"), topoHandler.ListUserScopes)
+		authed.PUT("/users/:id/scopes", middleware.RequirePermission("users", "update"), topoHandler.SetUserScopes)
 
 		// Nodes
 		nodes := authed.Group("/nodes")

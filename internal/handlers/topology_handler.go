@@ -4,11 +4,34 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/fluent-manager/fluent-manager/internal/middleware"
 	"github.com/fluent-manager/fluent-manager/internal/models"
 	"github.com/gin-gonic/gin"
 )
 
 type TopologyHandler struct{}
+
+// scopeFilterDCs filters datacenter list by user's allowed clusters (returns full list for admins).
+func scopeFilterDCs(c *gin.Context) []uint {
+	allowed := middleware.GetAllowedClusters(c)
+	if allowed == nil {
+		return nil // global
+	}
+	// Find which DCs contain allowed clusters
+	dcSet := map[uint]bool{}
+	var clusters []models.Cluster
+	models.DB.Where("id IN ?", allowed).Preload("Region").Find(&clusters)
+	for _, cl := range clusters {
+		if cl.Region != nil {
+			dcSet[cl.Region.DataCenterID] = true
+		}
+	}
+	ids := make([]uint, 0, len(dcSet))
+	for id := range dcSet {
+		ids = append(ids, id)
+	}
+	return ids
+}
 
 // ============================================================================
 // DataCenter
@@ -16,7 +39,11 @@ type TopologyHandler struct{}
 
 func (h *TopologyHandler) ListDataCenters(c *gin.Context) {
 	var dcs []models.DataCenter
-	models.DB.Preload("Regions").Find(&dcs)
+	query := models.DB.Preload("Regions")
+	if dcIDs := scopeFilterDCs(c); dcIDs != nil {
+		query = query.Where("id IN ?", dcIDs)
+	}
+	query.Find(&dcs)
 
 	type DCWithCounts struct {
 		models.DataCenter
@@ -114,6 +141,9 @@ func (h *TopologyHandler) DeleteDataCenter(c *gin.Context) {
 func (h *TopologyHandler) ListRegions(c *gin.Context) {
 	var regions []models.Region
 	query := models.DB.Preload("DataCenter")
+	if dcIDs := scopeFilterDCs(c); dcIDs != nil {
+		query = query.Where("data_center_id IN ?", dcIDs)
+	}
 	if dcID := c.Query("datacenter_id"); dcID != "" {
 		query = query.Where("data_center_id = ?", dcID)
 	}
@@ -160,7 +190,6 @@ func (h *TopologyHandler) CreateRegion(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	// Verify datacenter exists
 	var dc models.DataCenter
 	if err := models.DB.First(&dc, req.DataCenterID).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "datacenter not found"})
@@ -211,7 +240,12 @@ func (h *TopologyHandler) DeleteRegion(c *gin.Context) {
 
 func (h *TopologyHandler) ListClusters(c *gin.Context) {
 	var clusters []models.Cluster
-	query := models.DB.Preload("Region.DataCenter").Preload("Environment").Preload("Config.Template")
+	query := models.DB.Preload("Region.DataCenter").Preload("Environment").Preload("Config.Template").Preload("MatchRules")
+
+	// Scope filtering
+	if allowed := middleware.GetAllowedClusters(c); allowed != nil {
+		query = query.Where("clusters.id IN ?", allowed)
+	}
 	if regionID := c.Query("region_id"); regionID != "" {
 		query = query.Where("region_id = ?", regionID)
 	}
@@ -240,7 +274,7 @@ func (h *TopologyHandler) ListClusters(c *gin.Context) {
 func (h *TopologyHandler) GetCluster(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
 	var cluster models.Cluster
-	if err := models.DB.Preload("Region.DataCenter").Preload("Environment").Preload("Config.Template").Preload("Nodes").First(&cluster, id).Error; err != nil {
+	if err := models.DB.Preload("Region.DataCenter").Preload("Environment").Preload("Config.Template").Preload("Nodes").Preload("MatchRules").First(&cluster, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "cluster not found"})
 		return
 	}
@@ -252,6 +286,7 @@ type CreateClusterRequest struct {
 	Alias         string `json:"alias"`
 	RegionID      uint   `json:"region_id" binding:"required"`
 	EnvironmentID *uint  `json:"environment_id"`
+	IsDefault     bool   `json:"is_default"`
 	ConfigID      *uint  `json:"config_id"`
 	Description   string `json:"description"`
 	Tags          string `json:"tags"`
@@ -268,10 +303,14 @@ func (h *TopologyHandler) CreateCluster(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "region not found"})
 		return
 	}
+	// If setting as default, unset any existing default
+	if req.IsDefault {
+		models.DB.Model(&models.Cluster{}).Where("is_default = ?", true).Update("is_default", false)
+	}
 	cluster := models.Cluster{
 		Name: req.Name, Alias: req.Alias, RegionID: req.RegionID,
-		EnvironmentID: req.EnvironmentID, ConfigID: req.ConfigID,
-		Description: req.Description, Tags: req.Tags,
+		EnvironmentID: req.EnvironmentID, IsDefault: req.IsDefault,
+		ConfigID: req.ConfigID, Description: req.Description, Tags: req.Tags,
 	}
 	models.DB.Create(&cluster)
 	c.JSON(http.StatusCreated, cluster)
@@ -289,10 +328,13 @@ func (h *TopologyHandler) UpdateCluster(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if req.IsDefault {
+		models.DB.Model(&models.Cluster{}).Where("is_default = ? AND id != ?", true, id).Update("is_default", false)
+	}
 	models.DB.Model(&cluster).Updates(map[string]interface{}{
 		"name": req.Name, "alias": req.Alias, "region_id": req.RegionID,
-		"environment_id": req.EnvironmentID, "config_id": req.ConfigID,
-		"description": req.Description, "tags": req.Tags,
+		"environment_id": req.EnvironmentID, "is_default": req.IsDefault,
+		"config_id": req.ConfigID, "description": req.Description, "tags": req.Tags,
 	})
 	c.JSON(http.StatusOK, cluster)
 }
@@ -307,6 +349,125 @@ func (h *TopologyHandler) DeleteCluster(c *gin.Context) {
 	}
 	models.DB.Delete(&models.Cluster{}, id)
 	c.JSON(http.StatusOK, gin.H{"message": "cluster deleted"})
+}
+
+// ============================================================================
+// Cluster Match Rules
+// ============================================================================
+
+func (h *TopologyHandler) ListMatchRules(c *gin.Context) {
+	clusterID := c.Param("id")
+	var rules []models.ClusterMatchRule
+	models.DB.Where("cluster_id = ?", clusterID).Order("priority ASC").Find(&rules)
+	c.JSON(http.StatusOK, gin.H{"data": rules})
+}
+
+func (h *TopologyHandler) CreateMatchRule(c *gin.Context) {
+	clusterID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	var rule models.ClusterMatchRule
+	if err := c.ShouldBindJSON(&rule); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	rule.ClusterID = uint(clusterID)
+	models.DB.Create(&rule)
+	c.JSON(http.StatusCreated, rule)
+}
+
+func (h *TopologyHandler) UpdateMatchRule(c *gin.Context) {
+	ruleID, _ := strconv.ParseUint(c.Param("rule_id"), 10, 32)
+	var rule models.ClusterMatchRule
+	if err := models.DB.First(&rule, ruleID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "rule not found"})
+		return
+	}
+	var req models.ClusterMatchRule
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	models.DB.Model(&rule).Updates(map[string]interface{}{
+		"name": req.Name, "priority": req.Priority,
+		"hostname_pattern": req.HostnamePattern, "ip_pattern": req.IPPattern,
+		"fluent_type": req.FluentType, "label_selector": req.LabelSelector,
+		"os_pattern": req.OSPattern, "is_active": req.IsActive,
+	})
+	c.JSON(http.StatusOK, rule)
+}
+
+func (h *TopologyHandler) DeleteMatchRule(c *gin.Context) {
+	ruleID, _ := strconv.ParseUint(c.Param("rule_id"), 10, 32)
+	models.DB.Delete(&models.ClusterMatchRule{}, ruleID)
+	c.JSON(http.StatusOK, gin.H{"message": "rule deleted"})
+}
+
+// ============================================================================
+// User Scope Management
+// ============================================================================
+
+func (h *TopologyHandler) ListUserScopes(c *gin.Context) {
+	userID := c.Param("id")
+	var scopes []models.UserScope
+	models.DB.Where("user_id = ?", userID).Find(&scopes)
+	c.JSON(http.StatusOK, gin.H{"data": scopes})
+}
+
+func (h *TopologyHandler) SetUserScopes(c *gin.Context) {
+	userID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	var req struct {
+		Scopes []struct {
+			ScopeType string `json:"scope_type" binding:"required"` // datacenter, region, cluster
+			ScopeID   uint   `json:"scope_id" binding:"required"`
+		} `json:"scopes"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Delete existing scopes and replace
+	models.DB.Where("user_id = ?", userID).Delete(&models.UserScope{})
+
+	for _, s := range req.Scopes {
+		scopeName := resolveScopeName(s.ScopeType, s.ScopeID)
+		models.DB.Create(&models.UserScope{
+			UserID:    uint(userID),
+			ScopeType: s.ScopeType,
+			ScopeID:   s.ScopeID,
+			ScopeName: scopeName,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "scopes updated"})
+}
+
+func resolveScopeName(scopeType string, scopeID uint) string {
+	switch scopeType {
+	case "datacenter":
+		var dc models.DataCenter
+		if models.DB.First(&dc, scopeID).Error == nil {
+			if dc.Alias != "" {
+				return dc.Alias
+			}
+			return dc.Name
+		}
+	case "region":
+		var r models.Region
+		if models.DB.First(&r, scopeID).Error == nil {
+			if r.Alias != "" {
+				return r.Alias
+			}
+			return r.Name
+		}
+	case "cluster":
+		var cl models.Cluster
+		if models.DB.First(&cl, scopeID).Error == nil {
+			if cl.Alias != "" {
+				return cl.Alias
+			}
+			return cl.Name
+		}
+	}
+	return ""
 }
 
 // ============================================================================
@@ -358,7 +519,7 @@ func (h *TopologyHandler) DeleteEnvironment(c *gin.Context) {
 }
 
 // ============================================================================
-// Topology Tree (full tree for sidebar/navigation)
+// Topology Tree (scope-aware)
 // ============================================================================
 
 func (h *TopologyHandler) GetTree(c *gin.Context) {
@@ -366,6 +527,7 @@ func (h *TopologyHandler) GetTree(c *gin.Context) {
 		ID          uint   `json:"id"`
 		Name        string `json:"name"`
 		Alias       string `json:"alias"`
+		IsDefault   bool   `json:"is_default"`
 		Environment string `json:"environment"`
 		EnvColor    string `json:"env_color"`
 		NodeCount   int64  `json:"node_count"`
@@ -385,8 +547,14 @@ func (h *TopologyHandler) GetTree(c *gin.Context) {
 		Regions  []RegionInfo `json:"regions"`
 	}
 
+	allowedClusters := middleware.GetAllowedClusters(c)
+
 	var dcs []models.DataCenter
-	models.DB.Find(&dcs)
+	dcQuery := models.DB.Model(&models.DataCenter{})
+	if dcIDs := scopeFilterDCs(c); dcIDs != nil {
+		dcQuery = dcQuery.Where("id IN ?", dcIDs)
+	}
+	dcQuery.Find(&dcs)
 
 	var tree []DCInfo
 	for _, dc := range dcs {
@@ -399,7 +567,11 @@ func (h *TopologyHandler) GetTree(c *gin.Context) {
 			rInfo := RegionInfo{ID: r.ID, Name: r.Name, Alias: r.Alias}
 
 			var clusters []models.Cluster
-			models.DB.Where("region_id = ?", r.ID).Preload("Environment").Find(&clusters)
+			clQuery := models.DB.Where("region_id = ?", r.ID).Preload("Environment")
+			if allowedClusters != nil {
+				clQuery = clQuery.Where("id IN ?", allowedClusters)
+			}
+			clQuery.Find(&clusters)
 
 			for _, cl := range clusters {
 				var nodeCount, onlineCount int64
@@ -413,12 +585,14 @@ func (h *TopologyHandler) GetTree(c *gin.Context) {
 					envColor = cl.Environment.Color
 				}
 				rInfo.Clusters = append(rInfo.Clusters, ClusterInfo{
-					ID: cl.ID, Name: cl.Name, Alias: cl.Alias,
+					ID: cl.ID, Name: cl.Name, Alias: cl.Alias, IsDefault: cl.IsDefault,
 					Environment: envName, EnvColor: envColor,
 					NodeCount: nodeCount, OnlineCount: onlineCount,
 				})
 			}
-			dcInfo.Regions = append(dcInfo.Regions, rInfo)
+			if len(rInfo.Clusters) > 0 || allowedClusters == nil {
+				dcInfo.Regions = append(dcInfo.Regions, rInfo)
+			}
 		}
 		tree = append(tree, dcInfo)
 	}

@@ -1,282 +1,183 @@
 <template>
   <div class="topology-graph-container">
-    <div class="d-flex justify-content-end mb-2 gap-2">
-      <button class="btn btn-sm btn-outline-secondary" @click="resetZoom">
-        <i class="bi bi-arrows-fullscreen"></i> 重置视图
-      </button>
-    </div>
-    <div ref="chartRef" class="chart-area"></div>
-
-    <!-- Detail Panel -->
-    <div v-if="selectedNode" class="detail-panel card border-0 shadow">
-      <div class="card-header bg-white d-flex justify-content-between align-items-center py-2">
-        <span>
-          <i :class="selectedNode.icon" class="me-1"></i>
-          <strong>{{ selectedNode.label }}</strong>
-        </span>
-        <button class="btn btn-sm btn-close" @click="selectedNode = null"></button>
+    <div class="d-flex align-items-center mb-2">
+      <div class="btn-group btn-group-sm me-3">
+        <button class="btn btn-outline-secondary" @click="zoomLevel = Math.min(zoomLevel + 0.2, 2)"><i class="bi bi-zoom-in"></i></button>
+        <button class="btn btn-outline-secondary" @click="zoomLevel = Math.max(zoomLevel - 0.2, 0.4)"><i class="bi bi-zoom-out"></i></button>
+        <button class="btn btn-outline-secondary" @click="zoomLevel = 1"><i class="bi bi-arrows-fullscreen"></i></button>
       </div>
-      <div class="card-body py-2">
-        <table class="table table-sm table-borderless mb-0">
-          <tr v-for="(val, key) in selectedNode.details" :key="key">
-            <td class="text-muted" style="width:80px">{{ key }}</td>
-            <td>{{ val }}</td>
-          </tr>
-        </table>
-        <router-link v-if="selectedNode.type === 'cluster'"
-                     :to="`/nodes?cluster_id=${selectedNode.id}`"
-                     class="btn btn-sm btn-success mt-2 w-100">
-          <i class="bi bi-hdd-network me-1"></i>查看节点
-        </router-link>
+      <div class="btn-group btn-group-sm me-3">
+        <button class="btn" :class="layout === 'TB' ? 'btn-primary' : 'btn-outline-primary'" @click="layout = 'TB'">从上到下</button>
+        <button class="btn" :class="layout === 'LR' ? 'btn-primary' : 'btn-outline-primary'" @click="layout = 'LR'">从左到右</button>
+      </div>
+      <div class="d-flex align-items-center gap-3 ms-auto small text-muted">
+        <span><i class="bi bi-square-fill text-primary me-1"></i>数据中心</span>
+        <span><i class="bi bi-circle-fill me-1" style="color:#0dcaf0"></i>区域</span>
+        <span><i class="bi bi-diamond-fill text-success me-1"></i>集群</span>
+        <span><i class="bi bi-diamond-fill me-1" style="color:#6f42c1"></i>默认集群</span>
+        <span><i class="bi bi-diamond-fill me-1" style="color:#fd7e14"></i>异常集群</span>
       </div>
     </div>
+    <v-chart
+      ref="chartRef"
+      :option="chartOption"
+      :autoresize="true"
+      :style="{ width: '100%', height: '560px', transform: `scale(${zoomLevel})`, transformOrigin: 'top left' }"
+      @click="handleClick"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount, shallowRef } from 'vue'
-import { useRouter } from 'vue-router'
-import * as echarts from 'echarts/core'
+import { ref, computed } from 'vue'
+import { use } from 'echarts/core'
 import { TreeChart } from 'echarts/charts'
-import {
-  TooltipComponent,
-  LegendComponent,
-} from 'echarts/components'
+import { TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import VChart from 'vue-echarts'
 
-echarts.use([TreeChart, TooltipComponent, LegendComponent, CanvasRenderer])
+use([CanvasRenderer, TreeChart, TooltipComponent])
 
 const props = defineProps({
   tree: { type: Array, default: () => [] },
 })
 
-const router = useRouter()
+const emit = defineEmits(['select'])
+
 const chartRef = ref(null)
-const chartInstance = shallowRef(null)
-const selectedNode = ref(null)
+const layout = ref('TB')
+const zoomLevel = ref(1)
 
-// Color constants
-const COLORS = {
-  dc: '#0d6efd',
-  region: '#0dcaf0',
-  cluster: '#198754',
-  clusterWarn: '#ffc107',
-  clusterError: '#dc3545',
-}
-
-function clusterColor(cl) {
-  if (cl.node_count === 0) return '#6c757d'
-  if (cl.online_count === cl.node_count) return COLORS.cluster
-  if (cl.online_count === 0) return COLORS.clusterError
-  return COLORS.clusterWarn
-}
-
-function toEChartsData(tree) {
-  if (!tree || !tree.length) {
-    return {
-      name: '基础设施',
-      children: [],
-      itemStyle: { color: '#6c757d' },
-      label: { color: '#333' },
-    }
+function buildTreeData(tree) {
+  if (!tree || tree.length === 0) {
+    return [{
+      name: '暂无数据中心，请在管理视图中创建',
+      itemStyle: { color: '#ccc', borderColor: '#ccc' },
+      label: { color: '#999' },
+    }]
   }
-  return {
-    name: '基础设施',
-    value: { type: 'root' },
-    itemStyle: { color: '#6c757d', borderColor: '#6c757d' },
-    label: { color: '#333', fontWeight: 'bold', fontSize: 14 },
-    children: tree.map(dc => ({
-      name: dc.alias || dc.name,
-      value: { type: 'dc', id: dc.id, data: dc },
-      itemStyle: { color: COLORS.dc, borderColor: COLORS.dc },
-      label: { color: COLORS.dc, fontWeight: 'bold' },
-      children: (dc.regions || []).map(r => ({
-        name: r.alias || r.name,
-        value: { type: 'region', id: r.id, data: r, dc },
-        itemStyle: { color: COLORS.region, borderColor: COLORS.region },
-        label: { color: '#0a8a9a' },
-        children: (r.clusters || []).map(cl => {
-          const color = clusterColor(cl)
-          const envLabel = cl.environment ? ` [${cl.environment}]` : ''
-          return {
-            name: `${cl.alias || cl.name}${envLabel}\n${cl.online_count}/${cl.node_count}`,
-            value: { type: 'cluster', id: cl.id, data: cl, dc, region: r },
-            itemStyle: { color, borderColor: color },
-            label: { color: '#333' },
-          }
-        }),
-      })),
+
+  const dcNodes = tree.map(dc => ({
+    name: dc.alias || dc.name,
+    value: { type: 'dc', id: dc.id, data: dc },
+    itemStyle: { color: '#0d6efd', borderColor: '#0d6efd' },
+    label: { fontWeight: 'bold', fontSize: 13 },
+    symbol: 'roundRect',
+    symbolSize: [18, 18],
+    children: (dc.regions || []).map(r => ({
+      name: r.alias || r.name,
+      value: { type: 'region', id: r.id, data: r, dc },
+      itemStyle: { color: '#0dcaf0', borderColor: '#0dcaf0' },
+      symbol: 'circle',
+      symbolSize: 14,
+      children: (r.clusters || []).map(cl => {
+        const envTag = cl.environment ? ` [${cl.environment}]` : ''
+        const statsTag = ` ${cl.online_count}/${cl.node_count}`
+        const isHealthy = cl.node_count === 0 || cl.online_count === cl.node_count
+        return {
+          name: (cl.alias || cl.name) + envTag + statsTag,
+          value: { type: 'cluster', id: cl.id, data: cl, region: r, dc },
+          itemStyle: {
+            color: cl.is_default ? '#6f42c1' : isHealthy ? '#198754' : '#fd7e14',
+            borderColor: cl.is_default ? '#6f42c1' : isHealthy ? '#198754' : '#fd7e14',
+          },
+          symbol: 'diamond',
+          symbolSize: cl.is_default ? 16 : 12,
+        }
+      }),
     })),
-  }
+  }))
+
+  if (dcNodes.length === 1) return dcNodes
+  return [{
+    name: '基础设施',
+    itemStyle: { color: '#6c757d', borderColor: '#6c757d' },
+    label: { fontWeight: 'bold', fontSize: 14, color: '#333' },
+    symbol: 'emptyCircle',
+    symbolSize: 20,
+    children: dcNodes,
+  }]
 }
 
-function getOption() {
-  return {
-    tooltip: {
-      trigger: 'item',
-      formatter: (params) => {
-        const v = params.data?.value
-        if (!v || v.type === 'root') return '基础设施拓扑'
-        if (v.type === 'dc') {
-          const d = v.data
-          return `<strong>${d.alias || d.name}</strong><br/>供应商: ${d.provider || '-'}<br/>区域数: ${(d.regions || []).length}`
-        }
-        if (v.type === 'region') {
-          const r = v.data
-          return `<strong>${r.alias || r.name}</strong><br/>集群数: ${(r.clusters || []).length}`
-        }
-        if (v.type === 'cluster') {
-          const cl = v.data
-          return `<strong>${cl.alias || cl.name}</strong><br/>环境: ${cl.environment || '-'}<br/>节点: ${cl.online_count} 在线 / ${cl.node_count} 总计`
-        }
-        return params.name
+const chartOption = computed(() => ({
+  tooltip: {
+    trigger: 'item',
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderColor: '#ddd',
+    textStyle: { color: '#333', fontSize: 12 },
+    formatter(params) {
+      const v = params.data?.value
+      if (!v) return params.name
+      if (v.type === 'dc') {
+        const d = v.data
+        return `<b style="color:#0d6efd">■ 数据中心</b><br/><b>${d.alias || d.name}</b><br/>` +
+          `标识: ${d.name}<br/>` +
+          `供应商: ${d.provider || '-'}`
+      }
+      if (v.type === 'region') {
+        const d = v.data
+        return `<b style="color:#0dcaf0">● 区域</b><br/><b>${d.alias || d.name}</b><br/>` +
+          `标识: ${d.name}`
+      }
+      if (v.type === 'cluster') {
+        const cl = v.data
+        return `<b style="color:#198754">◆ 集群</b><br/><b>${cl.alias || cl.name}</b><br/>` +
+          (cl.environment ? `环境: <span style="color:${cl.env_color}">● ${cl.environment}</span><br/>` : '') +
+          `节点: <b>${cl.online_count}</b> 在线 / ${cl.node_count} 总计` +
+          (cl.is_default ? '<br/><b style="color:#6f42c1">★ 默认集群</b>' : '') +
+          '<br/><small style="color:#999">点击查看详情</small>'
+      }
+      return params.name
+    },
+  },
+  series: [{
+    type: 'tree',
+    data: buildTreeData(props.tree),
+    orient: layout.value,
+    top: layout.value === 'TB' ? '5%' : '10%',
+    left: layout.value === 'LR' ? '5%' : '10%',
+    bottom: layout.value === 'TB' ? '15%' : '10%',
+    right: layout.value === 'LR' ? '20%' : '10%',
+    edgeShape: 'polyline',
+    edgeForkPosition: '63%',
+    initialTreeDepth: 4,
+    roam: true,
+    lineStyle: { color: '#c4c8cc', width: 1.5, curveness: 0.3 },
+    label: {
+      position: layout.value === 'TB' ? 'bottom' : 'right',
+      fontSize: 11,
+      color: '#444',
+      distance: 8,
+    },
+    leaves: {
+      label: {
+        position: layout.value === 'TB' ? 'bottom' : 'right',
       },
     },
-    series: [
-      {
-        type: 'tree',
-        data: [toEChartsData(props.tree)],
-        orient: 'TB',
-        layout: 'orthogonal',
-        roam: true,
-        zoom: 0.9,
-        symbolSize: [80, 36],
-        symbol: 'roundRect',
-        edgeShape: 'polyline',
-        edgeForkPosition: '50%',
-        initialTreeDepth: -1,
-        animationDuration: 500,
-        animationDurationUpdate: 400,
-        label: {
-          position: 'inside',
-          verticalAlign: 'middle',
-          fontSize: 12,
-          lineHeight: 16,
-        },
-        lineStyle: {
-          color: '#ccc',
-          width: 2,
-          curveness: 0,
-        },
-        itemStyle: {
-          borderWidth: 2,
-        },
-        emphasis: {
-          focus: 'ancestor',
-          itemStyle: {
-            shadowBlur: 10,
-            shadowColor: 'rgba(0,0,0,0.3)',
-          },
-        },
-        leaves: {
-          label: {
-            position: 'inside',
-            verticalAlign: 'middle',
-          },
-        },
-      },
-    ],
-  }
-}
+    expandAndCollapse: true,
+    animationDuration: 500,
+    animationDurationUpdate: 500,
+    emphasis: {
+      focus: 'ancestor',
+      itemStyle: { borderWidth: 3 },
+    },
+  }],
+}))
 
 function handleClick(params) {
   const v = params.data?.value
-  if (!v || v.type === 'root') return
-
-  if (v.type === 'dc') {
-    selectedNode.value = {
-      type: 'dc', id: v.id, label: v.data.alias || v.data.name,
-      icon: 'bi bi-building text-primary',
-      details: {
-        '名称': v.data.name,
-        '别名': v.data.alias || '-',
-        '供应商': v.data.provider || '-',
-      },
-    }
-  } else if (v.type === 'region') {
-    selectedNode.value = {
-      type: 'region', id: v.id, label: v.data.alias || v.data.name,
-      icon: 'bi bi-globe2 text-info',
-      details: {
-        '名称': v.data.name,
-        '别名': v.data.alias || '-',
-        '数据中心': v.dc?.alias || v.dc?.name || '-',
-        '集群数': (v.data.clusters || []).length,
-      },
-    }
-  } else if (v.type === 'cluster') {
-    selectedNode.value = {
-      type: 'cluster', id: v.id, label: v.data.alias || v.data.name,
-      icon: 'bi bi-diagram-3 text-success',
-      details: {
-        '名称': v.data.name,
-        '环境': v.data.environment || '-',
-        '区域': v.region?.alias || v.region?.name || '-',
-        '在线节点': `${v.data.online_count} / ${v.data.node_count}`,
-      },
-    }
+  if (v && v.type) {
+    emit('select', v)
   }
 }
-
-function resetZoom() {
-  if (chartInstance.value) {
-    chartInstance.value.setOption(getOption())
-  }
-}
-
-let resizeObserver = null
-
-onMounted(() => {
-  if (!chartRef.value) return
-  const instance = echarts.init(chartRef.value)
-  chartInstance.value = instance
-  instance.setOption(getOption())
-  instance.on('click', handleClick)
-  instance.on('dblclick', (params) => {
-    const v = params.data?.value
-    if (v?.type === 'cluster') {
-      router.push(`/nodes?cluster_id=${v.id}`)
-    }
-  })
-
-  resizeObserver = new ResizeObserver(() => {
-    instance.resize()
-  })
-  resizeObserver.observe(chartRef.value)
-})
-
-onBeforeUnmount(() => {
-  if (resizeObserver && chartRef.value) {
-    resizeObserver.unobserve(chartRef.value)
-  }
-  if (chartInstance.value) {
-    chartInstance.value.dispose()
-  }
-})
-
-watch(() => props.tree, () => {
-  if (chartInstance.value) {
-    chartInstance.value.setOption(getOption())
-  }
-}, { deep: true })
 </script>
 
 <style scoped>
 .topology-graph-container {
-  position: relative;
-}
-.chart-area {
-  width: 100%;
-  height: 600px;
-  background: #fafbfc;
-  border: 1px solid #e9ecef;
+  background: #fff;
   border-radius: 8px;
-}
-.detail-panel {
-  position: absolute;
-  top: 50px;
-  right: 16px;
-  width: 280px;
-  z-index: 10;
+  padding: 12px;
+  border: 1px solid #e9ecef;
+  overflow: auto;
 }
 </style>

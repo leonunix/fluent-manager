@@ -35,6 +35,9 @@ func (h *AgentHandler) Register(c *gin.Context) {
 	var node models.Node
 	result := models.DB.Where("node_uid = ?", req.NodeUID).First(&node)
 	if result.RowsAffected == 0 {
+		// Auto-assign to cluster based on match rules
+		clusterID := models.AutoAssignCluster(req.Hostname, req.IPAddress, req.FluentType, req.OS, req.Labels)
+
 		node = models.Node{
 			NodeUID:       req.NodeUID,
 			Hostname:      req.Hostname,
@@ -44,6 +47,7 @@ func (h *AgentHandler) Register(c *gin.Context) {
 			FluentType:    req.FluentType,
 			FluentVersion: req.FluentVersion,
 			Labels:        req.Labels,
+			ClusterID:     clusterID,
 			Status:        "online",
 			LastHeartbeat: &now,
 		}

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/fluent-manager/fluent-manager/internal/middleware"
 	"github.com/fluent-manager/fluent-manager/internal/models"
 	"github.com/gin-gonic/gin"
 )
@@ -13,6 +14,11 @@ type NodeHandler struct{}
 func (h *NodeHandler) List(c *gin.Context) {
 	var nodes []models.Node
 	query := models.DB.Preload("Cluster.Region.DataCenter").Preload("Cluster.Environment").Preload("Environment").Preload("Config.Template")
+
+	// Scope filtering
+	if allowed := middleware.GetAllowedClusters(c); allowed != nil {
+		query = query.Where("nodes.cluster_id IN ?", allowed)
+	}
 
 	if status := c.Query("status"); status != "" {
 		query = query.Where("nodes.status = ?", status)
@@ -27,13 +33,13 @@ func (h *NodeHandler) List(c *gin.Context) {
 		query = query.Where("nodes.fluent_type = ?", fluentType)
 	}
 	if dcID := c.Query("datacenter_id"); dcID != "" {
-		query = query.Joins("JOIN clusters ON clusters.id = nodes.cluster_id").
-			Joins("JOIN regions ON regions.id = clusters.region_id").
-			Where("regions.data_center_id = ?", dcID)
+		query = query.Joins("JOIN clusters c2 ON c2.id = nodes.cluster_id").
+			Joins("JOIN regions r2 ON r2.id = c2.region_id").
+			Where("r2.data_center_id = ?", dcID)
 	}
 	if regionID := c.Query("region_id"); regionID != "" {
-		query = query.Joins("JOIN clusters ON clusters.id = nodes.cluster_id").
-			Where("clusters.region_id = ?", regionID)
+		query = query.Joins("JOIN clusters c3 ON c3.id = nodes.cluster_id").
+			Where("c3.region_id = ?", regionID)
 	}
 	if search := c.Query("search"); search != "" {
 		query = query.Where("nodes.hostname LIKE ? OR nodes.ip_address LIKE ? OR nodes.node_uid LIKE ?",
@@ -67,6 +73,20 @@ func (h *NodeHandler) Get(c *gin.Context) {
 	if err := models.DB.Preload("Cluster.Region.DataCenter").Preload("Cluster.Environment").Preload("Environment").Preload("Config.Template").First(&node, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
 		return
+	}
+	// Scope check
+	if allowed := middleware.GetAllowedClusters(c); allowed != nil && node.ClusterID != nil {
+		found := false
+		for _, cid := range allowed {
+			if cid == *node.ClusterID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			c.JSON(http.StatusForbidden, gin.H{"error": "node not in your scope"})
+			return
+		}
 	}
 	c.JSON(http.StatusOK, node)
 }
@@ -136,32 +156,26 @@ func (h *NodeHandler) BatchMoveCluster(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "nodes moved", "count": len(req.NodeIDs)})
 }
 
-// Stats returns node status summary.
+// Stats returns node status summary (scope-aware).
 func (h *NodeHandler) Stats(c *gin.Context) {
 	type StatusCount struct {
 		Status string `json:"status"`
 		Count  int64  `json:"count"`
 	}
+
+	baseQuery := models.DB.Model(&models.Node{})
+	if allowed := middleware.GetAllowedClusters(c); allowed != nil {
+		baseQuery = baseQuery.Where("cluster_id IN ?", allowed)
+	}
+
 	var counts []StatusCount
-	models.DB.Model(&models.Node{}).Select("status, count(*) as count").Group("status").Scan(&counts)
+	baseQuery.Select("status, count(*) as count").Group("status").Scan(&counts)
 
 	var total int64
-	models.DB.Model(&models.Node{}).Count(&total)
-
-	// Per-environment counts
-	type EnvCount struct {
-		Environment string `json:"environment"`
-		Count       int64  `json:"count"`
-	}
-	var envCounts []EnvCount
-	models.DB.Model(&models.Node{}).
-		Joins("LEFT JOIN environments ON environments.id = nodes.environment_id").
-		Select("COALESCE(environments.name, 'unassigned') as environment, count(*) as count").
-		Group("environments.name").Scan(&envCounts)
+	baseQuery.Count(&total)
 
 	c.JSON(http.StatusOK, gin.H{
-		"total":        total,
-		"statuses":     counts,
-		"environments": envCounts,
+		"total":    total,
+		"statuses": counts,
 	})
 }

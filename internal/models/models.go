@@ -47,6 +47,23 @@ type Permission struct {
 }
 
 // ============================================================================
+// Resource Scope (user ↔ topology binding for RBAC)
+// ============================================================================
+
+// UserScope binds a user to specific topology resources they can access.
+// If a user has no UserScope records, they are treated as having global access (admin).
+type UserScope struct {
+	ID           uint           `gorm:"primaryKey" json:"id"`
+	UserID       uint           `gorm:"index;not null" json:"user_id"`
+	User         *User          `gorm:"foreignKey:UserID" json:"user,omitempty"`
+	ScopeType    string         `gorm:"size:32;not null" json:"scope_type"` // datacenter, region, cluster
+	ScopeID      uint           `gorm:"not null" json:"scope_id"`
+	ScopeName    string         `gorm:"size:128" json:"scope_name"` // denormalized for display
+	CreatedAt    time.Time      `json:"created_at"`
+	DeletedAt    gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+// ============================================================================
 // Environment
 // ============================================================================
 
@@ -106,14 +123,35 @@ type Cluster struct {
 	Region        *Region        `json:"region,omitempty"`
 	EnvironmentID *uint          `gorm:"index" json:"environment_id"`
 	Environment   *Environment   `json:"environment,omitempty"`
+	IsDefault     bool           `gorm:"default:false" json:"is_default"` // default cluster for unmatched nodes
 	Nodes         []Node         `gorm:"foreignKey:ClusterID" json:"nodes,omitempty"`
-	ConfigID      *uint          `json:"config_id"`                                    // inherited config for all nodes in cluster
+	MatchRules    []ClusterMatchRule `gorm:"foreignKey:ClusterID" json:"match_rules,omitempty"`
+	ConfigID      *uint          `json:"config_id"` // inherited config for all nodes in cluster
 	Config        *ConfigVersion `gorm:"foreignKey:ConfigID" json:"config,omitempty"`
 	Description   string         `gorm:"size:512" json:"description"`
 	Tags          string         `gorm:"type:text" json:"tags"`
 	CreatedAt     time.Time      `json:"created_at"`
 	UpdatedAt     time.Time      `json:"updated_at"`
 	DeletedAt     gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+// ClusterMatchRule defines an auto-assignment rule for incoming nodes.
+// When a new node registers, rules are evaluated in priority order.
+// If all conditions in a rule match, the node is assigned to that cluster.
+type ClusterMatchRule struct {
+	ID              uint           `gorm:"primaryKey" json:"id"`
+	ClusterID       uint           `gorm:"index;not null" json:"cluster_id"`
+	Name            string         `gorm:"size:128;not null" json:"name"`
+	Priority        int            `gorm:"default:0" json:"priority"` // lower = higher priority
+	HostnamePattern string         `gorm:"size:256" json:"hostname_pattern"` // glob: web-*, db-cn-*
+	IPPattern       string         `gorm:"size:256" json:"ip_pattern"`       // CIDR or prefix: 10.0.1.*, 192.168.0.0/16
+	FluentType      string         `gorm:"size:32" json:"fluent_type"`       // fluentbit, fluentd, or empty=any
+	LabelSelector   string         `gorm:"type:text" json:"label_selector"`  // JSON: {"env":"prod","role":"web"}
+	OSPattern       string         `gorm:"size:128" json:"os_pattern"`       // linux, windows, or glob
+	IsActive        bool           `gorm:"default:true" json:"is_active"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
+	DeletedAt       gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 // ============================================================================

@@ -73,6 +73,16 @@ export const createCluster = (data) => api.post('/clusters', data)
 export const updateCluster = (id, data) => api.put(`/clusters/${id}`, data)
 export const deleteCluster = (id) => api.delete(`/clusters/${id}`)
 
+// Cluster Match Rules
+export const getClusterRules = (clusterID) => api.get(`/clusters/${clusterID}/rules`)
+export const createClusterRule = (clusterID, data) => api.post(`/clusters/${clusterID}/rules`, data)
+export const updateClusterRule = (clusterID, ruleID, data) => api.put(`/clusters/${clusterID}/rules/${ruleID}`, data)
+export const deleteClusterRule = (clusterID, ruleID) => api.delete(`/clusters/${clusterID}/rules/${ruleID}`)
+
+// User Scopes
+export const getUserScopes = (userID) => api.get(`/users/${userID}/scopes`)
+export const setUserScopes = (userID, data) => api.put(`/users/${userID}/scopes`, data)
+
 // Nodes
 export const getNodes = (params) => api.get('/nodes', { params })
 export const getNode = (id) => api.get(`/nodes/${id}`)

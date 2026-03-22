@@ -39,10 +39,12 @@ func InitDB(cfg *config.DatabaseConfig) error {
 		&User{},
 		&Role{},
 		&Permission{},
+		&UserScope{},
 		&Environment{},
 		&DataCenter{},
 		&Region{},
 		&Cluster{},
+		&ClusterMatchRule{},
 		&Node{},
 		&NodeMetrics{},
 		&RemoteCommand{},
@@ -130,7 +132,7 @@ func seedDefaults() {
 	if result.RowsAffected == 0 {
 		var opPerms []Permission
 		DB.Where("resource IN ? AND action IN ?",
-			[]string{"nodes", "configs", "groups"},
+			[]string{"nodes", "configs", "topology"},
 			[]string{"create", "read", "update", "deploy"},
 		).Find(&opPerms)
 		operatorRole = Role{Name: "operator", Description: "Can manage nodes and configs"}

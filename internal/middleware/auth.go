@@ -69,6 +69,34 @@ func RequirePermission(resource, action string) gin.HandlerFunc {
 	}
 }
 
+// ScopeFilter loads the user's allowed cluster IDs into the context.
+// Handlers use c.Get("allowed_clusters") to filter queries.
+// If allowed_clusters is nil, the user has global access.
+func ScopeFilter() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID, exists := c.Get("user_id")
+		if !exists {
+			c.Next()
+			return
+		}
+
+		allowed := models.AllowedClusterIDs(userID.(uint))
+		if allowed != nil {
+			c.Set("allowed_clusters", allowed)
+		}
+		c.Next()
+	}
+}
+
+// GetAllowedClusters is a helper for handlers to retrieve scope filtering info.
+func GetAllowedClusters(c *gin.Context) []uint {
+	v, exists := c.Get("allowed_clusters")
+	if !exists {
+		return nil // global access
+	}
+	return v.([]uint)
+}
+
 // AgentAuth authenticates agent nodes via API key.
 func AgentAuth(apiKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
