@@ -4,7 +4,22 @@ import en from './en'
 import ja from './ja'
 
 const messages = { zh, en, ja }
-const locale = ref(localStorage.getItem('fm_locale') || 'zh')
+const supportedLocales = ['zh', 'en', 'ja']
+
+function detectLocale() {
+  const saved = localStorage.getItem('fm_locale')
+  if (saved && supportedLocales.includes(saved)) return saved
+
+  // Match browser language: zh-CN → zh, en-US → en, ja-JP → ja
+  const langs = navigator.languages || [navigator.language]
+  for (const lang of langs) {
+    const code = lang.toLowerCase().split('-')[0]
+    if (supportedLocales.includes(code)) return code
+  }
+  return 'en'
+}
+
+const locale = ref(detectLocale())
 
 export function useI18n() {
   function t(key) {
@@ -31,7 +46,7 @@ export function useI18n() {
     t,
     locale: computed(() => locale.value),
     setLocale,
-    availableLocales: ['zh', 'en', 'ja'],
+    availableLocales: supportedLocales,
     localeNames: { zh: '中文', en: 'English', ja: '日本語' },
   }
 }
