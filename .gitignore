@@ -1,0 +1,10 @@
+bin/
+*.db
+*.exe
+vendor/
+web/frontend/node_modules/
+web/frontend/dist/
+.env
+*.key
+*.crt
+.DS_Store

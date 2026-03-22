@@ -1,0 +1,14 @@
+server_url: "http://fluent-manager-server:8080"
+api_key: "your-agent-api-key"
+
+# Leave empty to auto-generate a unique ID
+node_uid: ""
+
+fluent_type: "fluentbit"  # fluentbit or fluentd
+fluent_config_path: "/etc/fluent-bit/fluent-bit.conf"
+fluent_restart_cmd: "systemctl restart fluent-bit"
+
+heartbeat_interval: 30  # seconds
+
+# JSON key-value labels for this node
+labels: '{"env":"production","dc":"us-east-1"}'
