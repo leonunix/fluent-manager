@@ -1,8 +1,18 @@
 <template>
   <div>
     <div class="d-flex justify-content-between align-items-center mb-4">
-      <h4 class="mb-0">基础设施拓扑</h4>
-      <div class="btn-group">
+      <div class="d-flex align-items-center gap-3">
+        <h4 class="mb-0">基础设施拓扑</h4>
+        <div class="btn-group">
+          <button class="btn btn-sm" :class="viewMode === 'graph' ? 'btn-primary' : 'btn-outline-primary'" @click="viewMode = 'graph'">
+            <i class="bi bi-diagram-3"></i> 拓扑图
+          </button>
+          <button class="btn btn-sm" :class="viewMode === 'tree' ? 'btn-primary' : 'btn-outline-primary'" @click="viewMode = 'tree'">
+            <i class="bi bi-list-nested"></i> 管理视图
+          </button>
+        </div>
+      </div>
+      <div v-if="viewMode === 'tree'" class="btn-group">
         <button class="btn btn-outline-primary btn-sm" @click="openCreate('dc')">
           <i class="bi bi-building"></i> 新建数据中心
         </button>
@@ -15,8 +25,11 @@
       </div>
     </div>
 
-    <!-- Topology Tree -->
-    <div class="row g-4">
+    <!-- Graph View -->
+    <TopologyGraph v-if="viewMode === 'graph'" :tree="tree" />
+
+    <!-- Tree Management View -->
+    <div v-else class="row g-4">
       <div class="col-md-4">
         <div class="card border-0 shadow-sm">
           <div class="card-header bg-white"><h6 class="mb-0">拓扑树</h6></div>
@@ -201,6 +214,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
+import TopologyGraph from '../components/TopologyGraph.vue'
 import {
   getTopologyTree, getEnvironments,
   getDataCenters, createDataCenter, updateDataCenter, deleteDataCenter,
@@ -208,6 +222,7 @@ import {
   getClusters, createCluster, updateCluster, deleteCluster,
 } from '../api'
 
+const viewMode = ref('graph')
 const tree = ref([])
 const envs = ref([])
 const allDCs = ref([])
