@@ -1,13 +1,18 @@
 package services
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
+
+	anthropic "github.com/anthropics/anthropic-sdk-go"
+	anthropicoption "github.com/anthropics/anthropic-sdk-go/option"
+	openai "github.com/openai/openai-go/v3"
+	openaioption "github.com/openai/openai-go/v3/option"
+	"google.golang.org/genai"
 )
 
 type LogSampleAnalysisInput struct {
@@ -122,7 +127,7 @@ func (s *aiService) AnalyzeLogSample(input *LogSampleAnalysisInput) (*LogSampleA
 	prompt := buildLogSamplePrompt(input)
 	systemPrompt := buildSystemPrompt(settings.SystemPrompt)
 
-	raw, err := s.generate(account, systemPrompt, prompt)
+	raw, err := s.generate(account, settings.RequestTimeoutSeconds, systemPrompt, prompt)
 	if err != nil {
 		return nil, err
 	}
@@ -145,6 +150,21 @@ func (s *aiService) AnalyzeLogSample(input *LogSampleAnalysisInput) (*LogSampleA
 	result.AccountID = account.ID
 	result.AccountName = account.Name
 	return result, nil
+}
+
+func (s *aiService) requestHTTPClient(timeoutSeconds int) *http.Client {
+	timeout := 90 * time.Second
+	if timeoutSeconds > 0 {
+		timeout = time.Duration(timeoutSeconds) * time.Second
+	}
+
+	if s.httpClient == nil {
+		return &http.Client{Timeout: timeout}
+	}
+
+	client := *s.httpClient
+	client.Timeout = timeout
+	return &client
 }
 
 func selectAIAccount(settings *AISettingsDTO, requestedID string) (*AIAccountDTO, error) {
@@ -258,179 +278,123 @@ func defaultAIBaseURL(provider string) string {
 	}
 }
 
-func (s *aiService) generate(account *AIAccountDTO, systemPrompt, prompt string) (string, error) {
+func (s *aiService) generate(account *AIAccountDTO, timeoutSeconds int, systemPrompt, prompt string) (string, error) {
+	httpClient := s.requestHTTPClient(timeoutSeconds)
 	switch account.Provider {
 	case "openai", "deepseek":
-		return s.generateOpenAICompatible(account, systemPrompt, prompt)
+		return s.generateOpenAICompatible(httpClient, account, systemPrompt, prompt)
 	case "claude":
-		return s.generateClaude(account, systemPrompt, prompt)
+		return s.generateClaude(httpClient, account, systemPrompt, prompt)
 	case "gemini":
-		return s.generateGemini(account, systemPrompt, prompt)
+		return s.generateGemini(httpClient, account, systemPrompt, prompt)
 	default:
 		return "", fmt.Errorf("%w: unsupported ai provider", ErrInvalidArgument)
 	}
 }
 
-func (s *aiService) generateOpenAICompatible(account *AIAccountDTO, systemPrompt, prompt string) (string, error) {
+func normalizeProviderBaseURL(account *AIAccountDTO) string {
 	baseURL := strings.TrimRight(strings.TrimSpace(account.BaseURL), "/")
 	if baseURL == "" {
 		baseURL = defaultAIBaseURL(account.Provider)
 	}
-	reqBody := map[string]interface{}{
-		"model": account.Model,
-		"messages": []map[string]string{
-			{"role": "system", "content": systemPrompt},
-			{"role": "user", "content": prompt},
+	return baseURL
+}
+
+func (s *aiService) generateOpenAICompatible(httpClient *http.Client, account *AIAccountDTO, systemPrompt, prompt string) (string, error) {
+	client := openai.NewClient(
+		openaioption.WithAPIKey(account.APIKey),
+		openaioption.WithBaseURL(normalizeProviderBaseURL(account)),
+		openaioption.WithHTTPClient(httpClient),
+	)
+
+	resp, err := client.Chat.Completions.New(context.Background(), openai.ChatCompletionNewParams{
+		Messages: []openai.ChatCompletionMessageParamUnion{
+			openai.DeveloperMessage(systemPrompt),
+			openai.UserMessage(prompt),
 		},
-		"temperature": 0.2,
-	}
-	raw, err := json.Marshal(reqBody)
+		Model:       openai.ChatModel(account.Model),
+		Temperature: openai.Float(0.2),
+	})
 	if err != nil {
 		return "", err
 	}
-	req, err := http.NewRequest(http.MethodPost, baseURL+"/chat/completions", bytes.NewReader(raw))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Authorization", "Bearer "+account.APIKey)
-	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= http.StatusBadRequest {
-		return "", fmt.Errorf("provider returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-
-	var parsed struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	if err := json.Unmarshal(body, &parsed); err != nil {
-		return "", err
-	}
-	if len(parsed.Choices) == 0 {
+	if len(resp.Choices) == 0 {
 		return "", fmt.Errorf("provider returned no choices")
 	}
-	return parsed.Choices[0].Message.Content, nil
+	return resp.Choices[0].Message.Content, nil
 }
 
-func (s *aiService) generateClaude(account *AIAccountDTO, systemPrompt, prompt string) (string, error) {
-	baseURL := strings.TrimRight(strings.TrimSpace(account.BaseURL), "/")
-	if baseURL == "" {
-		baseURL = defaultAIBaseURL(account.Provider)
-	}
-	reqBody := map[string]interface{}{
-		"model":       account.Model,
-		"max_tokens":  2500,
-		"system":      systemPrompt,
-		"temperature": 0.2,
-		"messages": []map[string]string{
-			{"role": "user", "content": prompt},
+func (s *aiService) generateClaude(httpClient *http.Client, account *AIAccountDTO, systemPrompt, prompt string) (string, error) {
+	client := anthropic.NewClient(
+		anthropicoption.WithAPIKey(account.APIKey),
+		anthropicoption.WithBaseURL(normalizeProviderBaseURL(account)),
+		anthropicoption.WithHTTPClient(httpClient),
+	)
+
+	resp, err := client.Messages.New(context.Background(), anthropic.MessageNewParams{
+		Model:       anthropic.Model(account.Model),
+		MaxTokens:   2500,
+		Temperature: anthropic.Float(0.2),
+		System: []anthropic.TextBlockParam{
+			{Text: systemPrompt},
 		},
-	}
-	raw, err := json.Marshal(reqBody)
+		Messages: []anthropic.MessageParam{
+			anthropic.NewUserMessage(anthropic.NewTextBlock(prompt)),
+		},
+	})
 	if err != nil {
 		return "", err
 	}
-	req, err := http.NewRequest(http.MethodPost, baseURL+"/v1/messages", bytes.NewReader(raw))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("x-api-key", account.APIKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
-	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= http.StatusBadRequest {
-		return "", fmt.Errorf("provider returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	for _, block := range resp.Content {
+		if block.Type == "text" {
+			textBlock := block.AsText()
+			if strings.TrimSpace(textBlock.Text) != "" {
+				return textBlock.Text, nil
+			}
+		}
 	}
 
-	var parsed struct {
-		Content []struct {
-			Text string `json:"text"`
-		} `json:"content"`
-	}
-	if err := json.Unmarshal(body, &parsed); err != nil {
-		return "", err
-	}
-	if len(parsed.Content) == 0 {
+	if len(resp.Content) == 0 {
 		return "", fmt.Errorf("provider returned no content")
 	}
-	return parsed.Content[0].Text, nil
+	return "", fmt.Errorf("provider returned no text content")
 }
 
-func (s *aiService) generateGemini(account *AIAccountDTO, systemPrompt, prompt string) (string, error) {
-	baseURL := strings.TrimRight(strings.TrimSpace(account.BaseURL), "/")
-	if baseURL == "" {
-		baseURL = defaultAIBaseURL(account.Provider)
+func (s *aiService) generateGemini(httpClient *http.Client, account *AIAccountDTO, systemPrompt, prompt string) (string, error) {
+	clientConfig := &genai.ClientConfig{
+		APIKey:     account.APIKey,
+		Backend:    genai.BackendGeminiAPI,
+		HTTPClient: httpClient,
 	}
-	reqBody := map[string]interface{}{
-		"system_instruction": map[string]interface{}{
-			"parts": []map[string]string{
-				{"text": systemPrompt},
+	if baseURL := normalizeProviderBaseURL(account); baseURL != "" {
+		clientConfig.HTTPOptions = genai.HTTPOptions{BaseURL: baseURL}
+	}
+
+	client, err := genai.NewClient(context.Background(), clientConfig)
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := client.Models.GenerateContent(
+		context.Background(),
+		account.Model,
+		genai.Text(prompt),
+		&genai.GenerateContentConfig{
+			Temperature: genai.Ptr[float32](0.2),
+			SystemInstruction: &genai.Content{
+				Parts: []*genai.Part{{Text: systemPrompt}},
 			},
 		},
-		"contents": []map[string]interface{}{
-			{
-				"parts": []map[string]string{
-					{"text": prompt},
-				},
-			},
-		},
-		"generationConfig": map[string]float64{
-			"temperature": 0.2,
-		},
-	}
-	raw, err := json.Marshal(reqBody)
+	)
 	if err != nil {
 		return "", err
 	}
-	url := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", baseURL, account.Model, account.APIKey)
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(raw))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= http.StatusBadRequest {
-		return "", fmt.Errorf("provider returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-
-	var parsed struct {
-		Candidates []struct {
-			Content struct {
-				Parts []struct {
-					Text string `json:"text"`
-				} `json:"parts"`
-			} `json:"content"`
-		} `json:"candidates"`
-	}
-	if err := json.Unmarshal(body, &parsed); err != nil {
-		return "", err
-	}
-	if len(parsed.Candidates) == 0 || len(parsed.Candidates[0].Content.Parts) == 0 {
+	text := strings.TrimSpace(resp.Text())
+	if text == "" {
 		return "", fmt.Errorf("provider returned no candidates")
 	}
-	return parsed.Candidates[0].Content.Parts[0].Text, nil
+	return text, nil
 }
