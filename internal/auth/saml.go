@@ -32,7 +32,18 @@ func NewSAMLAuth(cfg config.SAMLConfig) (*SAMLAuth, error) {
 		return &SAMLAuth{cfg: cfg}, nil
 	}
 
-	keyPair, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
+	var keyPair tls.Certificate
+	var err error
+
+	// Support inline PEM content (from DB/frontend) or file paths (from config.yaml)
+	if strings.HasPrefix(strings.TrimSpace(cfg.CertPEM), "-----BEGIN") &&
+		strings.HasPrefix(strings.TrimSpace(cfg.KeyPEM), "-----BEGIN") {
+		keyPair, err = tls.X509KeyPair([]byte(cfg.CertPEM), []byte(cfg.KeyPEM))
+	} else if cfg.CertFile != "" && cfg.KeyFile != "" {
+		keyPair, err = tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
+	} else {
+		return nil, fmt.Errorf("SAML certificate not configured: provide cert/key PEM content or file paths")
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to load SAML certificate: %w", err)
 	}

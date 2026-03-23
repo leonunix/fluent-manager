@@ -65,8 +65,10 @@ type SAMLConfig struct {
 	IDPMetadata       string `yaml:"idp_metadata"` // URL or file path
 	EntityID          string `yaml:"entity_id"`
 	ACSURL            string `yaml:"acs_url"`
-	CertFile          string `yaml:"cert_file"`
-	KeyFile           string `yaml:"key_file"`
+	CertFile          string `yaml:"cert_file"` // file path (config.yaml)
+	KeyFile           string `yaml:"key_file"`  // file path (config.yaml)
+	CertPEM           string `yaml:"-"`         // inline PEM content (from DB)
+	KeyPEM            string `yaml:"-"`         // inline PEM content (from DB)
 	GroupAttribute    string `yaml:"group_attribute"`     // SAML assertion attribute for groups
 	GroupSyncStrategy string `yaml:"group_sync_strategy"` // always, first_login
 }

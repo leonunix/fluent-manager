@@ -274,12 +274,12 @@
               <input v-model="samlForm.acs_url" type="text" class="form-control">
             </div>
             <div class="col-md-6">
-              <label class="form-label">{{ t('auth_settings.cert_file') }}</label>
-              <input v-model="samlForm.cert_file" type="text" class="form-control" placeholder="/etc/saml/cert.pem">
+              <label class="form-label">{{ t('auth_settings.cert_data') }}</label>
+              <textarea v-model="samlForm.cert_data" class="form-control" rows="4" placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----&#10;&#10;or file path: /etc/saml/cert.pem"></textarea>
             </div>
             <div class="col-md-6">
-              <label class="form-label">{{ t('auth_settings.key_file') }}</label>
-              <input v-model="samlForm.key_file" type="text" class="form-control" placeholder="/etc/saml/key.pem">
+              <label class="form-label">{{ t('auth_settings.key_data') }}</label>
+              <textarea v-model="samlForm.key_data" class="form-control" rows="4" placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----&#10;&#10;or file path: /etc/saml/key.pem"></textarea>
             </div>
             <div class="col-md-6">
               <label class="form-label">{{ t('auth_settings.group_attribute') }}</label>
@@ -631,7 +631,7 @@ const ldapForm = reactive({
 })
 const samlForm = reactive({
   enabled: false, idp_metadata: '', entity_id: '', acs_url: '',
-  cert_file: '', key_file: '', group_attribute: 'memberOf',
+  cert_data: '', key_data: '', group_attribute: 'memberOf',
   group_sync_strategy: 'always',
 })
 const ldapMappings = ref([])

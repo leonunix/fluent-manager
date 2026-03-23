@@ -87,8 +87,8 @@ export interface SAMLSettings {
   idp_metadata: string
   entity_id: string
   acs_url: string
-  cert_file: string
-  key_file: string
+  cert_data: string
+  key_data: string
   group_attribute: string
   group_sync_strategy: string
 }

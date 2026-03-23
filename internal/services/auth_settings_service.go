@@ -29,13 +29,15 @@ type LDAPSettingsDTO struct {
 }
 
 // SAMLSettingsDTO mirrors the SAML config for API read/write.
+// CertData / KeyData accept either a file path (/etc/saml/cert.pem)
+// or inline PEM content (-----BEGIN CERTIFICATE-----...).
 type SAMLSettingsDTO struct {
 	Enabled           bool   `json:"enabled"`
 	IDPMetadata       string `json:"idp_metadata"`
 	EntityID          string `json:"entity_id"`
 	ACSURL            string `json:"acs_url"`
-	CertFile          string `json:"cert_file"`
-	KeyFile           string `json:"key_file"`
+	CertData          string `json:"cert_data"`
+	KeyData           string `json:"key_data"`
 	GroupAttribute    string `json:"group_attribute"`
 	GroupSyncStrategy string `json:"group_sync_strategy"`
 }
@@ -260,8 +262,8 @@ func (s *authSettingsService) SeedFromConfig(authCfg config.AuthConfig) {
 				IDPMetadata:       authCfg.SAML.IDPMetadata,
 				EntityID:          authCfg.SAML.EntityID,
 				ACSURL:            authCfg.SAML.ACSURL,
-				CertFile:          authCfg.SAML.CertFile,
-				KeyFile:           authCfg.SAML.KeyFile,
+				CertData:          authCfg.SAML.CertFile,
+				KeyData:           authCfg.SAML.KeyFile,
 				GroupAttribute:    authCfg.SAML.GroupAttribute,
 				GroupSyncStrategy: authCfg.SAML.GroupSyncStrategy,
 			}

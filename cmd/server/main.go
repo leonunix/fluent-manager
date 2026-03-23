@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,6 +19,29 @@ import (
 	"github.com/fluent-manager/fluent-manager/internal/routers"
 	"github.com/fluent-manager/fluent-manager/internal/services"
 )
+
+// samlDTOToConfig converts a SAMLSettingsDTO to a SAMLConfig, routing
+// cert/key data to PEM or file path fields based on content.
+func samlDTOToConfig(dto *services.SAMLSettingsDTO) config.SAMLConfig {
+	cfg := config.SAMLConfig{
+		Enabled:        dto.Enabled,
+		IDPMetadata:    dto.IDPMetadata,
+		EntityID:       dto.EntityID,
+		ACSURL:         dto.ACSURL,
+		GroupAttribute: dto.GroupAttribute,
+	}
+	if strings.HasPrefix(strings.TrimSpace(dto.CertData), "-----BEGIN") {
+		cfg.CertPEM = dto.CertData
+	} else {
+		cfg.CertFile = dto.CertData
+	}
+	if strings.HasPrefix(strings.TrimSpace(dto.KeyData), "-----BEGIN") {
+		cfg.KeyPEM = dto.KeyData
+	} else {
+		cfg.KeyFile = dto.KeyData
+	}
+	return cfg
+}
 
 func main() {
 	cfgPath := "config.yaml"
@@ -83,15 +107,7 @@ func main() {
 
 	// Load SAML from DB settings (covers both seeded-from-yaml and UI-configured scenarios)
 	if samlDTO, err := svc.AuthSettings.GetSAMLSettings(); err == nil && samlDTO.Enabled {
-		samlCfg := config.SAMLConfig{
-			Enabled:        samlDTO.Enabled,
-			IDPMetadata:    samlDTO.IDPMetadata,
-			EntityID:       samlDTO.EntityID,
-			ACSURL:         samlDTO.ACSURL,
-			CertFile:       samlDTO.CertFile,
-			KeyFile:        samlDTO.KeyFile,
-			GroupAttribute: samlDTO.GroupAttribute,
-		}
+		samlCfg := samlDTOToConfig(samlDTO)
 		if err := samlProvider.Reload(samlCfg); err != nil {
 			log.Printf("WARNING: SAML init from DB settings failed: %v", err)
 		} else {

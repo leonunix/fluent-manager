@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/fluent-manager/fluent-manager/internal/auth"
 	"github.com/fluent-manager/fluent-manager/internal/config"
@@ -16,6 +17,29 @@ import (
 type AuthSettingsHandler struct {
 	Svc          services.AuthSettingsService
 	SAMLProvider *auth.SAMLProvider
+}
+
+// dtoToSAMLConfig converts a SAMLSettingsDTO to a SAMLConfig, routing
+// cert/key data to PEM fields or file path fields based on content.
+func dtoToSAMLConfig(dto services.SAMLSettingsDTO) config.SAMLConfig {
+	cfg := config.SAMLConfig{
+		Enabled:        dto.Enabled,
+		IDPMetadata:    dto.IDPMetadata,
+		EntityID:       dto.EntityID,
+		ACSURL:         dto.ACSURL,
+		GroupAttribute: dto.GroupAttribute,
+	}
+	if strings.HasPrefix(strings.TrimSpace(dto.CertData), "-----BEGIN") {
+		cfg.CertPEM = dto.CertData
+	} else {
+		cfg.CertFile = dto.CertData
+	}
+	if strings.HasPrefix(strings.TrimSpace(dto.KeyData), "-----BEGIN") {
+		cfg.KeyPEM = dto.KeyData
+	} else {
+		cfg.KeyFile = dto.KeyData
+	}
+	return cfg
 }
 
 // GetEnabledMethods returns which auth methods (ldap, saml) are enabled.
@@ -133,15 +157,7 @@ func (h *AuthSettingsHandler) UpdateSAMLSettings(c *gin.Context) {
 
 	// Hot-reload the SAML middleware with the new settings
 	if h.SAMLProvider != nil {
-		cfg := config.SAMLConfig{
-			Enabled:        dto.Enabled,
-			IDPMetadata:    dto.IDPMetadata,
-			EntityID:       dto.EntityID,
-			ACSURL:         dto.ACSURL,
-			CertFile:       dto.CertFile,
-			KeyFile:        dto.KeyFile,
-			GroupAttribute: dto.GroupAttribute,
-		}
+		cfg := dtoToSAMLConfig(dto)
 		if err := h.SAMLProvider.Reload(cfg); err != nil {
 			log.Printf("WARNING: SAML reload failed: %v", err)
 			c.JSON(http.StatusOK, gin.H{"message": "SAML settings saved but reload failed: " + err.Error()})
