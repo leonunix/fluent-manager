@@ -48,7 +48,9 @@ func (s *authService) FindOrCreateLDAPUser(username, email, displayName string) 
 			AuthSource:  "ldap",
 			IsActive:    true,
 		}
-		s.db.Create(&user)
+		if err := s.db.Create(&user).Error; err != nil {
+			return nil, err
+		}
 		var viewerRole models.Role
 		s.db.Where("name = ?", "viewer").First(&viewerRole)
 		s.db.Model(&user).Association("Roles").Append(&viewerRole)

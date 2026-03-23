@@ -61,7 +61,9 @@ func (s *agentService) Register(nodeUID, hostname, ipAddress, os, agentVersion, 
 			Status:        "online",
 			LastHeartbeat: &now,
 		}
-		s.db.Create(&node)
+		if err := s.db.Create(&node).Error; err != nil {
+			return 0, err
+		}
 	} else {
 		s.db.Model(&node).Updates(map[string]interface{}{
 			"hostname":       hostname,
@@ -80,7 +82,7 @@ func (s *agentService) Register(nodeUID, hostname, ipAddress, os, agentVersion, 
 func (s *agentService) Heartbeat(nodeUID, configHash string, metrics map[string]interface{}) (*HeartbeatResponse, error) {
 	now := time.Now()
 	var node models.Node
-	if err := s.db.Where("node_uid = ?", nodeUID).Preload("Config").First(&node).Error; err != nil {
+	if err := s.db.Where("node_uid = ?", nodeUID).Preload("Config").Preload("Cluster").First(&node).Error; err != nil {
 		return nil, err
 	}
 
@@ -95,11 +97,18 @@ func (s *agentService) Heartbeat(nodeUID, configHash string, metrics map[string]
 
 	resp := &HeartbeatResponse{Status: "ok"}
 
-	if node.Config != nil && node.Config.Hash != configHash {
-		resp.Status = "update_config"
-		resp.ConfigHash = node.Config.Hash
-		resp.ConfigContent = node.Config.Content
-		resp.ConfigID = node.Config.ID
+	// Use EffectiveConfigID for cluster-level config inheritance
+	effectiveConfigID := node.EffectiveConfigID()
+	if effectiveConfigID != nil {
+		var cv models.ConfigVersion
+		if err := s.db.First(&cv, *effectiveConfigID).Error; err == nil {
+			if cv.Hash != configHash {
+				resp.Status = "update_config"
+				resp.ConfigHash = cv.Hash
+				resp.ConfigContent = cv.Content
+				resp.ConfigID = cv.ID
+			}
+		}
 	}
 
 	var pendingCmds []models.RemoteCommand
@@ -186,17 +195,26 @@ func (s *agentService) ReportStatus(nodeUID string, configID uint, success bool,
 		s.db.Model(&node).Update("status", "error")
 	}
 
-	s.db.Model(&models.DeployRecord{}).
-		Where("node_id = ? AND status = ?", node.ID, "pending").
+	// Use configID to target the specific deploy record(s) for this config deployment
+	result := s.db.Model(&models.DeployRecord{}).
+		Where("node_id = ? AND status = ? AND deploy_task_id IN (SELECT id FROM deploy_tasks WHERE config_id = ?)",
+			node.ID, "pending", configID).
 		Updates(map[string]interface{}{
 			"status":  status,
 			"message": message,
 		})
+	if result.Error != nil {
+		return result.Error
+	}
 
-	var records []models.DeployRecord
-	s.db.Where("node_id = ?", node.ID).Order("created_at DESC").Limit(1).Find(&records)
-	if len(records) > 0 {
-		taskID := records[0].DeployTaskID
+	// Find the specific deploy task(s) affected and update their stats
+	var affectedRecords []models.DeployRecord
+	s.db.Where("node_id = ? AND deploy_task_id IN (SELECT id FROM deploy_tasks WHERE config_id = ?)",
+		node.ID, configID).
+		Order("created_at DESC").Limit(1).Find(&affectedRecords)
+
+	if len(affectedRecords) > 0 {
+		taskID := affectedRecords[0].DeployTaskID
 		var successCount, failCount, totalPending int64
 		s.db.Model(&models.DeployRecord{}).Where("deploy_task_id = ? AND status = ?", taskID, "success").Count(&successCount)
 		s.db.Model(&models.DeployRecord{}).Where("deploy_task_id = ? AND status = ?", taskID, "failed").Count(&failCount)
@@ -209,7 +227,9 @@ func (s *agentService) ReportStatus(nodeUID string, configID uint, success bool,
 		if totalPending == 0 {
 			updates["status"] = "completed"
 		}
-		s.db.Model(&models.DeployTask{}).Where("id = ?", taskID).Updates(updates)
+		if err := s.db.Model(&models.DeployTask{}).Where("id = ?", taskID).Updates(updates).Error; err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -260,7 +280,9 @@ func (s *agentService) SendCommand(nodeID string, userID uint, action, args stri
 		Status:    "pending",
 		CreatedBy: userID,
 	}
-	s.db.Create(&cmd)
+	if err := s.db.Create(&cmd).Error; err != nil {
+		return nil, err
+	}
 	return &cmd, nil
 }
 

@@ -116,7 +116,9 @@ func (s *configService) CreateVersion(templateID, createdBy uint, content, comme
 		Comment:    comment,
 		CreatedBy:  createdBy,
 	}
-	s.db.Create(&version)
+	if err := s.db.Create(&version).Error; err != nil {
+		return nil, err
+	}
 	return &version, nil
 }
 

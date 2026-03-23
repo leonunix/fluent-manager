@@ -40,6 +40,20 @@ func (h *TopologyHandler) GetDataCenter(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "datacenter not found"})
 		return
 	}
+	// Scope check
+	if allowedDCs := h.allowedDCIDs(c); allowedDCs != nil {
+		found := false
+		for _, dcID := range allowedDCs {
+			if dcID == dc.ID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			c.JSON(http.StatusForbidden, gin.H{"error": "datacenter not in your scope"})
+			return
+		}
+	}
 	c.JSON(http.StatusOK, dc)
 }
 
@@ -114,6 +128,20 @@ func (h *TopologyHandler) GetRegion(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "region not found"})
 		return
 	}
+	// Scope check: region's DC must be in allowed DCs
+	if allowedDCs := h.allowedDCIDs(c); allowedDCs != nil {
+		found := false
+		for _, dcID := range allowedDCs {
+			if dcID == region.DataCenterID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			c.JSON(http.StatusForbidden, gin.H{"error": "region not in your scope"})
+			return
+		}
+	}
 	c.JSON(http.StatusOK, region)
 }
 
@@ -187,6 +215,20 @@ func (h *TopologyHandler) GetCluster(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "cluster not found"})
 		return
+	}
+	// Scope check
+	if allowed := middleware.GetAllowedClusters(c); allowed != nil {
+		found := false
+		for _, cid := range allowed {
+			if cid == cluster.ID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			c.JSON(http.StatusForbidden, gin.H{"error": "cluster not in your scope"})
+			return
+		}
 	}
 	c.JSON(http.StatusOK, cluster)
 }

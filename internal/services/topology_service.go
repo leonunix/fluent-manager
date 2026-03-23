@@ -161,10 +161,12 @@ func (s *topologyService) UpdateDataCenter(id uint, name, alias, provider, locat
 	if err := s.db.First(&dc, id).Error; err != nil {
 		return nil, err
 	}
-	s.db.Model(&dc).Updates(map[string]interface{}{
+	if err := s.db.Model(&dc).Updates(map[string]interface{}{
 		"name": name, "alias": alias, "provider": provider,
 		"location": location, "description": description, "tags": tags,
-	})
+	}).Error; err != nil {
+		return nil, err
+	}
 	return &dc, nil
 }
 
@@ -219,7 +221,9 @@ func (s *topologyService) CreateRegion(name, alias string, dataCenterID uint, de
 		Name: name, Alias: alias, DataCenterID: dataCenterID,
 		Description: description, Tags: tags,
 	}
-	s.db.Create(&region)
+	if err := s.db.Create(&region).Error; err != nil {
+		return nil, err
+	}
 	return &region, nil
 }
 
@@ -228,10 +232,12 @@ func (s *topologyService) UpdateRegion(id uint, name, alias string, dataCenterID
 	if err := s.db.First(&region, id).Error; err != nil {
 		return nil, err
 	}
-	s.db.Model(&region).Updates(map[string]interface{}{
-		"name": name, "alias": alias, "datacenter_id": dataCenterID,
+	if err := s.db.Model(&region).Updates(map[string]interface{}{
+		"name": name, "alias": alias, "data_center_id": dataCenterID,
 		"description": description, "tags": tags,
-	})
+	}).Error; err != nil {
+		return nil, err
+	}
 	return &region, nil
 }
 
@@ -292,7 +298,9 @@ func (s *topologyService) CreateCluster(name, alias string, regionID uint, envir
 		EnvironmentID: environmentID, IsDefault: isDefault,
 		ConfigID: configID, Description: description, Tags: tags,
 	}
-	s.db.Create(&cluster)
+	if err := s.db.Create(&cluster).Error; err != nil {
+		return nil, err
+	}
 	return &cluster, nil
 }
 
@@ -304,11 +312,13 @@ func (s *topologyService) UpdateCluster(id uint, name, alias string, regionID ui
 	if isDefault {
 		s.db.Model(&models.Cluster{}).Where("is_default = ? AND id != ?", true, id).Update("is_default", false)
 	}
-	s.db.Model(&cluster).Updates(map[string]interface{}{
+	if err := s.db.Model(&cluster).Updates(map[string]interface{}{
 		"name": name, "alias": alias, "region_id": regionID,
 		"environment_id": environmentID, "is_default": isDefault,
 		"config_id": configID, "description": description, "tags": tags,
-	})
+	}).Error; err != nil {
+		return nil, err
+	}
 	return &cluster, nil
 }
 
@@ -331,7 +341,9 @@ func (s *topologyService) ListMatchRules(clusterID string) ([]models.ClusterMatc
 
 func (s *topologyService) CreateMatchRule(clusterID uint, rule *models.ClusterMatchRule) (*models.ClusterMatchRule, error) {
 	rule.ClusterID = clusterID
-	s.db.Create(rule)
+	if err := s.db.Create(rule).Error; err != nil {
+		return nil, err
+	}
 	return rule, nil
 }
 

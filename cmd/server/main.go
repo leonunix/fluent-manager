@@ -70,8 +70,8 @@ func main() {
 	topoHandler := &handlers.TopologyHandler{Svc: svc.Topology}
 	configHandler := &handlers.ConfigHandler{Svc: svc.Config}
 	deployHandler := &handlers.DeployHandler{Svc: svc.Deploy}
-	agentHandler := &handlers.AgentHandler{Svc: svc.Agent}
-	metricsHandler := &handlers.MetricsHandler{Svc: svc.Metrics}
+	agentHandler := &handlers.AgentHandler{Svc: svc.Agent, NodeSvc: svc.Node}
+	metricsHandler := &handlers.MetricsHandler{Svc: svc.Metrics, TopoSvc: svc.Topology}
 
 	// Router
 	gin.SetMode(cfg.Server.Mode)

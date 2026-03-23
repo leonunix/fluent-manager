@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/fluent-manager/fluent-manager/internal/middleware"
 	"github.com/fluent-manager/fluent-manager/internal/services"
 	"github.com/gin-gonic/gin"
 )
@@ -29,7 +30,8 @@ func (h *DeployHandler) Create(c *gin.Context) {
 	}
 
 	userID := c.GetUint("user_id")
-	task, err := h.Svc.Create(req.ConfigVersionID, req.NodeIDs, req.ClusterID, req.RegionID, req.DataCenterID, req.EnvironmentID, userID)
+	allowed := middleware.GetAllowedClusters(c)
+	task, err := h.Svc.Create(req.ConfigVersionID, req.NodeIDs, req.ClusterID, req.RegionID, req.DataCenterID, req.EnvironmentID, userID, allowed)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -47,7 +49,8 @@ func (h *DeployHandler) List(c *gin.Context) {
 		pageSize = 20
 	}
 
-	tasks, total, err := h.Svc.List(page, pageSize)
+	allowed := middleware.GetAllowedClusters(c)
+	tasks, total, err := h.Svc.List(page, pageSize, allowed)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

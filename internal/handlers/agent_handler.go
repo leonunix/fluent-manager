@@ -2,13 +2,15 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/fluent-manager/fluent-manager/internal/services"
 	"github.com/gin-gonic/gin"
 )
 
 type AgentHandler struct {
-	Svc services.AgentService
+	Svc     services.AgentService
+	NodeSvc services.NodeService // for scope checks on user-facing endpoints
 }
 
 // --- Register ---
@@ -142,6 +144,18 @@ func (h *AgentHandler) UploadLogs(c *gin.Context) {
 // --- Get Node Metrics (for UI) ---
 
 func (h *AgentHandler) GetNodeMetrics(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+
+	// Scope check
+	node, err := h.NodeSvc.Get(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
+		return
+	}
+	if !checkNodeScope(c, node) {
+		return
+	}
+
 	m, err := h.Svc.GetNodeMetrics(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "no metrics for this node"})
@@ -153,6 +167,18 @@ func (h *AgentHandler) GetNodeMetrics(c *gin.Context) {
 // --- Get Node Logs (for UI) ---
 
 func (h *AgentHandler) GetNodeLogs(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+
+	// Scope check
+	node, err := h.NodeSvc.Get(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
+		return
+	}
+	if !checkNodeScope(c, node) {
+		return
+	}
+
 	logs, err := h.Svc.GetNodeLogs(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -174,6 +200,19 @@ func (h *AgentHandler) SendCommand(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+
+	// Scope check
+	node, err := h.NodeSvc.Get(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
+		return
+	}
+	if !checkNodeScope(c, node) {
+		return
+	}
+
 	userID := c.GetUint("user_id")
 	cmd, err := h.Svc.SendCommand(c.Param("id"), userID, req.Action, req.Args)
 	if err != nil {
@@ -186,6 +225,18 @@ func (h *AgentHandler) SendCommand(c *gin.Context) {
 // --- List Commands for a Node ---
 
 func (h *AgentHandler) ListNodeCommands(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+
+	// Scope check
+	node, err := h.NodeSvc.Get(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
+		return
+	}
+	if !checkNodeScope(c, node) {
+		return
+	}
+
 	cmds, err := h.Svc.ListNodeCommands(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

@@ -8,8 +8,8 @@ import (
 )
 
 type DeployService interface {
-	Create(configVersionID uint, nodeIDs []uint, clusterID, regionID, dataCenterID, environmentID *uint, userID uint) (*models.DeployTask, error)
-	List(page, pageSize int) ([]models.DeployTask, int64, error)
+	Create(configVersionID uint, nodeIDs []uint, clusterID, regionID, dataCenterID, environmentID *uint, userID uint, allowedClusters []uint) (*models.DeployTask, error)
+	List(page, pageSize int, allowedClusters []uint) ([]models.DeployTask, int64, error)
 	Get(id uint) (*models.DeployTask, []models.DeployRecord, error)
 	GetAuditLogs(page, pageSize int) ([]models.AuditLog, int64, error)
 }
@@ -22,7 +22,7 @@ func NewDeployService(db *gorm.DB) DeployService {
 	return &deployService{db: db}
 }
 
-func (s *deployService) Create(configVersionID uint, nodeIDs []uint, clusterID, regionID, dataCenterID, environmentID *uint, userID uint) (*models.DeployTask, error) {
+func (s *deployService) Create(configVersionID uint, nodeIDs []uint, clusterID, regionID, dataCenterID, environmentID *uint, userID uint, allowedClusters []uint) (*models.DeployTask, error) {
 	var configVersion models.ConfigVersion
 	if err := s.db.First(&configVersion, configVersionID).Error; err != nil {
 		return nil, errors.New("config version not found")
@@ -89,6 +89,21 @@ func (s *deployService) Create(configVersionID uint, nodeIDs []uint, clusterID, 
 		}
 	}
 
+	// Scope check: verify all target nodes are in user's allowed clusters
+	if allowedClusters != nil {
+		allowedSet := map[uint]bool{}
+		for _, cid := range allowedClusters {
+			allowedSet[cid] = true
+		}
+		var nodes []models.Node
+		s.db.Where("id IN ?", uniqueIDs).Find(&nodes)
+		for _, n := range nodes {
+			if n.ClusterID != nil && !allowedSet[*n.ClusterID] {
+				return nil, errors.New("some target nodes are not in your scope")
+			}
+		}
+	}
+
 	task := models.DeployTask{
 		ConfigID:   configVersionID,
 		Scope:      scope,
@@ -97,14 +112,18 @@ func (s *deployService) Create(configVersionID uint, nodeIDs []uint, clusterID, 
 		TotalNodes: len(uniqueIDs),
 		CreatedBy:  userID,
 	}
-	s.db.Create(&task)
+	if err := s.db.Create(&task).Error; err != nil {
+		return nil, err
+	}
 
 	for _, nodeID := range uniqueIDs {
-		s.db.Create(&models.DeployRecord{
+		if err := s.db.Create(&models.DeployRecord{
 			DeployTaskID: task.ID,
 			NodeID:       nodeID,
 			Status:       "pending",
-		})
+		}).Error; err != nil {
+			return nil, err
+		}
 	}
 
 	s.db.Model(&models.Node{}).Where("id IN ?", uniqueIDs).Update("config_id", configVersionID)
@@ -113,8 +132,14 @@ func (s *deployService) Create(configVersionID uint, nodeIDs []uint, clusterID, 
 	return &task, nil
 }
 
-func (s *deployService) List(page, pageSize int) ([]models.DeployTask, int64, error) {
+func (s *deployService) List(page, pageSize int, allowedClusters []uint) ([]models.DeployTask, int64, error) {
 	query := s.db.Preload("Config.Template").Preload("Creator")
+
+	// Scope filter: only show tasks that have records targeting nodes in allowed clusters
+	if allowedClusters != nil {
+		query = query.Where("id IN (SELECT DISTINCT deploy_task_id FROM deploy_records WHERE node_id IN (SELECT id FROM nodes WHERE cluster_id IN ?))", allowedClusters)
+	}
+
 	var total int64
 	query.Model(&models.DeployTask{}).Count(&total)
 

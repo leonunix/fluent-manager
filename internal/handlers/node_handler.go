@@ -5,12 +5,46 @@ import (
 	"strconv"
 
 	"github.com/fluent-manager/fluent-manager/internal/middleware"
+	"github.com/fluent-manager/fluent-manager/internal/models"
 	"github.com/fluent-manager/fluent-manager/internal/services"
 	"github.com/gin-gonic/gin"
 )
 
 type NodeHandler struct {
 	Svc services.NodeService
+}
+
+// checkNodeScope verifies the node belongs to the user's allowed clusters.
+// Returns the node and true if access is allowed, or writes an HTTP error and returns false.
+func checkNodeScope(c *gin.Context, node *models.Node) bool {
+	allowed := middleware.GetAllowedClusters(c)
+	if allowed == nil {
+		return true // global access
+	}
+	if node.ClusterID != nil {
+		for _, cid := range allowed {
+			if cid == *node.ClusterID {
+				return true
+			}
+		}
+	}
+	c.JSON(http.StatusForbidden, gin.H{"error": "node not in your scope"})
+	return false
+}
+
+// checkClusterInScope verifies a cluster ID is within the user's allowed clusters.
+func checkClusterInScope(c *gin.Context, clusterID uint) bool {
+	allowed := middleware.GetAllowedClusters(c)
+	if allowed == nil {
+		return true
+	}
+	for _, cid := range allowed {
+		if cid == clusterID {
+			return true
+		}
+	}
+	c.JSON(http.StatusForbidden, gin.H{"error": "target cluster not in your scope"})
+	return false
 }
 
 func (h *NodeHandler) List(c *gin.Context) {
@@ -54,19 +88,8 @@ func (h *NodeHandler) Get(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
 		return
 	}
-	// Scope check
-	if allowed := middleware.GetAllowedClusters(c); allowed != nil && node.ClusterID != nil {
-		found := false
-		for _, cid := range allowed {
-			if cid == *node.ClusterID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			c.JSON(http.StatusForbidden, gin.H{"error": "node not in your scope"})
-			return
-		}
+	if !checkNodeScope(c, node) {
+		return
 	}
 	c.JSON(http.StatusOK, node)
 }
@@ -86,6 +109,23 @@ func (h *NodeHandler) Update(c *gin.Context) {
 		return
 	}
 
+	// Scope check: verify user can access the current node
+	node, err := h.Svc.Get(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
+		return
+	}
+	if !checkNodeScope(c, node) {
+		return
+	}
+
+	// If moving to a different cluster, verify target cluster is also in scope
+	if req.ClusterID != nil {
+		if !checkClusterInScope(c, *req.ClusterID) {
+			return
+		}
+	}
+
 	updates := map[string]interface{}{}
 	if req.ClusterID != nil {
 		updates["cluster_id"] = req.ClusterID
@@ -100,16 +140,27 @@ func (h *NodeHandler) Update(c *gin.Context) {
 		updates["labels"] = req.Labels
 	}
 
-	node, err := h.Svc.Update(uint(id), updates)
+	updated, err := h.Svc.Update(uint(id), updates)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
 		return
 	}
-	c.JSON(http.StatusOK, node)
+	c.JSON(http.StatusOK, updated)
 }
 
 func (h *NodeHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+
+	// Scope check
+	node, err := h.Svc.Get(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
+		return
+	}
+	if !checkNodeScope(c, node) {
+		return
+	}
+
 	if err := h.Svc.Delete(uint(id)); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
 		return
@@ -126,6 +177,24 @@ func (h *NodeHandler) BatchMoveCluster(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	// Scope check: verify target cluster is in scope
+	if !checkClusterInScope(c, req.ClusterID) {
+		return
+	}
+
+	// Scope check: verify all source nodes are in scope
+	for _, nodeID := range req.NodeIDs {
+		node, err := h.Svc.Get(nodeID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
+			return
+		}
+		if !checkNodeScope(c, node) {
+			return
+		}
+	}
+
 	if err := h.Svc.BatchMoveCluster(req.NodeIDs, req.ClusterID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

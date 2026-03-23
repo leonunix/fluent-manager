@@ -66,7 +66,9 @@ func (s *userService) Create(username, email, displayName, password string, role
 		AuthSource:   "local",
 		IsActive:     true,
 	}
-	s.db.Create(&user)
+	if err := s.db.Create(&user).Error; err != nil {
+		return nil, err
+	}
 
 	if len(roleIDs) > 0 {
 		var roles []models.Role
@@ -103,7 +105,9 @@ func (s *userService) Update(id uint, email, displayName, password string, isAct
 	}
 
 	if len(updates) > 0 {
-		s.db.Model(&user).Updates(updates)
+		if err := s.db.Model(&user).Updates(updates).Error; err != nil {
+			return nil, err
+		}
 	}
 
 	if roleIDs != nil {
