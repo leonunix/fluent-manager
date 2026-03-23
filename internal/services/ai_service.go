@@ -3,8 +3,11 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -40,8 +43,66 @@ type LogSampleAnalysisResult struct {
 	Notes                   []string `json:"notes"`
 }
 
+type AITestAccountInput struct {
+	ID                    string `json:"id"`
+	Name                  string `json:"name"`
+	Provider              string `json:"provider"`
+	APIKey                string `json:"api_key"`
+	BaseURL               string `json:"base_url"`
+	Model                 string `json:"model"`
+	RequestTimeoutSeconds int    `json:"request_timeout_seconds"`
+}
+
+type AITestAccountResult struct {
+	Success     bool   `json:"success"`
+	Provider    string `json:"provider"`
+	AccountID   string `json:"account_id,omitempty"`
+	AccountName string `json:"account_name,omitempty"`
+	Model       string `json:"model"`
+	Message     string `json:"message"`
+	Response    string `json:"response"`
+	LatencyMs   int64  `json:"latency_ms"`
+}
+
+type AIProviderError struct {
+	Provider        string
+	Code            string
+	UserMessage     string
+	ProviderMessage string
+	StatusCode      int
+	Cause           error
+}
+
+func (e *AIProviderError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if strings.TrimSpace(e.UserMessage) != "" {
+		return e.UserMessage
+	}
+	if e.Cause != nil {
+		return e.Cause.Error()
+	}
+	return "ai provider request failed"
+}
+
+func (e *AIProviderError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
+func (e *AIProviderError) HTTPStatus() int {
+	if e == nil || e.StatusCode == 0 {
+		return http.StatusBadGateway
+	}
+	return e.StatusCode
+}
+
 type AIService interface {
 	AnalyzeLogSample(input *LogSampleAnalysisInput) (*LogSampleAnalysisResult, error)
+	TestAccount(input *AITestAccountInput) (*AITestAccountResult, error)
 }
 
 type aiService struct {
@@ -82,6 +143,14 @@ Default enterprise writing style:
 `)
 }
 
+func connectivityTestSystemPrompt() string {
+	return "You are a connectivity test assistant for Fluent Manager. Reply with a very short plain-text acknowledgement."
+}
+
+func connectivityTestPrompt() string {
+	return "Connectivity check from Fluent Manager. Reply with exactly: PONG"
+}
+
 func NewAIService(settingsSvc AuthSettingsService) AIService {
 	return &aiService{
 		settingsSvc: settingsSvc,
@@ -117,11 +186,8 @@ func (s *aiService) AnalyzeLogSample(input *LogSampleAnalysisInput) (*LogSampleA
 	if !account.Enabled {
 		return nil, fmt.Errorf("%w: selected ai account is disabled", ErrForbidden)
 	}
-	if strings.TrimSpace(account.APIKey) == "" {
-		return nil, fmt.Errorf("%w: api key is required for the selected ai account", ErrInvalidArgument)
-	}
-	if strings.TrimSpace(account.Model) == "" {
-		return nil, fmt.Errorf("%w: model is required for the selected ai account", ErrInvalidArgument)
+	if err := validateAIAccount(account); err != nil {
+		return nil, err
 	}
 
 	prompt := buildLogSamplePrompt(input)
@@ -129,12 +195,19 @@ func (s *aiService) AnalyzeLogSample(input *LogSampleAnalysisInput) (*LogSampleA
 
 	raw, err := s.generate(account, settings.RequestTimeoutSeconds, systemPrompt, prompt)
 	if err != nil {
-		return nil, err
+		return nil, wrapAIProviderError(account.Provider, err)
 	}
 
 	result, err := parseLogSampleAnalysis(raw)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse ai response: %w", err)
+		return nil, &AIProviderError{
+			Provider:        account.Provider,
+			Code:            "invalid_response",
+			UserMessage:     "The model returned a response, but it was not in the JSON format required by Fluent Manager.",
+			ProviderMessage: err.Error(),
+			StatusCode:      http.StatusBadGateway,
+			Cause:           err,
+		}
 	}
 
 	if result.ModuleType == "" {
@@ -150,6 +223,52 @@ func (s *aiService) AnalyzeLogSample(input *LogSampleAnalysisInput) (*LogSampleA
 	result.AccountID = account.ID
 	result.AccountName = account.Name
 	return result, nil
+}
+
+func (s *aiService) TestAccount(input *AITestAccountInput) (*AITestAccountResult, error) {
+	account := &AIAccountDTO{
+		ID:       strings.TrimSpace(input.ID),
+		Name:     strings.TrimSpace(input.Name),
+		Provider: strings.TrimSpace(input.Provider),
+		APIKey:   strings.TrimSpace(input.APIKey),
+		BaseURL:  strings.TrimSpace(input.BaseURL),
+		Model:    strings.TrimSpace(input.Model),
+		Enabled:  true,
+	}
+	if err := validateAIAccount(account); err != nil {
+		return nil, err
+	}
+
+	start := time.Now()
+	raw, err := s.generate(account, input.RequestTimeoutSeconds, connectivityTestSystemPrompt(), connectivityTestPrompt())
+	if err != nil {
+		return nil, wrapAIProviderError(account.Provider, err)
+	}
+
+	response := strings.TrimSpace(raw)
+	if response == "" {
+		return nil, &AIProviderError{
+			Provider:        account.Provider,
+			Code:            "empty_response",
+			UserMessage:     "The model request succeeded, but the provider returned an empty response.",
+			ProviderMessage: "provider returned empty response",
+			StatusCode:      http.StatusBadGateway,
+		}
+	}
+	if len(response) > 240 {
+		response = response[:240] + "..."
+	}
+
+	return &AITestAccountResult{
+		Success:     true,
+		Provider:    account.Provider,
+		AccountID:   account.ID,
+		AccountName: account.Name,
+		Model:       account.Model,
+		Message:     "Connection successful. The model returned a valid response.",
+		Response:    response,
+		LatencyMs:   time.Since(start).Milliseconds(),
+	}, nil
 }
 
 func (s *aiService) requestHTTPClient(timeoutSeconds int) *http.Client {
@@ -278,6 +397,24 @@ func defaultAIBaseURL(provider string) string {
 	}
 }
 
+func validateAIAccount(account *AIAccountDTO) error {
+	if account == nil {
+		return fmt.Errorf("%w: ai account is required", ErrInvalidArgument)
+	}
+	switch account.Provider {
+	case "openai", "claude", "gemini", "deepseek":
+	default:
+		return fmt.Errorf("%w: unsupported ai provider", ErrInvalidArgument)
+	}
+	if strings.TrimSpace(account.APIKey) == "" {
+		return fmt.Errorf("%w: api key is required for the selected ai account", ErrInvalidArgument)
+	}
+	if strings.TrimSpace(account.Model) == "" {
+		return fmt.Errorf("%w: model is required for the selected ai account", ErrInvalidArgument)
+	}
+	return nil
+}
+
 func (s *aiService) generate(account *AIAccountDTO, timeoutSeconds int, systemPrompt, prompt string) (string, error) {
 	httpClient := s.requestHTTPClient(timeoutSeconds)
 	switch account.Provider {
@@ -290,6 +427,150 @@ func (s *aiService) generate(account *AIAccountDTO, timeoutSeconds int, systemPr
 	default:
 		return "", fmt.Errorf("%w: unsupported ai provider", ErrInvalidArgument)
 	}
+}
+
+func wrapAIProviderError(provider string, err error) error {
+	if err == nil {
+		return nil
+	}
+
+	var aiErr *AIProviderError
+	if errors.As(err, &aiErr) {
+		return aiErr
+	}
+
+	if errors.Is(err, context.DeadlineExceeded) {
+		return newAIProviderError(provider, "timeout", http.StatusGatewayTimeout, err.Error(), err)
+	}
+
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		code := "network_error"
+		status := http.StatusBadGateway
+		if urlErr.Timeout() {
+			code = "timeout"
+			status = http.StatusGatewayTimeout
+		}
+		return newAIProviderError(provider, code, status, urlErr.Error(), err)
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		code := "network_error"
+		status := http.StatusBadGateway
+		if netErr.Timeout() {
+			code = "timeout"
+			status = http.StatusGatewayTimeout
+		}
+		return newAIProviderError(provider, code, status, netErr.Error(), err)
+	}
+
+	var openaiErr *openai.Error
+	if errors.As(err, &openaiErr) {
+		code := strings.TrimSpace(openaiErr.Code)
+		if code == "" {
+			code = strings.TrimSpace(openaiErr.Type)
+		}
+		return newAIProviderError(provider, code, openaiErr.StatusCode, openaiErr.Message, err)
+	}
+
+	var anthropicErr *anthropic.Error
+	if errors.As(err, &anthropicErr) {
+		code, message := parseAnthropicProviderError(anthropicErr.RawJSON())
+		if message == "" {
+			message = anthropicErr.Error()
+		}
+		return newAIProviderError(provider, code, anthropicErr.StatusCode, message, err)
+	}
+
+	var geminiErr genai.APIError
+	if errors.As(err, &geminiErr) {
+		code := strings.TrimSpace(geminiErr.Status)
+		if code == "" && geminiErr.Code > 0 {
+			code = fmt.Sprintf("http_%d", geminiErr.Code)
+		}
+		return newAIProviderError(provider, code, geminiErr.Code, geminiErr.Message, err)
+	}
+
+	return newAIProviderError(provider, "request_failed", http.StatusBadGateway, err.Error(), err)
+}
+
+func newAIProviderError(provider, code string, statusCode int, providerMessage string, cause error) *AIProviderError {
+	providerMessage = clipProviderMessage(providerMessage)
+	return &AIProviderError{
+		Provider:        provider,
+		Code:            normalizeProviderErrorCode(code),
+		UserMessage:     userMessageForAIProviderError(statusCode, code, providerMessage),
+		ProviderMessage: providerMessage,
+		StatusCode:      statusCode,
+		Cause:           cause,
+	}
+}
+
+func normalizeProviderErrorCode(code string) string {
+	code = strings.TrimSpace(strings.ToLower(code))
+	if code == "" {
+		return "request_failed"
+	}
+	code = strings.ReplaceAll(code, " ", "_")
+	return code
+}
+
+func clipProviderMessage(message string) string {
+	message = strings.TrimSpace(message)
+	if len(message) <= 600 {
+		return message
+	}
+	return message[:600] + "..."
+}
+
+func userMessageForAIProviderError(statusCode int, code, providerMessage string) string {
+	text := strings.ToLower(strings.TrimSpace(code + " " + providerMessage))
+
+	switch {
+	case statusCode == http.StatusUnauthorized || strings.Contains(text, "authentication") || strings.Contains(text, "invalid_api_key") || strings.Contains(text, "api key"):
+		return "Authentication failed. Check whether the API key is correct and still active."
+	case statusCode == http.StatusForbidden || strings.Contains(text, "permission"):
+		return "The account does not have permission to use this model or endpoint."
+	case statusCode == http.StatusNotFound || strings.Contains(text, "model_not_found") || strings.Contains(text, "not found"):
+		return "The model or endpoint could not be found. Check the model name and base URL."
+	case statusCode == http.StatusTooManyRequests || strings.Contains(text, "rate_limit"):
+		return "The provider rate limit was reached. Try again later or use another account."
+	case statusCode == http.StatusGatewayTimeout || statusCode == http.StatusRequestTimeout || strings.Contains(text, "timeout") || strings.Contains(text, "deadline"):
+		return "The AI request timed out. Check network connectivity and the base URL, then try again."
+	case strings.Contains(text, "network") || strings.Contains(text, "connection refused") || strings.Contains(text, "no such host") || strings.Contains(text, "tls"):
+		return "Fluent Manager could not reach the AI endpoint. Check the base URL, network, proxy, or TLS settings."
+	case statusCode >= 500:
+		return "The AI provider is temporarily unavailable. Try again later."
+	case statusCode == http.StatusBadRequest:
+		return "The provider rejected the request. Check the model name, base URL, and account configuration."
+	default:
+		return "The AI request failed. Check the account, model, and network settings, then try again."
+	}
+}
+
+func parseAnthropicProviderError(raw string) (string, string) {
+	var payload struct {
+		Type  string `json:"type"`
+		Error struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		} `json:"error"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return "", ""
+	}
+
+	code := strings.TrimSpace(payload.Error.Type)
+	if code == "" {
+		code = strings.TrimSpace(payload.Type)
+	}
+	message := strings.TrimSpace(payload.Error.Message)
+	if message == "" {
+		message = strings.TrimSpace(payload.Message)
+	}
+	return code, message
 }
 
 func normalizeProviderBaseURL(account *AIAccountDTO) string {

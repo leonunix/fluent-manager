@@ -27,6 +27,11 @@
       </div>
     </div>
 
+    <div v-if="pageFeedback.message" class="alert mb-4" :class="pageFeedback.type === 'success' ? 'alert-success' : 'alert-danger'">
+      <div class="fw-semibold">{{ pageFeedback.message }}</div>
+      <div v-if="pageFeedback.detail && pageFeedback.detail !== pageFeedback.message" class="small mt-1">{{ pageFeedback.detail }}</div>
+    </div>
+
     <div class="card border-0 shadow-sm mb-4">
       <div class="card-body">
         <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
@@ -41,6 +46,7 @@
             <button type="button" class="btn btn-sm btn-outline-primary" :disabled="!canUpdate" @click="addAccount('deepseek')">{{ t('ai_settings_page.add_deepseek') }}</button>
           </div>
         </div>
+        <div class="small text-muted mb-3">{{ t('ai_settings_page.test_hint') }}</div>
 
         <div class="row g-3 mb-3">
           <div class="col-md-3">
@@ -83,6 +89,10 @@
               </div>
               <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
                 <span v-if="form.active_account_id === account.id" class="badge text-bg-primary">{{ t('ai_settings_page.active_badge') }}</span>
+                <button type="button" class="btn btn-sm btn-outline-success" :disabled="!canUpdate || getAccountState(account.id).loading" @click="runAccountTest(account)">
+                  <span v-if="getAccountState(account.id).loading" class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+                  {{ getAccountState(account.id).loading ? t('ai_settings_page.testing_account') : t('ai_settings_page.test_account') }}
+                </button>
                 <button type="button" class="btn btn-sm btn-outline-primary" :disabled="!canUpdate" @click="setActiveAccount(account.id)">{{ t('ai_settings_page.set_active') }}</button>
                 <button type="button" class="btn btn-sm btn-outline-danger" :disabled="!canUpdate" @click="removeAccount(account.id)">{{ t('ai_settings_page.remove_account') }}</button>
               </div>
@@ -124,6 +134,31 @@
                 <label class="form-label">{{ t('auth_settings.model') }}</label>
                 <input v-model="account.model" type="text" class="form-control" :disabled="!canUpdate" :placeholder="providerPlaceholder(account.provider, 'model')">
               </div>
+              <div v-if="getAccountState(account.id).loading || getAccountState(account.id).success !== null" class="col-md-12">
+                <div class="fm-ai-inline-feedback" :class="getAccountState(account.id).success === false ? 'is-danger' : 'is-success'">
+                  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+                    <div>
+                      <div class="fw-semibold">
+                        {{ getAccountState(account.id).loading ? t('ai_settings_page.testing_account') : (getAccountState(account.id).success ? t('ai_settings_page.test_success') : t('ai_settings_page.test_failed')) }}
+                      </div>
+                      <div v-if="getAccountState(account.id).message" class="small mt-1">{{ getAccountState(account.id).message }}</div>
+                    </div>
+                    <div class="small text-muted text-nowrap" v-if="getAccountState(account.id).latency_ms > 0">
+                      {{ t('ai_settings_page.test_latency') }}: {{ getAccountState(account.id).latency_ms }} ms
+                    </div>
+                  </div>
+                  <div v-if="getAccountState(account.id).tested_model" class="small text-muted mt-2">
+                    {{ t('ai_settings_page.test_model') }}: {{ getAccountState(account.id).tested_model }}
+                  </div>
+                  <div v-if="getAccountState(account.id).detail && getAccountState(account.id).detail !== getAccountState(account.id).message" class="small text-muted mt-2">
+                    {{ t('ai_settings_page.provider_feedback') }}: {{ getAccountState(account.id).detail }}
+                  </div>
+                  <div v-if="getAccountState(account.id).response" class="mt-2">
+                    <div class="small text-muted mb-1">{{ t('ai_settings_page.test_response') }}</div>
+                    <pre class="fm-ai-inline-feedback__response">{{ getAccountState(account.id).response }}</pre>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -135,7 +170,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { getAISettings, updateAISettings } from '../api'
+import { getAISettings, testAIAccount, updateAISettings } from '../api'
 import { useI18n } from '../i18n'
 import { useAuthStore } from '../store/auth'
 
@@ -175,6 +210,21 @@ function createAccount(provider = 'openai') {
 
 const form = reactive(createForm())
 const saving = ref(false)
+const emptyAccountState = Object.freeze({
+  loading: false,
+  success: null,
+  message: '',
+  detail: '',
+  latency_ms: 0,
+  response: '',
+  tested_model: '',
+})
+const pageFeedback = reactive({
+  type: 'success',
+  message: '',
+  detail: '',
+})
+const accountStates = reactive({})
 
 const canUpdate = computed(() => auth.hasPermission('ai_settings', 'update'))
 const activeAccount = computed(() => form.accounts.find(account => account.id === form.active_account_id) || null)
@@ -199,20 +249,68 @@ function clonePlain(value) {
   return JSON.parse(JSON.stringify(value))
 }
 
+function getErrorMessage(error) {
+  return error?.response?.data?.user_message || error?.response?.data?.error || error?.message || t('common.request_failed')
+}
+
+function getProviderErrorMessage(error) {
+  return error?.response?.data?.provider_message || ''
+}
+
+function setPageFeedback(type, message, detail = '') {
+  pageFeedback.type = type
+  pageFeedback.message = message
+  pageFeedback.detail = detail
+}
+
+function clearPageFeedback() {
+  pageFeedback.type = 'success'
+  pageFeedback.message = ''
+  pageFeedback.detail = ''
+}
+
+function resetAccountStates() {
+  Object.keys(accountStates).forEach((key) => delete accountStates[key])
+}
+
+function ensureAccountState(accountID) {
+  if (!accountStates[accountID]) {
+    accountStates[accountID] = {
+      loading: false,
+      success: null,
+      message: '',
+      detail: '',
+      latency_ms: 0,
+      response: '',
+      tested_model: '',
+    }
+  }
+  return accountStates[accountID]
+}
+
+function getAccountState(accountID) {
+  return accountStates[accountID] || emptyAccountState
+}
+
 async function loadSettings() {
-  const { data } = await getAISettings()
-  Object.assign(form, createForm(), data)
-  form.accounts = (data.accounts || []).map(account => ({
-    id: account.id,
-    name: account.name || `${providerLabel(account.provider)} Account`,
-    provider: account.provider || 'openai',
-    description: account.description || '',
-    enabled: account.enabled !== false,
-    api_key: account.api_key || '',
-    base_url: account.base_url || '',
-    model: account.model || '',
-  }))
-  ensureSettings()
+  try {
+    const { data } = await getAISettings()
+    Object.assign(form, createForm(), data)
+    form.accounts = (data.accounts || []).map(account => ({
+      id: account.id,
+      name: account.name || `${providerLabel(account.provider)} Account`,
+      provider: account.provider || 'openai',
+      description: account.description || '',
+      enabled: account.enabled !== false,
+      api_key: account.api_key || '',
+      base_url: account.base_url || '',
+      model: account.model || '',
+    }))
+    ensureSettings()
+    resetAccountStates()
+  } catch (error) {
+    setPageFeedback('danger', t('ai_settings_page.load_failed'), getErrorMessage(error))
+  }
 }
 
 function addAccount(provider) {
@@ -225,6 +323,7 @@ function addAccount(provider) {
 
 function removeAccount(accountID) {
   form.accounts = form.accounts.filter(account => account.id !== accountID)
+  delete accountStates[accountID]
   if (form.active_account_id === accountID) {
     form.active_account_id = form.accounts[0]?.id || ''
   }
@@ -240,16 +339,61 @@ async function saveSettings() {
   if (!canUpdate.value) return
   saving.value = true
   try {
+    clearPageFeedback()
     ensureSettings()
     await updateAISettings(clonePlain(form))
     await loadSettings()
-    alert(t('auth_settings.save_success'))
+    setPageFeedback('success', t('auth_settings.save_success'))
+  } catch (error) {
+    setPageFeedback('danger', t('ai_settings_page.save_failed'), getErrorMessage(error))
   } finally {
     saving.value = false
   }
 }
 
-onMounted(loadSettings)
+async function runAccountTest(account) {
+  if (!canUpdate.value) return
+
+  const state = ensureAccountState(account.id)
+  state.loading = true
+  state.success = null
+  state.message = ''
+  state.detail = ''
+  state.latency_ms = 0
+  state.response = ''
+  state.tested_model = account.model || ''
+
+  try {
+    const { data } = await testAIAccount({
+      id: account.id,
+      name: account.name,
+      provider: account.provider,
+      api_key: account.api_key,
+      base_url: account.base_url,
+      model: account.model,
+      request_timeout_seconds: form.request_timeout_seconds,
+    })
+    state.success = true
+    state.message = data.message || t('ai_settings_page.test_success')
+    state.detail = ''
+    state.latency_ms = data.latency_ms || 0
+    state.response = data.response || ''
+    state.tested_model = data.model || account.model || ''
+  } catch (error) {
+    state.success = false
+    state.message = getErrorMessage(error)
+    state.detail = getProviderErrorMessage(error)
+    state.latency_ms = 0
+    state.response = ''
+    state.tested_model = account.model || ''
+  } finally {
+    state.loading = false
+  }
+}
+
+onMounted(async () => {
+  await loadSettings()
+})
 </script>
 
 <style scoped>
@@ -321,6 +465,26 @@ onMounted(loadSettings)
   border-color: #2563eb;
   background: linear-gradient(180deg, rgba(219, 234, 254, 0.5) 0%, #ffffff 100%);
   box-shadow: 0 16px 36px rgba(37, 99, 235, 0.12);
+}
+.fm-ai-inline-feedback {
+  padding: 0.9rem 1rem;
+  border-radius: 14px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+}
+.fm-ai-inline-feedback.is-danger {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+.fm-ai-inline-feedback__response {
+  margin: 0;
+  padding: 0.85rem 0.95rem;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.04);
+  color: #0f172a;
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .fm-ai-account-card__header {
   display: flex;

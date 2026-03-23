@@ -577,7 +577,7 @@ function formatJson(value) {
 }
 
 function getErrorMessage(error) {
-  return error?.response?.data?.error || error?.message || t('common.request_failed')
+  return error?.response?.data?.user_message || error?.response?.data?.error || error?.message || t('common.request_failed')
 }
 
 function findingBadgeClass(severity) {

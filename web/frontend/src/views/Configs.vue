@@ -394,6 +394,38 @@
             </div>
           </div>
           <div class="card-body">
+            <div
+              v-if="aiAssistantLoading || aiAssistantFeedback.message"
+              class="fm-ai-assistant-feedback mb-3"
+              :class="{
+                'is-success': aiAssistantFeedback.type === 'success',
+                'is-danger': aiAssistantFeedback.type === 'danger',
+              }"
+            >
+              <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+                <div>
+                  <div class="fw-semibold">
+                    {{ aiAssistantLoading ? t('configs_page.ai_assistant_running') : aiAssistantFeedback.message }}
+                  </div>
+                  <div
+                    v-if="!aiAssistantLoading && aiAssistantFeedback.detail && aiAssistantFeedback.detail !== aiAssistantFeedback.message"
+                    class="small text-muted mt-1"
+                  >
+                    {{ aiAssistantFeedback.detail }}
+                  </div>
+                </div>
+                <div v-if="!aiAssistantLoading && aiAssistantFeedback.provider" class="small text-muted text-nowrap">
+                  {{ aiAssistantFeedback.provider }}
+                </div>
+              </div>
+              <div
+                v-if="!aiAssistantLoading && aiAssistantFeedback.providerDetail"
+                class="small text-muted mt-2"
+              >
+                {{ t('configs_page.ai_provider_feedback') }}: {{ aiAssistantFeedback.providerDetail }}
+              </div>
+            </div>
+
             <div v-if="aiAssistantResult">
               <div class="d-flex flex-wrap gap-2 mb-3">
                 <span class="badge bg-info-subtle text-info-emphasis">{{ runtimeLabel(aiAssistantForm.fluent_type) }}</span>
@@ -448,7 +480,7 @@
                 </div>
               </div>
             </div>
-            <div v-else class="text-center text-muted py-5">
+            <div v-else-if="!aiAssistantLoading && !aiAssistantFeedback.message" class="text-center text-muted py-5">
               {{ t('configs_page.ai_assistant_empty') }}
             </div>
           </div>
@@ -846,31 +878,123 @@
             <div class="alert alert-info py-2">
               {{ t('configs_page.template_modal_hint') }}
             </div>
+            <div v-if="aiTemplateDraftState.active" class="fm-ai-draft-panel mb-3">
+              <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+                <div>
+                  <div class="fw-semibold">{{ t('configs_page.ai_draft_template_title') }}</div>
+                  <div v-if="aiTemplateDraftSource" class="small text-muted mt-1">{{ aiTemplateDraftSource }}</div>
+                </div>
+                <span class="badge bg-success-subtle text-success-emphasis">{{ t('configs_page.ai_draft_imported') }}</span>
+              </div>
+              <div v-if="aiTemplateDraftState.summary" class="small mt-2">{{ aiTemplateDraftState.summary }}</div>
+              <div v-if="aiTemplateDraftComparison" class="mt-3">
+                <div class="fm-ai-draft-panel__title">{{ t('configs_page.ai_draft_diff_title') }}</div>
+                <div class="fm-ai-draft-diff-grid">
+                  <div class="fm-ai-draft-diff-card">
+                    <div class="fm-ai-draft-diff-card__label">{{ t('configs_page.ai_draft_diff_identity') }}</div>
+                    <div class="fw-semibold">{{ aiTemplateDraftComparison.identityMessage }}</div>
+                    <div v-if="aiTemplateDraftComparison.existingName" class="small text-muted mt-1">{{ aiTemplateDraftComparison.existingName }}</div>
+                  </div>
+                  <div class="fm-ai-draft-diff-card">
+                    <div class="fm-ai-draft-diff-card__label">{{ t('configs_page.ai_draft_diff_scale') }}</div>
+                    <div class="fw-semibold">{{ t('configs_page.ai_draft_diff_lines').replace('{count}', String(aiTemplateDraftComparison.lineCount)) }}</div>
+                    <div class="small text-muted mt-1">{{ t('configs_page.ai_draft_diff_placeholders').replace('{count}', String(aiTemplateDraftComparison.placeholderCount)) }}</div>
+                  </div>
+                  <div v-if="aiTemplateDraftComparison.changeMessage" class="fm-ai-draft-diff-card">
+                    <div class="fm-ai-draft-diff-card__label">{{ t('configs_page.ai_draft_diff_changes') }}</div>
+                    <div class="fw-semibold">{{ aiTemplateDraftComparison.changeMessage }}</div>
+                    <div v-if="aiTemplateDraftComparison.changeDetail" class="small text-muted mt-1">{{ aiTemplateDraftComparison.changeDetail }}</div>
+                  </div>
+                </div>
+                <div v-if="aiTemplateDraftComparison.hasConflict" class="fm-ai-draft-actions mt-3">
+                  <div class="fm-ai-draft-panel__title">{{ t('configs_page.ai_draft_action_title') }}</div>
+                  <div class="small text-muted mb-2">
+                    {{ t('configs_page.ai_draft_action_existing_detail').replace('{name}', aiTemplateDraftComparison.existingName || templateForm.name) }}
+                  </div>
+                  <div v-if="aiTemplateDraftComparison.suggestedName" class="small text-muted mb-3">
+                    {{ t('configs_page.ai_draft_action_name_suggested').replace('{name}', aiTemplateDraftComparison.suggestedName) }}
+                  </div>
+                  <div class="d-flex flex-wrap gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-primary" @click="applySuggestedTemplateName">
+                      <i class="bi bi-magic me-1"></i>{{ t('configs_page.ai_draft_action_auto_rename') }}
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @click="openExistingTemplateFromDraft">
+                      <i class="bi bi-box-arrow-up-right me-1"></i>{{ t('configs_page.ai_draft_action_open_existing_template') }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div v-if="aiTemplateDraftState.confirmationItems.length" class="mt-3">
+                <div class="fm-ai-draft-panel__title">{{ t('configs_page.ai_draft_checklist_title') }}</div>
+                <div class="small text-muted mb-2">{{ t('configs_page.ai_draft_checklist_hint') }}</div>
+                <div class="fm-ai-draft-checklist">
+                  <label v-for="item in aiTemplateDraftState.confirmationItems" :key="item.key" class="form-check fm-ai-draft-checklist__item">
+                    <input v-model="item.checked" class="form-check-input" type="checkbox">
+                    <span class="form-check-label">{{ item.label }}</span>
+                  </label>
+                </div>
+              </div>
+              <div class="row g-3 mt-1">
+                <div v-if="aiTemplateDraftState.reviewItems.length" class="col-lg-6">
+                  <div class="fm-ai-draft-panel__title">{{ t('configs_page.ai_draft_review_title') }}</div>
+                  <ul class="mb-0 ps-3">
+                    <li v-for="(item, index) in aiTemplateDraftState.reviewItems" :key="`tpl-review-${index}`">{{ item }}</li>
+                  </ul>
+                </div>
+                <div v-if="aiTemplateDraftState.notes.length || aiTemplateDraftState.steps.length" class="col-lg-6">
+                  <div v-if="aiTemplateDraftState.steps.length">
+                    <div class="fm-ai-draft-panel__title">{{ t('configs_page.ai_draft_steps_title') }}</div>
+                    <ul class="mb-2 ps-3">
+                      <li v-for="(step, index) in aiTemplateDraftState.steps" :key="`tpl-step-${index}`">{{ step }}</li>
+                    </ul>
+                  </div>
+                  <div v-if="aiTemplateDraftState.notes.length">
+                    <div class="fm-ai-draft-panel__title">{{ t('configs_page.ai_draft_notes_title') }}</div>
+                    <ul class="mb-0 ps-3">
+                      <li v-for="(note, index) in aiTemplateDraftState.notes" :key="`tpl-note-${index}`">{{ note }}</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
             <div class="row mb-3">
               <div class="col-md-6">
-                <label class="form-label">{{ t('common.name') }}</label>
-                <input v-model="templateForm.name" type="text" class="form-control" required>
+                <label class="form-label d-flex align-items-center gap-2">
+                  <span>{{ t('common.name') }}</span>
+                  <span v-if="aiTemplateDraftState.active" class="badge text-bg-light">{{ t('configs_page.ai_draft_filled') }}</span>
+                </label>
+                <input v-model="templateForm.name" type="text" class="form-control" :class="{ 'fm-ai-draft-highlight': aiTemplateDraftState.active }" required>
               </div>
               <div class="col-md-6">
-                <label class="form-label">{{ t('common.runtime') }}</label>
-                <select v-model="templateForm.fluent_type" class="form-select">
+                <label class="form-label d-flex align-items-center gap-2">
+                  <span>{{ t('common.runtime') }}</span>
+                  <span v-if="aiTemplateDraftState.active" class="badge text-bg-light">{{ t('configs_page.ai_draft_filled') }}</span>
+                </label>
+                <select v-model="templateForm.fluent_type" class="form-select" :class="{ 'fm-ai-draft-highlight': aiTemplateDraftState.active }">
                   <option value="fluentbit">Fluent Bit</option>
                   <option value="fluentd">Fluentd</option>
                 </select>
               </div>
             </div>
             <div class="mb-3">
-              <label class="form-label">{{ t('common.description') }}</label>
-              <input v-model="templateForm.description" type="text" class="form-control">
+              <label class="form-label d-flex align-items-center gap-2">
+                <span>{{ t('common.description') }}</span>
+                <span v-if="aiTemplateDraftState.active" class="badge text-bg-light">{{ t('configs_page.ai_draft_filled') }}</span>
+              </label>
+              <input v-model="templateForm.description" type="text" class="form-control" :class="{ 'fm-ai-draft-highlight': aiTemplateDraftState.active }">
             </div>
             <div class="mb-3">
-              <label class="form-label">{{ t('configs_page.template_content') }}</label>
+              <label class="form-label d-flex align-items-center gap-2">
+                <span>{{ t('configs_page.template_content') }}</span>
+                <span v-if="aiTemplateDraftState.active" class="badge text-bg-light">{{ t('configs_page.ai_draft_filled') }}</span>
+              </label>
               <div class="small text-muted mb-2">
                 {{ t('configs_page.template_content_help') }}
               </div>
               <textarea
                 v-model="templateForm.content"
                 class="form-control font-monospace fm-config-textarea"
+                :class="{ 'fm-ai-draft-highlight': aiTemplateDraftState.active }"
                 rows="15"
                 :placeholder="currentTemplateExample"
               ></textarea>
@@ -881,7 +1005,15 @@
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('cancel') }}</button>
-            <button type="button" class="btn btn-primary" @click="saveTemplate">{{ t('create') }}</button>
+            <div v-if="aiTemplateDraftState.active && !aiTemplateDraftReady" class="small text-muted me-auto">
+              {{ t('configs_page.ai_draft_confirm_required') }}
+            </div>
+            <div v-else-if="aiTemplateDraftState.active && aiTemplateDraftComparison?.hasConflict" class="small text-warning me-auto">
+              {{ t('configs_page.ai_draft_conflict_required') }}
+            </div>
+            <button type="button" class="btn btn-primary" :disabled="!aiTemplateDraftCanSave" @click="saveTemplate">
+              {{ aiTemplateDraftState.active ? t('configs_page.ai_draft_confirm_template_cta') : t('create') }}
+            </button>
           </div>
         </div>
       </div>
@@ -898,20 +1030,112 @@
             <div class="alert alert-info py-2">
               {{ t('configs_page.module_modal_hint') }}
             </div>
+            <div v-if="aiModuleDraftState.active" class="fm-ai-draft-panel mb-3">
+              <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+                <div>
+                  <div class="fw-semibold">{{ t('configs_page.ai_draft_module_title') }}</div>
+                  <div v-if="aiModuleDraftSource" class="small text-muted mt-1">{{ aiModuleDraftSource }}</div>
+                </div>
+                <span class="badge bg-success-subtle text-success-emphasis">{{ t('configs_page.ai_draft_imported') }}</span>
+              </div>
+              <div v-if="aiModuleDraftState.summary" class="small mt-2">{{ aiModuleDraftState.summary }}</div>
+              <div v-if="aiModuleDraftComparison" class="mt-3">
+                <div class="fm-ai-draft-panel__title">{{ t('configs_page.ai_draft_diff_title') }}</div>
+                <div class="fm-ai-draft-diff-grid">
+                  <div class="fm-ai-draft-diff-card">
+                    <div class="fm-ai-draft-diff-card__label">{{ t('configs_page.ai_draft_diff_identity') }}</div>
+                    <div class="fw-semibold">{{ aiModuleDraftComparison.identityMessage }}</div>
+                    <div v-if="aiModuleDraftComparison.existingName" class="small text-muted mt-1">{{ aiModuleDraftComparison.existingName }}</div>
+                  </div>
+                  <div class="fm-ai-draft-diff-card">
+                    <div class="fm-ai-draft-diff-card__label">{{ t('configs_page.ai_draft_diff_scale') }}</div>
+                    <div class="fw-semibold">{{ t('configs_page.ai_draft_diff_variables').replace('{count}', String(aiModuleDraftComparison.variableCount)) }}</div>
+                    <div class="small text-muted mt-1">
+                      {{ t('configs_page.ai_draft_diff_lines').replace('{count}', String(aiModuleDraftComparison.lineCount)) }}
+                      ·
+                      {{ t('configs_page.ai_draft_diff_placeholders').replace('{count}', String(aiModuleDraftComparison.placeholderCount)) }}
+                    </div>
+                  </div>
+                  <div v-if="aiModuleDraftComparison.changeMessage" class="fm-ai-draft-diff-card">
+                    <div class="fm-ai-draft-diff-card__label">{{ t('configs_page.ai_draft_diff_changes') }}</div>
+                    <div class="fw-semibold">{{ aiModuleDraftComparison.changeMessage }}</div>
+                    <div v-if="aiModuleDraftComparison.changeDetail" class="small text-muted mt-1">{{ aiModuleDraftComparison.changeDetail }}</div>
+                  </div>
+                </div>
+                <div v-if="aiModuleDraftComparison.hasConflict" class="fm-ai-draft-actions mt-3">
+                  <div class="fm-ai-draft-panel__title">{{ t('configs_page.ai_draft_action_title') }}</div>
+                  <div class="small text-muted mb-2">
+                    {{ t('configs_page.ai_draft_action_existing_detail').replace('{name}', aiModuleDraftComparison.existingName || moduleForm.name) }}
+                  </div>
+                  <div v-if="aiModuleDraftComparison.suggestedName" class="small text-muted mb-3">
+                    {{ t('configs_page.ai_draft_action_name_suggested').replace('{name}', aiModuleDraftComparison.suggestedName) }}
+                  </div>
+                  <div class="d-flex flex-wrap gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-primary" @click="applySuggestedModuleName">
+                      <i class="bi bi-magic me-1"></i>{{ t('configs_page.ai_draft_action_auto_rename') }}
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @click="openExistingModuleFromDraft">
+                      <i class="bi bi-pencil-square me-1"></i>{{ t('configs_page.ai_draft_action_open_existing_module') }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div v-if="aiModuleDraftState.confirmationItems.length" class="mt-3">
+                <div class="fm-ai-draft-panel__title">{{ t('configs_page.ai_draft_checklist_title') }}</div>
+                <div class="small text-muted mb-2">{{ t('configs_page.ai_draft_checklist_hint') }}</div>
+                <div class="fm-ai-draft-checklist">
+                  <label v-for="item in aiModuleDraftState.confirmationItems" :key="item.key" class="form-check fm-ai-draft-checklist__item">
+                    <input v-model="item.checked" class="form-check-input" type="checkbox">
+                    <span class="form-check-label">{{ item.label }}</span>
+                  </label>
+                </div>
+              </div>
+              <div class="row g-3 mt-1">
+                <div v-if="aiModuleDraftState.reviewItems.length" class="col-lg-6">
+                  <div class="fm-ai-draft-panel__title">{{ t('configs_page.ai_draft_review_title') }}</div>
+                  <ul class="mb-0 ps-3">
+                    <li v-for="(item, index) in aiModuleDraftState.reviewItems" :key="`mod-review-${index}`">{{ item }}</li>
+                  </ul>
+                </div>
+                <div v-if="aiModuleDraftState.notes.length || aiModuleDraftState.steps.length" class="col-lg-6">
+                  <div v-if="aiModuleDraftState.steps.length">
+                    <div class="fm-ai-draft-panel__title">{{ t('configs_page.ai_draft_steps_title') }}</div>
+                    <ul class="mb-2 ps-3">
+                      <li v-for="(step, index) in aiModuleDraftState.steps" :key="`mod-step-${index}`">{{ step }}</li>
+                    </ul>
+                  </div>
+                  <div v-if="aiModuleDraftState.notes.length">
+                    <div class="fm-ai-draft-panel__title">{{ t('configs_page.ai_draft_notes_title') }}</div>
+                    <ul class="mb-0 ps-3">
+                      <li v-for="(note, index) in aiModuleDraftState.notes" :key="`mod-note-${index}`">{{ note }}</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
             <div class="row g-3 mb-3">
               <div class="col-md-4">
-                <label class="form-label">{{ t('common.name') }}</label>
-                <input v-model="moduleForm.name" type="text" class="form-control">
+                <label class="form-label d-flex align-items-center gap-2">
+                  <span>{{ t('common.name') }}</span>
+                  <span v-if="aiModuleDraftState.active" class="badge text-bg-light">{{ t('configs_page.ai_draft_filled') }}</span>
+                </label>
+                <input v-model="moduleForm.name" type="text" class="form-control" :class="{ 'fm-ai-draft-highlight': aiModuleDraftState.active }">
               </div>
               <div class="col-md-4">
-                <label class="form-label">{{ t('configs_page.module_type_coverage') }}</label>
-                <select v-model="moduleForm.module_type" class="form-select">
+                <label class="form-label d-flex align-items-center gap-2">
+                  <span>{{ t('configs_page.module_type_coverage') }}</span>
+                  <span v-if="aiModuleDraftState.active" class="badge text-bg-light">{{ t('configs_page.ai_draft_filled') }}</span>
+                </label>
+                <select v-model="moduleForm.module_type" class="form-select" :class="{ 'fm-ai-draft-highlight': aiModuleDraftState.active }">
                   <option v-for="type in moduleTypes" :key="type" :value="type">{{ type }}</option>
                 </select>
               </div>
               <div class="col-md-4">
-                <label class="form-label">{{ t('common.runtime') }}</label>
-                <select v-model="moduleForm.fluent_type" class="form-select">
+                <label class="form-label d-flex align-items-center gap-2">
+                  <span>{{ t('common.runtime') }}</span>
+                  <span v-if="aiModuleDraftState.active" class="badge text-bg-light">{{ t('configs_page.ai_draft_filled') }}</span>
+                </label>
+                <select v-model="moduleForm.fluent_type" class="form-select" :class="{ 'fm-ai-draft-highlight': aiModuleDraftState.active }">
                   <option value="fluentbit">Fluent Bit</option>
                   <option value="fluentd">Fluentd</option>
                   <option value="shared">Shared</option>
@@ -919,13 +1143,19 @@
               </div>
             </div>
             <div class="mb-3">
-              <label class="form-label">{{ t('common.description') }}</label>
-              <input v-model="moduleForm.description" type="text" class="form-control">
+              <label class="form-label d-flex align-items-center gap-2">
+                <span>{{ t('common.description') }}</span>
+                <span v-if="aiModuleDraftState.active" class="badge text-bg-light">{{ t('configs_page.ai_draft_filled') }}</span>
+              </label>
+              <input v-model="moduleForm.description" type="text" class="form-control" :class="{ 'fm-ai-draft-highlight': aiModuleDraftState.active }">
             </div>
             <div class="row g-3 mb-3">
               <div class="col-md-8">
                 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-                  <label class="form-label mb-0">{{ t('configs_page.variables_json') }}</label>
+                  <label class="form-label mb-0 d-flex align-items-center gap-2">
+                    <span>{{ t('configs_page.variables_json') }}</span>
+                    <span v-if="aiModuleDraftState.active" class="badge text-bg-light">{{ t('configs_page.ai_draft_filled') }}</span>
+                  </label>
                   <div class="btn-group btn-group-sm" role="group" :aria-label="t('configs_page.variable_input_mode')">
                     <button
                       type="button"
@@ -1017,6 +1247,7 @@
                   v-else
                   v-model="moduleForm.variables"
                   class="form-control font-monospace fm-config-textarea"
+                  :class="{ 'fm-ai-draft-highlight': aiModuleDraftState.active }"
                   rows="5"
                   :placeholder="currentModuleExample.variables"
                 ></textarea>
@@ -1033,13 +1264,17 @@
               </div>
             </div>
             <div class="mb-3">
-              <label class="form-label">{{ t('configs_page.version_content') }}</label>
+              <label class="form-label d-flex align-items-center gap-2">
+                <span>{{ t('configs_page.version_content') }}</span>
+                <span v-if="aiModuleDraftState.active" class="badge text-bg-light">{{ t('configs_page.ai_draft_filled') }}</span>
+              </label>
               <div class="small text-muted mb-2">
                 {{ t('configs_page.version_content_help') }}
               </div>
               <textarea
                 v-model="moduleForm.content"
                 class="form-control font-monospace fm-config-textarea"
+                :class="{ 'fm-ai-draft-highlight': aiModuleDraftState.active }"
                 rows="16"
                 :placeholder="currentModuleExample.content"
               ></textarea>
@@ -1050,8 +1285,14 @@
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('cancel') }}</button>
-            <button type="button" class="btn btn-primary" @click="saveModule">
-              {{ editingModuleId ? t('save') : t('configs_page.create_module') }}
+            <div v-if="aiModuleDraftState.active && !aiModuleDraftReady" class="small text-muted me-auto">
+              {{ t('configs_page.ai_draft_confirm_required') }}
+            </div>
+            <div v-else-if="aiModuleDraftState.active && aiModuleDraftComparison?.hasConflict && !editingModuleId" class="small text-warning me-auto">
+              {{ t('configs_page.ai_draft_conflict_required') }}
+            </div>
+            <button type="button" class="btn btn-primary" :disabled="!aiModuleDraftCanSave" @click="saveModule">
+              {{ editingModuleId ? t('save') : (aiModuleDraftState.active ? t('configs_page.ai_draft_confirm_module_cta') : t('configs_page.create_module')) }}
             </button>
           </div>
         </div>
@@ -1117,6 +1358,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { useI18n } from '../i18n'
 import {
   analyzeLogSampleAssistant,
@@ -1151,6 +1393,15 @@ const selectedPreviewModuleIds = ref([])
 const selectedWizardModuleIds = ref([])
 const aiAssistantLoading = ref(false)
 const aiAssistantResult = ref(null)
+const aiAssistantFeedback = reactive({
+  type: '',
+  message: '',
+  detail: '',
+  provider: '',
+  providerDetail: '',
+})
+const aiModuleDraftState = reactive(createAIDraftState())
+const aiTemplateDraftState = reactive(createAIDraftState())
 const editingModuleId = ref(null)
 const wizardVariableValues = ref({})
 const moduleVariablesMode = ref('form')
@@ -1397,10 +1648,27 @@ const currentModuleExample = computed(() => {
   }
 })
 const currentTemplateExample = computed(() => templateExamples[templateForm.fluent_type] || templateExamples.fluentbit)
+const aiModuleDraftSource = computed(() => [aiModuleDraftState.provider, aiModuleDraftState.accountName].filter(Boolean).join(' / '))
+const aiTemplateDraftSource = computed(() => [aiTemplateDraftState.provider, aiTemplateDraftState.accountName].filter(Boolean).join(' / '))
+const aiModuleDraftReady = computed(() => areDraftConfirmationsComplete(aiModuleDraftState))
+const aiTemplateDraftReady = computed(() => areDraftConfirmationsComplete(aiTemplateDraftState))
+const aiModuleDraftComparison = computed(() => buildModuleDraftComparison())
+const aiTemplateDraftComparison = computed(() => buildTemplateDraftComparison())
+const aiModuleDraftCanSave = computed(() => {
+  if (!aiModuleDraftReady.value) return false
+  if (!aiModuleDraftState.active) return true
+  return !!editingModuleId.value || !aiModuleDraftComparison.value?.hasConflict
+})
+const aiTemplateDraftCanSave = computed(() => {
+  if (!aiTemplateDraftReady.value) return false
+  if (!aiTemplateDraftState.active) return true
+  return !aiTemplateDraftComparison.value?.hasConflict
+})
 
 let templateModal = null
 let moduleModal = null
 let moduleVersionsModal = null
+const router = useRouter()
 const { t, dateLocale } = useI18n()
 
 function formatTime(value) {
@@ -1428,7 +1696,235 @@ function formatJson(value) {
 }
 
 function getErrorMessage(error) {
-  return error?.response?.data?.error || error?.message || t('common.request_failed')
+  return error?.response?.data?.user_message || error?.response?.data?.error || error?.message || t('common.request_failed')
+}
+
+function getProviderErrorMessage(error) {
+  return error?.response?.data?.provider_message || ''
+}
+
+function clearAIAssistantFeedback() {
+  aiAssistantFeedback.type = ''
+  aiAssistantFeedback.message = ''
+  aiAssistantFeedback.detail = ''
+  aiAssistantFeedback.provider = ''
+  aiAssistantFeedback.providerDetail = ''
+}
+
+function setAIAssistantFeedback(type, message, detail = '', provider = '', providerDetail = '') {
+  aiAssistantFeedback.type = type
+  aiAssistantFeedback.message = message
+  aiAssistantFeedback.detail = detail
+  aiAssistantFeedback.provider = provider
+  aiAssistantFeedback.providerDetail = providerDetail
+}
+
+function createAIDraftState() {
+  return {
+    active: false,
+    provider: '',
+    accountName: '',
+    summary: '',
+    steps: [],
+    notes: [],
+    reviewItems: [],
+    confirmationItems: [],
+  }
+}
+
+function resetAIDraftState(state) {
+  state.active = false
+  state.provider = ''
+  state.accountName = ''
+  state.summary = ''
+  state.steps = []
+  state.notes = []
+  state.reviewItems = []
+  state.confirmationItems = []
+}
+
+function buildDraftConfirmationItems(labels) {
+  return labels.map((label, index) => ({
+    key: `confirm-${index}`,
+    label,
+    checked: false,
+  }))
+}
+
+function activateAIDraftState(state, result, reviewItems, confirmationLabels) {
+  state.active = true
+  state.provider = result?.provider || ''
+  state.accountName = result?.account_name || ''
+  state.summary = result?.summary || ''
+  state.steps = Array.isArray(result?.assembly_steps) ? result.assembly_steps : []
+  state.notes = Array.isArray(result?.notes) ? result.notes : []
+  state.reviewItems = reviewItems
+  state.confirmationItems = buildDraftConfirmationItems(confirmationLabels)
+}
+
+function areDraftConfirmationsComplete(state) {
+  return !state.active || state.confirmationItems.every((item) => item.checked)
+}
+
+function normalizeName(value) {
+  return String(value || '').trim().toLowerCase()
+}
+
+function generateUniqueDraftName(baseName, existingNames, fallbackPrefix = 'ai-draft') {
+  const normalizedExisting = new Set(existingNames.map((item) => normalizeName(item)).filter(Boolean))
+  const seed = String(baseName || '').trim() || fallbackPrefix
+  if (!normalizedExisting.has(normalizeName(seed))) {
+    return seed
+  }
+
+  let index = 2
+  let candidate = `${seed}-${index}`
+  while (normalizedExisting.has(normalizeName(candidate))) {
+    index += 1
+    candidate = `${seed}-${index}`
+  }
+  return candidate
+}
+
+function countNonEmptyLines(content) {
+  return String(content || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean).length
+}
+
+function extractTemplatePlaceholders(content) {
+  const matches = String(content || '').match(/{{\s*\.[^}]+}}/g)
+  return matches || []
+}
+
+function uniqueSorted(values) {
+  return Array.from(new Set(values.filter(Boolean))).sort()
+}
+
+function diffKeys(current, previous) {
+  const currentSet = new Set(current)
+  const previousSet = new Set(previous)
+  return {
+    added: current.filter((item) => !previousSet.has(item)),
+    removed: previous.filter((item) => !currentSet.has(item)),
+  }
+}
+
+function summarizeChangedKeys(added, removed) {
+  const parts = []
+  if (added.length) {
+    parts.push(t('configs_page.ai_draft_diff_added').replace('{items}', added.join(', ')))
+  }
+  if (removed.length) {
+    parts.push(t('configs_page.ai_draft_diff_removed').replace('{items}', removed.join(', ')))
+  }
+  return parts.join('；')
+}
+
+function buildModuleDraftComparison() {
+  if (!aiModuleDraftState.active) return null
+
+  const variableKeys = uniqueSorted(Object.keys(parseVariablesMap(moduleForm.variables)))
+  const placeholderKeys = uniqueSorted(extractTemplatePlaceholders(moduleForm.content).map((item) => item.replace(/[{}\s.]/g, '')))
+  const existing = modules.value.find((item) =>
+    normalizeName(item.name) === normalizeName(moduleForm.name) &&
+    item.module_type === moduleForm.module_type &&
+    item.fluent_type === moduleForm.fluent_type
+  )
+
+  let identityMessage = t('configs_page.ai_draft_diff_new_asset')
+  let existingName = ''
+  let changeMessage = ''
+  let changeDetail = ''
+  let suggestedName = ''
+  const hasConflict = !!existing
+
+  if (existing) {
+    existingName = `${existing.name} / ${existing.module_type} / ${runtimeLabel(existing.fluent_type)}`
+    identityMessage = t('configs_page.ai_draft_diff_existing_asset')
+    suggestedName = generateUniqueDraftName(
+      moduleForm.name,
+      modules.value
+        .filter((item) => item.module_type === moduleForm.module_type && item.fluent_type === moduleForm.fluent_type)
+        .map((item) => item.name),
+      `ai-${moduleForm.module_type || 'module'}`
+    )
+    const previousKeys = uniqueSorted(Object.keys(parseVariablesMap(existing.variables)))
+    const { added, removed } = diffKeys(variableKeys, previousKeys)
+    changeMessage = existing.content === moduleForm.content
+      ? t('configs_page.ai_draft_diff_content_same')
+      : t('configs_page.ai_draft_diff_content_changed')
+    changeDetail = summarizeChangedKeys(added, removed)
+    if (!changeDetail) {
+      changeDetail = t('configs_page.ai_draft_diff_existing_review')
+    }
+  }
+
+  return {
+    existingAsset: existing || null,
+    hasConflict,
+    identityMessage,
+    existingName,
+    suggestedName,
+    variableCount: variableKeys.length,
+    lineCount: countNonEmptyLines(moduleForm.content),
+    placeholderCount: placeholderKeys.length,
+    changeMessage,
+    changeDetail,
+  }
+}
+
+function buildTemplateDraftComparison() {
+  if (!aiTemplateDraftState.active) return null
+
+  const placeholderKeys = uniqueSorted(extractTemplatePlaceholders(templateForm.content).map((item) => item.replace(/[{}\s.]/g, '')))
+  const existing = templates.value.find((item) => normalizeName(item.name) === normalizeName(templateForm.name))
+
+  let identityMessage = t('configs_page.ai_draft_diff_new_asset')
+  let existingName = ''
+  let changeMessage = ''
+  let changeDetail = ''
+  let suggestedName = ''
+  const hasConflict = !!existing
+
+  if (existing) {
+    existingName = `${existing.name} / ${runtimeLabel(existing.fluent_type)}`
+    identityMessage = t('configs_page.ai_draft_diff_existing_template')
+    suggestedName = generateUniqueDraftName(
+      templateForm.name,
+      templates.value.map((item) => item.name),
+      `ai-${templateForm.fluent_type || 'template'}-template`
+    )
+    changeMessage = existing.content === templateForm.content
+      ? t('configs_page.ai_draft_diff_content_same')
+      : t('configs_page.ai_draft_diff_content_changed')
+
+    const currentKeys = uniqueSorted(placeholderKeys)
+    const previousKeys = uniqueSorted(extractTemplatePlaceholders(existing.content).map((item) => item.replace(/[{}\s.]/g, '')))
+    const { added, removed } = diffKeys(currentKeys, previousKeys)
+    changeDetail = summarizeChangedKeys(added, removed)
+    if (!changeDetail) {
+      const lineDelta = countNonEmptyLines(templateForm.content) - countNonEmptyLines(existing.content)
+      if (lineDelta !== 0) {
+        changeDetail = t('configs_page.ai_draft_diff_line_delta').replace('{count}', String(lineDelta))
+      } else {
+        changeDetail = t('configs_page.ai_draft_diff_existing_review')
+      }
+    }
+  }
+
+  return {
+    existingAsset: existing || null,
+    hasConflict,
+    identityMessage,
+    existingName,
+    suggestedName,
+    lineCount: countNonEmptyLines(templateForm.content),
+    placeholderCount: placeholderKeys.length,
+    changeMessage,
+    changeDetail,
+  }
 }
 
 function parseVariablesMap(value) {
@@ -1612,6 +2108,7 @@ function resetTemplateForm() {
   templateForm.description = ''
   templateForm.fluent_type = 'fluentbit'
   templateForm.content = ''
+  resetAIDraftState(aiTemplateDraftState)
 }
 
 function resetModuleForm() {
@@ -1626,6 +2123,7 @@ function resetModuleForm() {
   moduleVariablesMode.value = 'form'
   moduleVariableRows.value = [{ key: '', type: 'string', value: '' }]
   moduleVariablesFormError.value = ''
+  resetAIDraftState(aiModuleDraftState)
 }
 
 function resetModuleVersionForm(module) {
@@ -1657,10 +2155,25 @@ async function saveTemplate() {
   try {
     await createTemplate(templateForm)
     templateModal.hide()
+    resetAIDraftState(aiTemplateDraftState)
     await loadTemplates()
   } catch (error) {
     alert(`${t('configs_page.create_template_failed')}: ${getErrorMessage(error)}`)
   }
+}
+
+function applySuggestedTemplateName() {
+  const suggestedName = aiTemplateDraftComparison.value?.suggestedName
+  if (suggestedName) {
+    templateForm.name = suggestedName
+  }
+}
+
+async function openExistingTemplateFromDraft() {
+  const existing = aiTemplateDraftComparison.value?.existingAsset
+  if (!existing) return
+  templateModal?.hide()
+  await router.push(`/configs/${existing.id}`)
 }
 
 async function handleDeleteTemplate(template) {
@@ -1681,6 +2194,7 @@ function openCreateModule() {
 }
 
 function openEditModule(module) {
+  resetAIDraftState(aiModuleDraftState)
   editingModuleId.value = module.id
   moduleForm.name = module.name
   moduleForm.description = module.description || ''
@@ -1694,6 +2208,19 @@ function openEditModule(module) {
   moduleVariablesFormError.value = ''
   ensureModuleModal()
   moduleModal.show()
+}
+
+function applySuggestedModuleName() {
+  const suggestedName = aiModuleDraftComparison.value?.suggestedName
+  if (suggestedName) {
+    moduleForm.name = suggestedName
+  }
+}
+
+function openExistingModuleFromDraft() {
+  const existing = aiModuleDraftComparison.value?.existingAsset
+  if (!existing) return
+  openEditModule(existing)
 }
 
 async function saveModule() {
@@ -1712,6 +2239,7 @@ async function saveModule() {
       await createModule(moduleForm)
     }
     moduleModal.hide()
+    resetAIDraftState(aiModuleDraftState)
     await loadModules()
   } catch (error) {
     alert(`${editingModuleId.value ? t('configs_page.save_module_failed') : t('configs_page.create_module_failed')}: ${getErrorMessage(error)}`)
@@ -1823,11 +2351,14 @@ function openAdvancedPreviewFromWizard() {
 
 async function runAIAssistant() {
   if (!aiAssistantForm.sample.trim()) {
-    alert(t('configs_page.require_sample_log'))
+    aiAssistantResult.value = null
+    setAIAssistantFeedback('danger', t('configs_page.require_sample_log'))
     return
   }
 
   aiAssistantLoading.value = true
+  aiAssistantResult.value = null
+  clearAIAssistantFeedback()
   try {
     const { data } = await analyzeLogSampleAssistant({
       fluent_type: aiAssistantForm.fluent_type,
@@ -1837,8 +2368,21 @@ async function runAIAssistant() {
       extra_requirements: aiAssistantForm.extra_requirements,
     })
     aiAssistantResult.value = data
+    setAIAssistantFeedback(
+      'success',
+      t('configs_page.ai_assistant_success'),
+      t('configs_page.ai_assistant_ready'),
+      [data.provider, data.account_name].filter(Boolean).join(' / ')
+    )
   } catch (error) {
-    alert(`${t('configs_page.ai_assistant_failed')}: ${getErrorMessage(error)}`)
+    aiAssistantResult.value = null
+    setAIAssistantFeedback(
+      'danger',
+      t('configs_page.ai_assistant_failed'),
+      getErrorMessage(error),
+      error?.response?.data?.provider || '',
+      getProviderErrorMessage(error)
+    )
   } finally {
     aiAssistantLoading.value = false
   }
@@ -1847,6 +2391,7 @@ async function runAIAssistant() {
 function useAIModuleDraft() {
   if (!aiAssistantResult.value) return
 
+  resetModuleForm()
   editingModuleId.value = null
   moduleForm.name = aiAssistantResult.value.recommended_module_name || `ai-${aiAssistantForm.module_type}`
   moduleForm.description = aiAssistantResult.value.summary || ''
@@ -1855,6 +2400,17 @@ function useAIModuleDraft() {
   moduleForm.content = aiAssistantResult.value.module_content || ''
   moduleForm.is_builtin = false
   applyAIModuleVariables(aiAssistantResult.value.variables_json || '{}')
+  activateAIDraftState(aiModuleDraftState, aiAssistantResult.value, [
+    t('configs_page.ai_draft_review_name'),
+    t('configs_page.ai_draft_review_runtime'),
+    t('configs_page.ai_draft_review_variables'),
+    t('configs_page.ai_draft_review_module_content'),
+  ], [
+    t('configs_page.ai_draft_confirm_name'),
+    t('configs_page.ai_draft_confirm_variables'),
+    t('configs_page.ai_draft_confirm_target'),
+    t('configs_page.ai_draft_confirm_module_content'),
+  ])
   ensureModuleModal()
   moduleModal.show()
 }
@@ -1862,10 +2418,22 @@ function useAIModuleDraft() {
 function useAITemplateDraft() {
   if (!aiAssistantResult.value) return
 
+  resetTemplateForm()
   templateForm.name = aiAssistantResult.value.recommended_template_name || `ai-${aiAssistantForm.fluent_type}-template`
   templateForm.description = aiAssistantResult.value.summary || ''
   templateForm.fluent_type = aiAssistantForm.fluent_type
   templateForm.content = aiAssistantResult.value.template_content || ''
+  activateAIDraftState(aiTemplateDraftState, aiAssistantResult.value, [
+    t('configs_page.ai_draft_review_name'),
+    t('configs_page.ai_draft_review_runtime'),
+    t('configs_page.ai_draft_review_template_content'),
+    t('configs_page.ai_draft_review_notes'),
+  ], [
+    t('configs_page.ai_draft_confirm_name'),
+    t('configs_page.ai_draft_confirm_target'),
+    t('configs_page.ai_draft_confirm_template_content'),
+    t('configs_page.ai_draft_confirm_notes'),
+  ])
   ensureTemplateModal()
   templateModal.show()
 }
@@ -2138,5 +2706,99 @@ onMounted(async () => {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #64748b;
+}
+
+.fm-ai-assistant-feedback {
+  padding: 0.95rem 1rem;
+  border-radius: 14px;
+  border: 1px solid #d7e2ee;
+  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+}
+
+.fm-ai-assistant-feedback.is-success {
+  border-color: #bbf7d0;
+  background: linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%);
+}
+
+.fm-ai-assistant-feedback.is-danger {
+  border-color: #fecaca;
+  background: linear-gradient(180deg, #fef2f2 0%, #ffffff 100%);
+}
+
+.fm-ai-draft-panel {
+  padding: 1rem 1.05rem;
+  border-radius: 14px;
+  border: 1px solid #bfdbfe;
+  background: linear-gradient(180deg, #eff6ff 0%, #ffffff 100%);
+}
+
+.fm-ai-draft-panel__title {
+  margin-bottom: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.fm-ai-draft-diff-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.fm-ai-draft-diff-card {
+  padding: 0.8rem 0.9rem;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.fm-ai-draft-diff-card__label {
+  margin-bottom: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.fm-ai-draft-checklist {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.fm-ai-draft-checklist__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.fm-ai-draft-checklist__item .form-check-input {
+  float: none;
+  margin-top: 0.15rem;
+}
+
+.fm-ai-draft-actions {
+  padding: 0.85rem 0.9rem;
+  border-radius: 12px;
+  border: 1px dashed rgba(59, 130, 246, 0.35);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.fm-ai-draft-highlight {
+  border-color: #93c5fd;
+  background-color: #f8fbff;
+  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.08);
+}
+
+@media (max-width: 991.98px) {
+  .fm-ai-draft-diff-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

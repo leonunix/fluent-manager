@@ -10,6 +10,7 @@ func registerAIRoutes(authed *gin.RouterGroup, h *allHandlers) {
 	{
 		ai.GET("", middleware.RequirePermission("ai_settings", "read"), h.AI.GetSettings)
 		ai.PUT("", middleware.RequirePermission("ai_settings", "update"), h.AI.UpdateSettings)
+		ai.POST("/test-account", middleware.RequirePermission("ai_settings", "update"), h.AI.TestAccount)
 		ai.POST("/log-sample-analysis", middleware.RequirePermission("ai_settings", "read"), h.AI.AnalyzeLogSample)
 	}
 }

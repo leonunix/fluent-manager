@@ -1,6 +1,7 @@
 package services
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -150,5 +151,77 @@ func TestAnalyzeLogSampleWithGeminiProvider(t *testing.T) {
 	}
 	if !strings.Contains(result.VariablesJSON, "/var/log/app.json") {
 		t.Fatalf("expected normalized variables json, got %q", result.VariablesJSON)
+	}
+}
+
+func TestTestAccountWithOpenAICompatibleProvider(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer secret" {
+			t.Fatalf("unexpected authorization header: %s", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"PONG"}}]}`)
+	}))
+	defer server.Close()
+
+	svc := &aiService{httpClient: server.Client()}
+	result, err := svc.TestAccount(&AITestAccountInput{
+		ID:                    "openai-primary",
+		Name:                  "OpenAI Primary",
+		Provider:              "openai",
+		APIKey:                "secret",
+		BaseURL:               server.URL,
+		Model:                 "test-model",
+		RequestTimeoutSeconds: 15,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Success {
+		t.Fatal("expected success result")
+	}
+	if result.Provider != "openai" {
+		t.Fatalf("expected provider openai, got %q", result.Provider)
+	}
+	if result.Response != "PONG" {
+		t.Fatalf("expected response PONG, got %q", result.Response)
+	}
+}
+
+func TestTestAccountReturnsStructuredProviderError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		fmt.Fprint(w, `{"error":{"message":"invalid api key","type":"invalid_request_error","code":"invalid_api_key"}}`)
+	}))
+	defer server.Close()
+
+	svc := &aiService{httpClient: server.Client()}
+	_, err := svc.TestAccount(&AITestAccountInput{
+		Provider:              "openai",
+		APIKey:                "secret",
+		BaseURL:               server.URL,
+		Model:                 "test-model",
+		RequestTimeoutSeconds: 15,
+	})
+	if err == nil {
+		t.Fatal("expected provider error")
+	}
+
+	var providerErr *AIProviderError
+	if !errors.As(err, &providerErr) {
+		t.Fatalf("expected AIProviderError, got %T", err)
+	}
+	if providerErr.HTTPStatus() != http.StatusUnauthorized {
+		t.Fatalf("expected status 401, got %d", providerErr.HTTPStatus())
+	}
+	if providerErr.Code != "invalid_api_key" {
+		t.Fatalf("expected code invalid_api_key, got %q", providerErr.Code)
+	}
+	if !strings.Contains(providerErr.ProviderMessage, "invalid api key") {
+		t.Fatalf("expected provider message to mention invalid api key, got %q", providerErr.ProviderMessage)
 	}
 }
