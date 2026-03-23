@@ -10,11 +10,17 @@ export const useAuthStore = defineStore('auth', {
   getters: {
     isAuthenticated: (state) => !!state.token,
     permissions: (state) => {
-      if (!state.user?.roles) return [] as string[]
       const perms = new Set<string>()
-      for (const role of state.user.roles) {
-        if (role.permissions) {
-          for (const p of role.permissions) {
+      // Direct role permissions
+      for (const role of state.user?.roles || []) {
+        for (const p of role.permissions || []) {
+          perms.add(p.name)
+        }
+      }
+      // Group-inherited role permissions
+      for (const group of state.user?.groups || []) {
+        for (const role of group.roles || []) {
+          for (const p of role.permissions || []) {
             perms.add(p.name)
           }
         }
@@ -32,6 +38,12 @@ export const useAuthStore = defineStore('auth', {
       localStorage.setItem('user', JSON.stringify(data.user))
 
       // Fetch full profile with roles/permissions
+      await this.fetchProfile()
+    },
+
+    async loginWithToken(token: string) {
+      this.token = token
+      localStorage.setItem('token', token)
       await this.fetchProfile()
     },
 

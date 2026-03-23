@@ -43,16 +43,17 @@ type AuthConfig struct {
 }
 
 type LDAPConfig struct {
-	Enabled      bool   `yaml:"enabled"`
-	Host         string `yaml:"host"`
-	Port         int    `yaml:"port"`
-	UseTLS       bool   `yaml:"use_tls"`
-	BindDN       string `yaml:"bind_dn"`
-	BindPassword string `yaml:"bind_password"`
-	BaseDN       string `yaml:"base_dn"`
-	UserFilter   string `yaml:"user_filter"`
-	GroupFilter  string `yaml:"group_filter"`
-	Attributes   struct {
+	Enabled           bool   `yaml:"enabled"`
+	Host              string `yaml:"host"`
+	Port              int    `yaml:"port"`
+	UseTLS            bool   `yaml:"use_tls"`
+	BindDN            string `yaml:"bind_dn"`
+	BindPassword      string `yaml:"bind_password"`
+	BaseDN            string `yaml:"base_dn"`
+	UserFilter        string `yaml:"user_filter"`
+	GroupFilter       string `yaml:"group_filter"`
+	GroupSyncStrategy string `yaml:"group_sync_strategy"` // always, first_login
+	Attributes        struct {
 		Username string `yaml:"username"`
 		Email    string `yaml:"email"`
 		Name     string `yaml:"name"`
@@ -60,12 +61,14 @@ type LDAPConfig struct {
 }
 
 type SAMLConfig struct {
-	Enabled     bool   `yaml:"enabled"`
-	IDPMetadata string `yaml:"idp_metadata"` // URL or file path
-	EntityID    string `yaml:"entity_id"`
-	ACSURL      string `yaml:"acs_url"`
-	CertFile    string `yaml:"cert_file"`
-	KeyFile     string `yaml:"key_file"`
+	Enabled           bool   `yaml:"enabled"`
+	IDPMetadata       string `yaml:"idp_metadata"` // URL or file path
+	EntityID          string `yaml:"entity_id"`
+	ACSURL            string `yaml:"acs_url"`
+	CertFile          string `yaml:"cert_file"`
+	KeyFile           string `yaml:"key_file"`
+	GroupAttribute    string `yaml:"group_attribute"`     // SAML assertion attribute for groups
+	GroupSyncStrategy string `yaml:"group_sync_strategy"` // always, first_login
 }
 
 type AgentConfig struct {

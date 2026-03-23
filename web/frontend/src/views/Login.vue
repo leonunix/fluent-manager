@@ -47,11 +47,10 @@
               <input v-model="form.password" type="password" class="form-control" :placeholder="t('login.password_ph')" required>
             </div>
           </div>
-          <div class="mb-4">
+          <div v-if="passwordMethods.length > 1" class="mb-4">
             <label class="form-label">{{ t('login.auth_method') }}</label>
             <select v-model="form.authSource" class="form-select">
-              <option value="local">{{ t('login.auth_local') }}</option>
-              <option value="ldap">LDAP</option>
+              <option v-for="m in passwordMethods" :key="m" :value="m">{{ methodLabel(m) }}</option>
             </select>
           </div>
           <button type="submit" class="btn btn-primary w-100 py-2" :disabled="loading">
@@ -59,6 +58,12 @@
             {{ t('login.btn') }}
           </button>
         </form>
+        <div v-if="authMethods.includes('saml')" class="mt-3">
+          <div class="text-center text-muted mb-2" style="font-size:0.85rem">{{ t('login.or_divider') || 'or' }}</div>
+          <a href="/saml/login" class="btn btn-outline-secondary w-100 py-2">
+            <i class="bi bi-shield-lock me-1"></i> {{ t('login.saml_btn') || 'Login with SSO (SAML)' }}
+          </a>
+        </div>
         <div class="fm-login-footer">
           <select v-model="locale" class="form-select form-select-sm" style="width:auto" @change="setLocale(locale)">
             <option v-for="l in availableLocales" :key="l" :value="l">{{ localeNames[l] }}</option>
@@ -70,10 +75,11 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../store/auth'
 import { useI18n } from '../i18n'
+import { getAuthMethods } from '../api/auth'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -81,8 +87,28 @@ const { t, locale: currentLocale, setLocale, availableLocales, localeNames } = u
 const loading = ref(false)
 const error = ref('')
 const locale = ref(currentLocale.value)
+const authMethods = ref(['local'])
 
 const form = reactive({ username: '', password: '', authSource: 'local' })
+
+// Password-based methods only (SAML uses redirect, shown as a separate button)
+const passwordMethods = computed(() => authMethods.value.filter(m => m !== 'saml'))
+
+const methodLabel = (m) => {
+  if (m === 'local') return t('login.auth_local')
+  if (m === 'ldap') return 'LDAP'
+  if (m === 'saml') return 'SAML'
+  return m
+}
+
+onMounted(async () => {
+  try {
+    const res = await getAuthMethods()
+    authMethods.value = res.data.methods || ['local']
+  } catch {
+    authMethods.value = ['local']
+  }
+})
 
 async function handleLogin() {
   loading.value = true

@@ -17,6 +17,7 @@ type User struct {
 	IsActive     bool           `gorm:"default:true" json:"is_active"`
 	LastLoginAt  *time.Time     `json:"last_login_at"`
 	Roles        []Role         `gorm:"many2many:user_roles;" json:"roles"`
+	Groups       []Group        `gorm:"many2many:user_groups;" json:"groups"`
 	Scopes       []UserScope    `gorm:"foreignKey:UserID" json:"scopes"`
 	CreatedAt    time.Time      `json:"created_at"`
 	UpdatedAt    time.Time      `json:"updated_at"`
@@ -54,4 +55,51 @@ type UserScope struct {
 	ScopeName string         `gorm:"size:128" json:"scope_name"` // denormalized for display
 	CreatedAt time.Time      `json:"created_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+// Group represents a user group that can be mapped from LDAP/SAML external groups.
+type Group struct {
+	ID          uint           `gorm:"primaryKey" json:"id"`
+	Name        string         `gorm:"uniqueIndex;size:128;not null" json:"name"`
+	Description string         `gorm:"size:256" json:"description"`
+	MemberCount int64          `gorm:"-" json:"member_count"`
+	Roles       []Role         `gorm:"many2many:group_roles;" json:"roles"`
+	Scopes      []GroupScope   `gorm:"foreignKey:GroupID" json:"scopes"`
+	Users       []User         `gorm:"many2many:user_groups;" json:"users,omitempty"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	DeletedAt   gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+// GroupScope binds a group to specific topology resources. Members inherit these scopes.
+type GroupScope struct {
+	ID        uint           `gorm:"primaryKey" json:"id"`
+	GroupID   uint           `gorm:"index;not null" json:"group_id"`
+	ScopeType string         `gorm:"size:32;not null" json:"scope_type"` // datacenter, region, cluster
+	ScopeID   uint           `gorm:"not null" json:"scope_id"`
+	ScopeName string         `gorm:"size:128" json:"scope_name"`
+	CreatedAt time.Time      `json:"created_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+// ExternalGroupMapping maps an external LDAP/SAML group name to a system group.
+type ExternalGroupMapping struct {
+	ID                uint           `gorm:"primaryKey" json:"id"`
+	Source            string         `gorm:"size:32;not null;uniqueIndex:idx_source_extname" json:"source"` // ldap, saml
+	ExternalGroupName string         `gorm:"size:512;not null;uniqueIndex:idx_source_extname" json:"external_group_name"`
+	GroupID           uint           `gorm:"not null" json:"group_id"`
+	Group             *Group         `gorm:"foreignKey:GroupID" json:"group,omitempty"`
+	CreatedAt         time.Time      `json:"created_at"`
+	UpdatedAt         time.Time      `json:"updated_at"`
+	DeletedAt         gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+// AuthSettings stores runtime LDAP/SAML configuration in the database.
+type AuthSettings struct {
+	ID                uint      `gorm:"primaryKey" json:"id"`
+	Provider          string    `gorm:"size:32;uniqueIndex;not null" json:"provider"` // ldap, saml
+	Config            string    `gorm:"type:text" json:"config"`                      // JSON blob
+	GroupSyncStrategy string    `gorm:"size:32;default:always" json:"group_sync_strategy"` // always, first_login
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }

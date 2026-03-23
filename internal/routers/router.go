@@ -13,12 +13,12 @@ import (
 
 // Deps holds all dependencies needed for route registration.
 type Deps struct {
-	Cfg       *config.Config
-	Svc       *services.Registry
-	JWTSvc    *auth.JWTService
-	SAMLAuth  *auth.SAMLAuth
-	CfgPath   string
-	RestartCh chan struct{}
+	Cfg          *config.Config
+	Svc          *services.Registry
+	JWTSvc       *auth.JWTService
+	SAMLProvider *auth.SAMLProvider
+	CfgPath      string
+	RestartCh    chan struct{}
 }
 
 // SetupRouter creates the gin.Engine with all routes registered.
@@ -47,9 +47,9 @@ func SetupRouter(deps Deps) *gin.Engine {
 		c.File("./web/frontend/dist/index.html")
 	})
 
-	// SAML routes
-	if deps.SAMLAuth != nil && deps.SAMLAuth.SP != nil {
-		r.Any("/saml/*action", gin.WrapH(deps.SAMLAuth.SP))
+	// SAML routes — always registered; provider delegates dynamically
+	if deps.SAMLProvider != nil {
+		r.Any("/saml/*action", gin.WrapH(deps.SAMLProvider))
 	}
 
 	api := r.Group("/api/v1")
@@ -71,6 +71,7 @@ func SetupRouter(deps Deps) *gin.Engine {
 	authed.Use(middleware.AuditLog())
 
 	registerUserRoutes(authed, h)
+	registerGroupRoutes(authed, h)
 	registerTopologyRoutes(authed, h)
 	registerFluentRoutes(authed, h)
 	registerNodeRoutes(authed, h)
@@ -83,19 +84,21 @@ func SetupRouter(deps Deps) *gin.Engine {
 
 // allHandlers holds all handler instances for route registration.
 type allHandlers struct {
-	Auth        *handlers.AuthHandler
-	User        *handlers.UserHandler
-	Role        *handlers.RoleHandler
-	Node        *handlers.NodeHandler
-	Topology    *handlers.TopologyHandler
-	Fluent      *handlers.FluentHandler
-	FluentOps   *handlers.FluentOpsHandler
-	Config      *handlers.ConfigHandler
-	Deploy      *handlers.DeployHandler
-	Agent       *handlers.AgentHandler
-	AgentPolicy *handlers.AgentPolicyHandler
-	Metrics     *handlers.MetricsHandler
-	Setup       *handlers.SetupHandler
+	Auth         *handlers.AuthHandler
+	User         *handlers.UserHandler
+	Role         *handlers.RoleHandler
+	Group        *handlers.GroupHandler
+	AuthSettings *handlers.AuthSettingsHandler
+	Node         *handlers.NodeHandler
+	Topology     *handlers.TopologyHandler
+	Fluent       *handlers.FluentHandler
+	FluentOps    *handlers.FluentOpsHandler
+	Config       *handlers.ConfigHandler
+	Deploy       *handlers.DeployHandler
+	Agent        *handlers.AgentHandler
+	AgentPolicy  *handlers.AgentPolicyHandler
+	Metrics      *handlers.MetricsHandler
+	Setup        *handlers.SetupHandler
 }
 
 func buildHandlers(deps Deps) *allHandlers {
@@ -106,9 +109,11 @@ func buildHandlers(deps Deps) *allHandlers {
 	}
 
 	return &allHandlers{
-		Auth:        &handlers.AuthHandler{JWT: deps.JWTSvc, LDAP: ldapAuth, SAML: deps.SAMLAuth, Svc: deps.Svc.Auth},
-		User:        &handlers.UserHandler{Svc: deps.Svc.User},
-		Role:        &handlers.RoleHandler{Svc: deps.Svc.Role},
+		Auth:         &handlers.AuthHandler{JWT: deps.JWTSvc, LDAP: ldapAuth, SAMLProvider: deps.SAMLProvider, Svc: deps.Svc.Auth, AuthSettingsSvc: deps.Svc.AuthSettings},
+		User:         &handlers.UserHandler{Svc: deps.Svc.User},
+		Role:         &handlers.RoleHandler{Svc: deps.Svc.Role},
+		Group:        &handlers.GroupHandler{Svc: deps.Svc.Group},
+		AuthSettings: &handlers.AuthSettingsHandler{Svc: deps.Svc.AuthSettings, SAMLProvider: deps.SAMLProvider},
 		Node:        &handlers.NodeHandler{Svc: deps.Svc.Node},
 		Topology:    &handlers.TopologyHandler{Svc: deps.Svc.Topology},
 		Fluent:      &handlers.FluentHandler{Svc: deps.Svc.Fluent, NodeSvc: deps.Svc.Node},

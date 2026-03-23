@@ -7,6 +7,7 @@ export interface User {
   is_active: boolean
   last_login_at: string | null
   roles: Role[]
+  groups: Group[]
   scopes: UserScope[]
   created_at: string
   updated_at: string
@@ -35,6 +36,61 @@ export interface UserScope {
   scope_id: number
   scope_name: string
   created_at: string
+}
+
+export interface Group {
+  id: number
+  name: string
+  description: string
+  roles: Role[]
+  scopes: GroupScope[]
+  users?: User[]
+  created_at: string
+  updated_at: string
+}
+
+export interface GroupScope {
+  id: number
+  group_id: number
+  scope_type: string
+  scope_id: number
+  scope_name: string
+  created_at: string
+}
+
+export interface ExternalGroupMapping {
+  id: number
+  source: string
+  external_group_name: string
+  group_id: number
+  group?: Group
+  created_at: string
+  updated_at: string
+}
+
+export interface LDAPSettings {
+  enabled: boolean
+  host: string
+  port: number
+  use_tls: boolean
+  bind_dn: string
+  bind_password: string
+  base_dn: string
+  user_filter: string
+  group_filter: string
+  attributes: { username: string; email: string; name: string }
+  group_sync_strategy: string
+}
+
+export interface SAMLSettings {
+  enabled: boolean
+  idp_metadata: string
+  entity_id: string
+  acs_url: string
+  cert_file: string
+  key_file: string
+  group_attribute: string
+  group_sync_strategy: string
 }
 
 export interface LoginRequest {

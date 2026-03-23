@@ -67,6 +67,10 @@ func migrateAll(db *gorm.DB) error {
 		&Role{},
 		&Permission{},
 		&UserScope{},
+		&Group{},
+		&GroupScope{},
+		&ExternalGroupMapping{},
+		&AuthSettings{},
 		&Environment{},
 		&DataCenter{},
 		&Region{},
@@ -172,6 +176,12 @@ func seedDefaultsOn(db *gorm.DB) {
 		{Name: "roles:update", Resource: "roles", Action: "update"},
 		{Name: "roles:delete", Resource: "roles", Action: "delete"},
 		{Name: "audit:read", Resource: "audit", Action: "read"},
+		{Name: "groups:create", Resource: "groups", Action: "create"},
+		{Name: "groups:read", Resource: "groups", Action: "read"},
+		{Name: "groups:update", Resource: "groups", Action: "update"},
+		{Name: "groups:delete", Resource: "groups", Action: "delete"},
+		{Name: "auth_settings:read", Resource: "auth_settings", Action: "read"},
+		{Name: "auth_settings:update", Resource: "auth_settings", Action: "update"},
 	}
 	for _, p := range permissions {
 		db.FirstOrCreate(&p, Permission{Name: p.Name})

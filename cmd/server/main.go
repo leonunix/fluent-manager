@@ -38,15 +38,8 @@ func main() {
 	// Auth services
 	jwtSvc := auth.NewJWTService(cfg.Auth.JWTSecret, cfg.Auth.TokenExpireHours)
 
-	var samlAuth *auth.SAMLAuth
-	if cfg.Auth.SAML.Enabled {
-		samlAuth, err = auth.NewSAMLAuth(cfg.Auth.SAML)
-		if err != nil {
-			log.Printf("WARNING: SAML init failed: %v", err)
-		} else {
-			log.Println("SAML authentication enabled")
-		}
-	}
+	// SAMLProvider is initialized empty; it will be loaded from DB after service registry is ready.
+	samlProvider := auth.NewSAMLProvider(nil)
 
 	// Cache (Redis)
 	cache.Init(&cfg.Cache)
@@ -85,17 +78,38 @@ func main() {
 		MaxBackups:          cfg.Agent.MaxBackups,
 	})
 
+	// Seed auth settings from config.yaml (only if DB has no settings yet)
+	svc.AuthSettings.SeedFromConfig(cfg.Auth)
+
+	// Load SAML from DB settings (covers both seeded-from-yaml and UI-configured scenarios)
+	if samlDTO, err := svc.AuthSettings.GetSAMLSettings(); err == nil && samlDTO.Enabled {
+		samlCfg := config.SAMLConfig{
+			Enabled:        samlDTO.Enabled,
+			IDPMetadata:    samlDTO.IDPMetadata,
+			EntityID:       samlDTO.EntityID,
+			ACSURL:         samlDTO.ACSURL,
+			CertFile:       samlDTO.CertFile,
+			KeyFile:        samlDTO.KeyFile,
+			GroupAttribute: samlDTO.GroupAttribute,
+		}
+		if err := samlProvider.Reload(samlCfg); err != nil {
+			log.Printf("WARNING: SAML init from DB settings failed: %v", err)
+		} else {
+			log.Println("SAML authentication enabled (from DB settings)")
+		}
+	}
+
 	// Restart channel — setup handler sends on this to trigger server restart
 	restartCh := make(chan struct{}, 1)
 
 	// Router
 	r := routers.SetupRouter(routers.Deps{
-		Cfg:       cfg,
-		Svc:       svc,
-		JWTSvc:    jwtSvc,
-		SAMLAuth:  samlAuth,
-		CfgPath:   cfgPath,
-		RestartCh: restartCh,
+		Cfg:          cfg,
+		Svc:          svc,
+		JWTSvc:       jwtSvc,
+		SAMLProvider: samlProvider,
+		CfgPath:      cfgPath,
+		RestartCh:    restartCh,
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

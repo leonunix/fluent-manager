@@ -20,29 +20,33 @@ var ErrForbidden = errors.New("forbidden")
 
 // Registry holds all service instances.
 type Registry struct {
-	Auth        AuthService
-	User        UserService
-	Role        RoleService
-	Topology    TopologyService
-	Node        NodeService
-	Fluent      FluentService
-	FluentOps   FluentOpsService
-	AgentPolicy AgentPolicyService
-	Config      ConfigService
-	Deploy      DeployService
-	Agent       AgentService
-	Metrics     MetricsService
-	Setup       SetupService
+	Auth         AuthService
+	User         UserService
+	Role         RoleService
+	Group        GroupService
+	AuthSettings AuthSettingsService
+	Topology     TopologyService
+	Node         NodeService
+	Fluent       FluentService
+	FluentOps    FluentOpsService
+	AgentPolicy  AgentPolicyService
+	Config       ConfigService
+	Deploy       DeployService
+	Agent        AgentService
+	Metrics      MetricsService
+	Setup        SetupService
 }
 
 // NewRegistry creates all services with the given database connection.
 func NewRegistry(db *gorm.DB, fluentSharedKeySecret string, agentSettings AgentSettings) *Registry {
 	agentPolicySvc := NewAgentPolicyService(db, agentSettings)
 	return &Registry{
-		Auth:        NewAuthService(db),
-		User:        NewUserService(db),
-		Role:        NewRoleService(db),
-		Topology:    NewTopologyService(db),
+		Auth:         NewAuthService(db),
+		User:         NewUserService(db),
+		Role:         NewRoleService(db),
+		Group:        NewGroupService(db),
+		AuthSettings: NewAuthSettingsService(db),
+		Topology:     NewTopologyService(db),
 		Node:        NewNodeService(db),
 		Fluent:      NewFluentService(db, fluentSharedKeySecret),
 		FluentOps:   NewFluentOpsService(db),

@@ -106,35 +106,49 @@ func AutoAssignCluster(hostname, ipAddress, fluentType, os, labels string) *uint
 	return nil
 }
 
-// AllowedClusterIDs returns the cluster IDs a user can access based on their scopes.
-// Returns nil if the user has global access (no scopes = admin).
+// AllowedClusterIDs returns the cluster IDs a user can access based on their
+// direct scopes and group-inherited scopes.
+// Returns nil if the user has global access (no scopes at all = admin).
 func AllowedClusterIDs(userID uint) []uint {
-	var scopes []UserScope
-	DB.Where("user_id = ?", userID).Find(&scopes)
+	var userScopes []UserScope
+	DB.Where("user_id = ?", userID).Find(&userScopes)
 
-	if len(scopes) == 0 {
+	// Collect group scopes via user_groups join
+	var groupScopes []GroupScope
+	DB.Joins("JOIN user_groups ON user_groups.group_id = group_scopes.group_id").
+		Where("user_groups.user_id = ?", userID).
+		Find(&groupScopes)
+
+	if len(userScopes) == 0 && len(groupScopes) == 0 {
 		return nil // global access
 	}
 
 	clusterSet := map[uint]bool{}
-	for _, s := range scopes {
-		switch s.ScopeType {
+	resolveScopes := func(scopeType string, scopeID uint) {
+		switch scopeType {
 		case "cluster":
-			clusterSet[s.ScopeID] = true
+			clusterSet[scopeID] = true
 		case "region":
 			var clusters []Cluster
-			DB.Where("region_id = ?", s.ScopeID).Find(&clusters)
+			DB.Where("region_id = ?", scopeID).Find(&clusters)
 			for _, c := range clusters {
 				clusterSet[c.ID] = true
 			}
 		case "datacenter":
 			var clusters []Cluster
 			DB.Joins("JOIN regions ON regions.id = clusters.region_id").
-				Where("regions.data_center_id = ?", s.ScopeID).Find(&clusters)
+				Where("regions.data_center_id = ?", scopeID).Find(&clusters)
 			for _, c := range clusters {
 				clusterSet[c.ID] = true
 			}
 		}
+	}
+
+	for _, s := range userScopes {
+		resolveScopes(s.ScopeType, s.ScopeID)
+	}
+	for _, s := range groupScopes {
+		resolveScopes(s.ScopeType, s.ScopeID)
 	}
 
 	ids := make([]uint, 0, len(clusterSet))

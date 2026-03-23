@@ -49,17 +49,29 @@ func RequirePermission(resource, action string) gin.HandlerFunc {
 		}
 
 		var user models.User
-		if err := models.DB.Preload("Roles.Permissions").First(&user, userID).Error; err != nil {
+		if err := models.DB.Preload("Roles.Permissions").Preload("Groups.Roles.Permissions").First(&user, userID).Error; err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": "user not found"})
 			c.Abort()
 			return
 		}
 
+		// Check direct role permissions
 		for _, role := range user.Roles {
 			for _, perm := range role.Permissions {
 				if perm.Resource == resource && perm.Action == action {
 					c.Next()
 					return
+				}
+			}
+		}
+		// Check group-inherited role permissions
+		for _, group := range user.Groups {
+			for _, role := range group.Roles {
+				for _, perm := range role.Permissions {
+					if perm.Resource == resource && perm.Action == action {
+						c.Next()
+						return
+					}
 				}
 			}
 		}

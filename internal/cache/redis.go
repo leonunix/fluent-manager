@@ -70,3 +70,32 @@ func Set(key string, value interface{}) {
 	}
 	client.Set(context.Background(), key, data, ttl)
 }
+
+// SetWithTTL stores a value with a custom TTL. No-op when cache is disabled.
+func SetWithTTL(key string, value interface{}, customTTL time.Duration) {
+	if !enabled {
+		return
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return
+	}
+	client.Set(context.Background(), key, data, customTTL)
+}
+
+// GetAndDelete retrieves a value and deletes it atomically. Returns false on miss.
+func GetAndDelete(key string, dest interface{}) bool {
+	if !enabled {
+		return false
+	}
+	data, err := client.GetDel(context.Background(), key).Bytes()
+	if err != nil {
+		return false
+	}
+	return json.Unmarshal(data, dest) == nil
+}
+
+// Enabled returns whether the cache backend is available.
+func Enabled() bool {
+	return enabled
+}

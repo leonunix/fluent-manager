@@ -43,6 +43,7 @@ type CreateUserRequest struct {
 	DisplayName string `json:"display_name"`
 	Password    string `json:"password" binding:"required,min=6"`
 	RoleIDs     []uint `json:"role_ids"`
+	GroupIDs    []uint `json:"group_ids"`
 }
 
 func (h *UserHandler) Create(c *gin.Context) {
@@ -52,7 +53,7 @@ func (h *UserHandler) Create(c *gin.Context) {
 		return
 	}
 
-	user, err := h.Svc.Create(req.Username, req.Email, req.DisplayName, req.Password, req.RoleIDs)
+	user, err := h.Svc.Create(req.Username, req.Email, req.DisplayName, req.Password, req.RoleIDs, req.GroupIDs)
 	if err != nil {
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		return
@@ -66,6 +67,7 @@ type UpdateUserRequest struct {
 	IsActive    *bool  `json:"is_active"`
 	Password    string `json:"password"`
 	RoleIDs     []uint `json:"role_ids"`
+	GroupIDs    []uint `json:"group_ids"`
 }
 
 func (h *UserHandler) Update(c *gin.Context) {
@@ -76,7 +78,7 @@ func (h *UserHandler) Update(c *gin.Context) {
 		return
 	}
 
-	user, err := h.Svc.Update(uint(id), req.Email, req.DisplayName, req.Password, req.IsActive, req.RoleIDs)
+	user, err := h.Svc.Update(uint(id), req.Email, req.DisplayName, req.Password, req.IsActive, req.RoleIDs, req.GroupIDs)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return

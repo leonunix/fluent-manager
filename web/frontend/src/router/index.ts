@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '../store/auth'
 import { getSetupStatus } from '../api/setup'
+import { exchangeSAMLCode } from '../api/auth'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -54,6 +55,19 @@ export function resetSetupCache() {
 
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
+
+  // Handle SAML one-time code exchange
+  const samlCode = to.query.saml_code as string
+  if (samlCode) {
+    try {
+      const res = await exchangeSAMLCode(samlCode)
+      await auth.loginWithToken(res.data.token)
+    } catch {
+      // Code invalid/expired — fall through to login
+    }
+    // Strip saml_code from URL regardless of success
+    return { path: to.path, query: {}, replace: true }
+  }
 
   // Check setup status if not yet cached
   if (setupStatusCache === null) {

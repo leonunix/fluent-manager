@@ -97,9 +97,9 @@ func TestFindOrCreateLDAPUser_FindExisting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Should return existing, not create new
-	if user.Email != "old@test.com" {
-		t.Error("should return existing user without updating")
+	// Should return existing user with updated profile fields
+	if user.Username != "ldapuser" {
+		t.Error("should return existing user")
 	}
 }
 

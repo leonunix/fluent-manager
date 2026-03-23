@@ -18,7 +18,7 @@ func setupUserTest(t *testing.T) (*gorm.DB, UserService) {
 func TestCreateUser(t *testing.T) {
 	_, svc := setupUserTest(t)
 
-	user, err := svc.Create("testuser", "test@example.com", "Test User", "password123", nil)
+	user, err := svc.Create("testuser", "test@example.com", "Test User", "password123", nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -33,8 +33,8 @@ func TestCreateUser(t *testing.T) {
 func TestCreateUser_Duplicate(t *testing.T) {
 	_, svc := setupUserTest(t)
 
-	svc.Create("testuser", "", "", "pass", nil)
-	_, err := svc.Create("testuser", "", "", "pass", nil)
+	svc.Create("testuser", "", "", "pass", nil, nil)
+	_, err := svc.Create("testuser", "", "", "pass", nil, nil)
 	if err == nil {
 		t.Error("expected error for duplicate username")
 	}
@@ -46,7 +46,7 @@ func TestCreateUser_WithRoles(t *testing.T) {
 	role := models.Role{Name: "viewer", Description: "read only"}
 	db.Create(&role)
 
-	user, err := svc.Create("testuser", "", "", "pass", []uint{role.ID})
+	user, err := svc.Create("testuser", "", "", "pass", []uint{role.ID}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -58,8 +58,8 @@ func TestCreateUser_WithRoles(t *testing.T) {
 func TestListUsers(t *testing.T) {
 	_, svc := setupUserTest(t)
 
-	svc.Create("alice", "alice@test.com", "Alice", "pass", nil)
-	svc.Create("bob", "bob@test.com", "Bob", "pass", nil)
+	svc.Create("alice", "alice@test.com", "Alice", "pass", nil, nil)
+	svc.Create("bob", "bob@test.com", "Bob", "pass", nil, nil)
 
 	users, total, _ := svc.List("", 1, 10)
 	if total != 2 {
@@ -75,7 +75,7 @@ func TestListUsers(t *testing.T) {
 func TestGetUser(t *testing.T) {
 	_, svc := setupUserTest(t)
 
-	created, _ := svc.Create("testuser", "", "", "pass", nil)
+	created, _ := svc.Create("testuser", "", "", "pass", nil, nil)
 	user, err := svc.Get(created.ID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -88,10 +88,10 @@ func TestGetUser(t *testing.T) {
 func TestUpdateUser(t *testing.T) {
 	_, svc := setupUserTest(t)
 
-	user, _ := svc.Create("testuser", "old@test.com", "Old Name", "pass", nil)
+	user, _ := svc.Create("testuser", "old@test.com", "Old Name", "pass", nil, nil)
 
 	isActive := false
-	updated, err := svc.Update(user.ID, "new@test.com", "New Name", "", &isActive, nil)
+	updated, err := svc.Update(user.ID, "new@test.com", "New Name", "", &isActive, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -106,13 +106,13 @@ func TestUpdateUser(t *testing.T) {
 func TestUpdateUser_ChangePassword(t *testing.T) {
 	db, svc := setupUserTest(t)
 
-	user, _ := svc.Create("testuser", "", "", "oldpass", nil)
+	user, _ := svc.Create("testuser", "", "", "oldpass", nil, nil)
 
 	var before models.User
 	db.First(&before, user.ID)
 	oldHash := before.PasswordHash
 
-	svc.Update(user.ID, "", "", "newpass", nil, nil)
+	svc.Update(user.ID, "", "", "newpass", nil, nil, nil)
 
 	var after models.User
 	db.First(&after, user.ID)
@@ -129,9 +129,9 @@ func TestUpdateUser_ChangeRoles(t *testing.T) {
 	db.Create(&r1)
 	db.Create(&r2)
 
-	user, _ := svc.Create("testuser", "", "", "pass", []uint{r1.ID})
+	user, _ := svc.Create("testuser", "", "", "pass", []uint{r1.ID}, nil)
 
-	updated, _ := svc.Update(user.ID, "", "", "", nil, []uint{r2.ID})
+	updated, _ := svc.Update(user.ID, "", "", "", nil, []uint{r2.ID}, nil)
 	if len(updated.Roles) != 1 || updated.Roles[0].Name != "viewer" {
 		t.Error("roles not updated correctly")
 	}
@@ -140,7 +140,7 @@ func TestUpdateUser_ChangeRoles(t *testing.T) {
 func TestDeleteUser(t *testing.T) {
 	_, svc := setupUserTest(t)
 
-	user, _ := svc.Create("testuser", "", "", "pass", nil)
+	user, _ := svc.Create("testuser", "", "", "pass", nil, nil)
 	if err := svc.Delete(user.ID); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -11,8 +11,8 @@ import (
 type UserService interface {
 	List(search string, page, pageSize int) ([]models.User, int64, error)
 	Get(id uint) (*models.User, error)
-	Create(username, email, displayName, password string, roleIDs []uint) (*models.User, error)
-	Update(id uint, email, displayName, password string, isActive *bool, roleIDs []uint) (*models.User, error)
+	Create(username, email, displayName, password string, roleIDs []uint, groupIDs []uint) (*models.User, error)
+	Update(id uint, email, displayName, password string, isActive *bool, roleIDs []uint, groupIDs []uint) (*models.User, error)
 	Delete(id uint) error
 }
 
@@ -25,7 +25,7 @@ func NewUserService(db *gorm.DB) UserService {
 }
 
 func (s *userService) List(search string, page, pageSize int) ([]models.User, int64, error) {
-	query := s.db.Preload("Roles")
+	query := s.db.Preload("Roles").Preload("Groups")
 	if search != "" {
 		query = query.Where("username LIKE ? OR email LIKE ? OR display_name LIKE ?",
 			"%"+search+"%", "%"+search+"%", "%"+search+"%")
@@ -41,13 +41,13 @@ func (s *userService) List(search string, page, pageSize int) ([]models.User, in
 
 func (s *userService) Get(id uint) (*models.User, error) {
 	var user models.User
-	if err := s.db.Preload("Roles.Permissions").First(&user, id).Error; err != nil {
+	if err := s.db.Preload("Roles.Permissions").Preload("Groups.Roles").Preload("Groups.Scopes").First(&user, id).Error; err != nil {
 		return nil, err
 	}
 	return &user, nil
 }
 
-func (s *userService) Create(username, email, displayName, password string, roleIDs []uint) (*models.User, error) {
+func (s *userService) Create(username, email, displayName, password string, roleIDs []uint, groupIDs []uint) (*models.User, error) {
 	var existing models.User
 	if s.db.Where("username = ?", username).First(&existing).RowsAffected > 0 {
 		return nil, errors.New("username already exists")
@@ -76,11 +76,19 @@ func (s *userService) Create(username, email, displayName, password string, role
 		s.db.Model(&user).Association("Roles").Replace(roles)
 	}
 
-	s.db.Preload("Roles").First(&user, user.ID)
+	if groupIDs != nil {
+		var groups []models.Group
+		if len(groupIDs) > 0 {
+			s.db.Where("id IN ?", groupIDs).Find(&groups)
+		}
+		s.db.Model(&user).Association("Groups").Replace(groups)
+	}
+
+	s.db.Preload("Roles").Preload("Groups").First(&user, user.ID)
 	return &user, nil
 }
 
-func (s *userService) Update(id uint, email, displayName, password string, isActive *bool, roleIDs []uint) (*models.User, error) {
+func (s *userService) Update(id uint, email, displayName, password string, isActive *bool, roleIDs []uint, groupIDs []uint) (*models.User, error) {
 	var user models.User
 	if err := s.db.First(&user, id).Error; err != nil {
 		return nil, err
@@ -112,11 +120,21 @@ func (s *userService) Update(id uint, email, displayName, password string, isAct
 
 	if roleIDs != nil {
 		var roles []models.Role
-		s.db.Where("id IN ?", roleIDs).Find(&roles)
+		if len(roleIDs) > 0 {
+			s.db.Where("id IN ?", roleIDs).Find(&roles)
+		}
 		s.db.Model(&user).Association("Roles").Replace(roles)
 	}
 
-	s.db.Preload("Roles").First(&user, user.ID)
+	if groupIDs != nil {
+		var groups []models.Group
+		if len(groupIDs) > 0 {
+			s.db.Where("id IN ?", groupIDs).Find(&groups)
+		}
+		s.db.Model(&user).Association("Groups").Replace(groups)
+	}
+
+	s.db.Preload("Roles").Preload("Groups").First(&user, user.ID)
 	return &user, nil
 }
 
@@ -126,5 +144,6 @@ func (s *userService) Delete(id uint) error {
 		return err
 	}
 	s.db.Model(&user).Association("Roles").Clear()
+	s.db.Model(&user).Association("Groups").Clear()
 	return s.db.Delete(&user).Error
 }
