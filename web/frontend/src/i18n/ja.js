@@ -288,6 +288,25 @@ export default {
     choose_cluster: 'クラスターを選択',
     choose_node: 'ノードを選択',
     disabled_note: '無効なポリシーは保存されますが agent には適用されません',
+    node_search: 'ノード検索',
+    node_search_placeholder: 'ホスト名、IP、Node UID で検索',
+    node_results: '{total} 件中 {start}-{end} 件を表示',
+    no_nodes_found: '現在のスコープで選択可能なノードがありません',
+    load_nodes_failed: 'ノード候補の読み込みに失敗しました',
+    current_scope: '現在のスコープ',
+    global_scope: '現在のスコープ: グローバルアクセス',
+    cluster_scope_hint: '現在のスコープで選択可能なクラスター: {count}',
+  },
+
+  audit_page: {
+    title: '監査ログ',
+    detail: '詳細',
+    show_diff: '差分を表示',
+    hide_diff: '差分を隠す',
+    operation: '操作種別',
+    before: '変更前',
+    after: '変更後',
+    changes: '変更点',
   },
 
   config_detail: {

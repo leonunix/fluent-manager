@@ -60,7 +60,7 @@ func (s *authService) FindOrCreateLDAPUser(username, email, displayName string) 
 
 func (s *authService) GetProfile(userID uint) (*models.User, error) {
 	var user models.User
-	if err := s.db.Preload("Roles.Permissions").First(&user, userID).Error; err != nil {
+	if err := s.db.Preload("Roles.Permissions").Preload("Scopes").First(&user, userID).Error; err != nil {
 		return nil, err
 	}
 	return &user, nil

@@ -221,3 +221,46 @@ func TestGetAuditLogs(t *testing.T) {
 		t.Errorf("expected 2 audit logs, got total=%d len=%d", total, len(logs))
 	}
 }
+
+func TestGetAuditLogsFiltersAgentPolicyByClusterScope(t *testing.T) {
+	db, svc := setupDeployTest(t)
+	_, cluster, _ := seedDeployData(t, db)
+
+	otherDC := models.DataCenter{Name: "dc-other"}
+	db.Create(&otherDC)
+	otherRegion := models.Region{Name: "r-other", DataCenterID: otherDC.ID}
+	db.Create(&otherRegion)
+	otherCluster := models.Cluster{Name: "c-other", RegionID: otherRegion.ID}
+	db.Create(&otherCluster)
+
+	inScopePolicy := models.AgentPolicy{
+		Name:      "policy-in",
+		ScopeType: models.AgentPolicyScopeCluster,
+		ClusterID: &cluster.ID,
+		IsEnabled: true,
+		Settings:  `{}`,
+	}
+	outOfScopePolicy := models.AgentPolicy{
+		Name:      "policy-out",
+		ScopeType: models.AgentPolicyScopeCluster,
+		ClusterID: &otherCluster.ID,
+		IsEnabled: true,
+		Settings:  `{}`,
+	}
+	db.Create(&inScopePolicy)
+	db.Create(&outOfScopePolicy)
+
+	db.Create(&models.AuditLog{UserID: 1, Username: "admin", Action: "POST", ResourceType: "agent_policy", ResourceID: inScopePolicy.ID, Resource: "/api/v1/agent-policies"})
+	db.Create(&models.AuditLog{UserID: 1, Username: "admin", Action: "PUT", ResourceType: "agent_policy", ResourceID: outOfScopePolicy.ID, Resource: "/api/v1/agent-policies/2"})
+
+	logs, total, err := svc.GetAuditLogs(1, 10, []uint{cluster.ID})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if total != 1 || len(logs) != 1 {
+		t.Fatalf("expected 1 in-scope agent policy audit log, got total=%d len=%d", total, len(logs))
+	}
+	if logs[0].ResourceID != inScopePolicy.ID {
+		t.Fatalf("expected in-scope policy audit log, got resource_id=%d", logs[0].ResourceID)
+	}
+}

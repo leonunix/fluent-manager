@@ -135,6 +135,10 @@ func seedDefaults() {
 		{Name: "configs:update", Resource: "configs", Action: "update"},
 		{Name: "configs:delete", Resource: "configs", Action: "delete"},
 		{Name: "configs:deploy", Resource: "configs", Action: "deploy"},
+		{Name: "agent_policies:create", Resource: "agent_policies", Action: "create"},
+		{Name: "agent_policies:read", Resource: "agent_policies", Action: "read"},
+		{Name: "agent_policies:update", Resource: "agent_policies", Action: "update"},
+		{Name: "agent_policies:delete", Resource: "agent_policies", Action: "delete"},
 		{Name: "users:create", Resource: "users", Action: "create"},
 		{Name: "users:read", Resource: "users", Action: "read"},
 		{Name: "users:update", Resource: "users", Action: "update"},
@@ -164,27 +168,27 @@ func seedDefaults() {
 	// Seed viewer role
 	var viewerRole Role
 	result = DB.Where("name = ?", "viewer").First(&viewerRole)
+	var readPerms []Permission
+	DB.Where("action = ?", "read").Find(&readPerms)
 	if result.RowsAffected == 0 {
-		var readPerms []Permission
-		DB.Where("action = ?", "read").Find(&readPerms)
 		viewerRole = Role{Name: "viewer", Description: "Read-only access"}
 		DB.Create(&viewerRole)
-		DB.Model(&viewerRole).Association("Permissions").Replace(readPerms)
 	}
+	DB.Model(&viewerRole).Association("Permissions").Replace(readPerms)
 
 	// Seed operator role
 	var operatorRole Role
 	result = DB.Where("name = ?", "operator").First(&operatorRole)
+	var opPerms []Permission
+	DB.Where("resource IN ? AND action IN ?",
+		[]string{"nodes", "configs", "topology", "agent_policies"},
+		[]string{"create", "read", "update", "deploy"},
+	).Find(&opPerms)
 	if result.RowsAffected == 0 {
-		var opPerms []Permission
-		DB.Where("resource IN ? AND action IN ?",
-			[]string{"nodes", "configs", "topology"},
-			[]string{"create", "read", "update", "deploy"},
-		).Find(&opPerms)
 		operatorRole = Role{Name: "operator", Description: "Can manage nodes and configs"}
 		DB.Create(&operatorRole)
-		DB.Model(&operatorRole).Association("Permissions").Replace(opPerms)
 	}
+	DB.Model(&operatorRole).Association("Permissions").Replace(opPerms)
 
 	// Seed default admin user
 	var adminUser User

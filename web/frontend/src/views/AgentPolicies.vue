@@ -4,8 +4,9 @@
       <div>
         <h4 class="mb-1">{{ t('agent_policies_page.title') }}</h4>
         <div class="text-muted">{{ t('agent_policies_page.subtitle') }}</div>
+        <div class="small text-muted mt-2">{{ userScopeSummary }}</div>
       </div>
-      <button class="btn btn-primary" @click="openCreate">
+      <button v-if="canCreatePolicies" class="btn btn-primary" @click="openCreate">
         <i class="bi bi-plus-lg me-1"></i>{{ t('agent_policies_page.create') }}
       </button>
     </div>
@@ -42,7 +43,17 @@
           </div>
           <div class="card-body">
             <div class="row g-3 align-items-end mb-4">
-              <div class="col-md-8">
+              <div class="col-md-5">
+                <label class="form-label">{{ t('agent_policies_page.node_search') }}</label>
+                <input
+                  v-model="nodeSearch"
+                  type="text"
+                  class="form-control"
+                  :placeholder="t('agent_policies_page.node_search_placeholder')"
+                  @input="scheduleNodeSearch"
+                >
+              </div>
+              <div class="col-md-4">
                 <label class="form-label">{{ t('agent_policies_page.node_preview') }}</label>
                 <select v-model="selectedNodeID" class="form-select" @change="loadResolvedPreview">
                   <option :value="null">{{ t('agent_policies_page.choose_node') }}</option>
@@ -51,9 +62,26 @@
                   </option>
                 </select>
               </div>
-              <div class="col-md-4">
+              <div class="col-md-3">
                 <button class="btn btn-outline-primary w-100" :disabled="!selectedNodeID" @click="loadResolvedPreview">
                   <i class="bi bi-arrow-repeat me-1"></i>{{ t('common.refresh') }}
+                </button>
+              </div>
+            </div>
+
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
+              <div class="small text-muted">
+                {{ t('agent_policies_page.node_results')
+                  .replace('{start}', String(nodeRangeStart))
+                  .replace('{end}', String(nodeRangeEnd))
+                  .replace('{total}', String(nodeTotal)) }}
+              </div>
+              <div class="btn-group btn-group-sm">
+                <button class="btn btn-outline-secondary" :disabled="nodePage <= 1" @click="changeNodePage(nodePage - 1)">
+                  {{ t('common.previous') }}
+                </button>
+                <button class="btn btn-outline-secondary" :disabled="nodeRangeEnd >= nodeTotal" @click="changeNodePage(nodePage + 1)">
+                  {{ t('common.next') }}
                 </button>
               </div>
             </div>
@@ -100,7 +128,9 @@
                 </div>
               </div>
             </div>
-            <div v-else class="text-muted small">{{ t('agent_policies_page.select_node_preview') }}</div>
+            <div v-else class="text-muted small">
+              {{ nodeTotal ? t('agent_policies_page.select_node_preview') : t('agent_policies_page.no_nodes_found') }}
+            </div>
           </div>
         </div>
       </div>
@@ -145,12 +175,21 @@
                 </td>
                 <td>{{ formatTime(policy.updated_at) }}</td>
                 <td>
-                  <button class="btn btn-sm btn-outline-primary me-1" @click="openEdit(policy)">
+                  <button
+                    v-if="canEditPolicy(policy)"
+                    class="btn btn-sm btn-outline-primary me-1"
+                    @click="openEdit(policy)"
+                  >
                     <i class="bi bi-pencil"></i>
                   </button>
-                  <button class="btn btn-sm btn-outline-danger" @click="handleDelete(policy)">
+                  <button
+                    v-if="canDeletePolicy(policy)"
+                    class="btn btn-sm btn-outline-danger"
+                    @click="handleDelete(policy)"
+                  >
                     <i class="bi bi-trash"></i>
                   </button>
+                  <span v-if="!canEditPolicy(policy) && !canDeletePolicy(policy)" class="text-muted">-</span>
                 </td>
               </tr>
               <tr v-if="!policies.length">
@@ -187,10 +226,9 @@
               <div class="col-md-4">
                 <label class="form-label">{{ t('agent_policies_page.scope') }}</label>
                 <select v-model="form.scope_type" class="form-select" @change="handleScopeChange">
-                  <option value="global">{{ t('agent_policies_page.scope_global') }}</option>
-                  <option value="environment">{{ t('agent_policies_page.scope_environment') }}</option>
-                  <option value="cluster">{{ t('agent_policies_page.scope_cluster') }}</option>
-                  <option value="label_selector">{{ t('agent_policies_page.scope_label_selector') }}</option>
+                  <option v-for="scopeType in allowedScopeTypes" :key="scopeType" :value="scopeType">
+                    {{ scopeLabel(scopeType) }}
+                  </option>
                 </select>
               </div>
               <div class="col-md-4">
@@ -220,10 +258,13 @@
                 <label class="form-label">{{ t('agent_policies_page.choose_cluster') }}</label>
                 <select v-model="form.cluster_id" class="form-select">
                   <option :value="null">{{ t('agent_policies_page.choose_cluster') }}</option>
-                  <option v-for="cluster in clusters" :key="cluster.id" :value="cluster.id">
+                  <option v-for="cluster in selectableClusters" :key="cluster.id" :value="cluster.id">
                     {{ cluster.alias || cluster.name }}
                   </option>
                 </select>
+                <div class="form-text">
+                  {{ t('agent_policies_page.cluster_scope_hint').replace('{count}', String(selectableClusters.length)) }}
+                </div>
               </div>
               <div v-if="form.scope_type === 'label_selector'" class="col-12">
                 <label class="form-label">{{ t('agent_policies_page.scope_label_selector') }}</label>
@@ -281,7 +322,14 @@
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('cancel') }}</button>
-            <button type="button" class="btn btn-primary" @click="savePolicy">{{ t('save') }}</button>
+            <button
+              v-if="canSaveCurrentForm"
+              type="button"
+              class="btn btn-primary"
+              @click="savePolicy"
+            >
+              {{ t('save') }}
+            </button>
           </div>
         </div>
       </div>
@@ -290,7 +338,7 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import {
   createAgentPolicy,
   deleteAgentPolicy,
@@ -302,8 +350,10 @@ import {
   updateAgentPolicy,
 } from '../api'
 import { useI18n } from '../i18n'
+import { useAuthStore } from '../store/auth'
 
 const { t, dateLocale } = useI18n()
+const auth = useAuthStore()
 
 const policies = ref([])
 const defaults = ref({})
@@ -313,6 +363,12 @@ const nodes = ref([])
 const resolved = ref(null)
 const selectedNodeID = ref(null)
 const editingId = ref(null)
+const nodeSearch = ref('')
+const nodePage = ref(1)
+const nodePageSize = 20
+const nodeTotal = ref(0)
+const allowedScopeTypes = ref(['global', 'environment', 'cluster', 'label_selector'])
+let nodeSearchTimer = null
 
 const runtimeFields = [
   { key: 'heartbeat_interval', label: 'heartbeat_interval', type: 'number', placeholder: '30' },
@@ -350,6 +406,59 @@ const fluentFields = [
 
 const form = reactive(createEmptyForm())
 let modal = null
+
+const nodeRangeStart = computed(() => {
+  if (!nodeTotal.value) return 0
+  return (nodePage.value - 1) * nodePageSize + 1
+})
+
+const nodeRangeEnd = computed(() => {
+  if (!nodeTotal.value) return 0
+  return Math.min(nodePage.value * nodePageSize, nodeTotal.value)
+})
+
+const userScopes = computed(() => auth.user?.scopes || [])
+
+const userScopeSummary = computed(() => {
+  if (!userScopes.value.length) {
+    return t('agent_policies_page.global_scope')
+  }
+  return `${t('agent_policies_page.current_scope')}: ${userScopes.value
+    .map((scope) => scope.scope_name || `${scope.scope_type}:${scope.scope_id}`)
+    .join(', ')}`
+})
+
+const canCreatePolicies = computed(() =>
+  auth.hasPermission('agent_policies', 'create') && allowedScopeTypes.value.length > 0
+)
+const canUpdatePolicies = computed(() => auth.hasPermission('agent_policies', 'update'))
+const canDeletePolicies = computed(() => auth.hasPermission('agent_policies', 'delete'))
+const canSaveCurrentForm = computed(() =>
+  editingId.value ? canUpdatePolicies.value : canCreatePolicies.value
+)
+
+const selectableClusters = computed(() => {
+  if (!userScopes.value.length) {
+    return clusters.value
+  }
+
+  const clusterScopeIDs = new Set(
+    userScopes.value.filter((scope) => scope.scope_type === 'cluster').map((scope) => scope.scope_id)
+  )
+  const regionScopeIDs = new Set(
+    userScopes.value.filter((scope) => scope.scope_type === 'region').map((scope) => scope.scope_id)
+  )
+  const datacenterScopeIDs = new Set(
+    userScopes.value.filter((scope) => scope.scope_type === 'datacenter').map((scope) => scope.scope_id)
+  )
+
+  return clusters.value.filter((cluster) => {
+    if (clusterScopeIDs.has(cluster.id)) return true
+    if (regionScopeIDs.has(cluster.region_id)) return true
+    if (cluster.region?.datacenter_id && datacenterScopeIDs.has(cluster.region.datacenter_id)) return true
+    return false
+  })
+})
 
 function createEmptyForm() {
   return {
@@ -394,11 +503,16 @@ function ensureModal() {
 function resetForm() {
   Object.assign(form, createEmptyForm())
   editingId.value = null
+  form.scope_type = allowedScopeTypes.value[0] || 'cluster'
+  form.cluster_id = selectableClusters.value[0]?.id || null
 }
 
 function handleScopeChange() {
   if (form.scope_type !== 'environment') form.environment_id = null
   if (form.scope_type !== 'cluster') form.cluster_id = null
+  if (form.scope_type === 'cluster' && !selectableClusters.value.find((cluster) => cluster.id === form.cluster_id)) {
+    form.cluster_id = selectableClusters.value[0]?.id || null
+  }
   if (form.scope_type !== 'label_selector') form.label_selector = ''
 }
 
@@ -473,6 +587,14 @@ function targetLabel(policy) {
     return policy.cluster?.alias || policy.cluster?.name || `#${policy.cluster_id}`
   }
   return policy.label_selector || '-'
+}
+
+function canEditPolicy(policy) {
+  return !!policy?.can_manage && canUpdatePolicies.value
+}
+
+function canDeletePolicy(policy) {
+  return !!policy?.can_manage && canDeletePolicies.value
 }
 
 function parseOptionalInt(value) {
@@ -556,18 +678,55 @@ async function loadPolicies() {
   const response = await getAgentPolicies()
   policies.value = response.data || []
   defaults.value = response.defaults || {}
+  allowedScopeTypes.value = response.allowed_scope_types?.length
+    ? response.allowed_scope_types
+    : ['global', 'environment', 'cluster', 'label_selector']
+  if (!allowedScopeTypes.value.includes(form.scope_type)) {
+    form.scope_type = allowedScopeTypes.value[0] || 'cluster'
+  }
 }
 
 async function loadReferenceData() {
-  const [envRes, clusterRes, nodeRes] = await Promise.all([
+  const [envRes, clusterRes] = await Promise.all([
     getEnvironments(),
     getClusters(),
-    getNodes({ page: 1, page_size: 200 }),
   ])
 
   environments.value = envRes.data.data || []
   clusters.value = clusterRes.data.data || []
+  await loadNodeOptions(1)
+}
+
+async function loadNodeOptions(page = nodePage.value) {
+  const nodeRes = await getNodes({
+    page,
+    page_size: nodePageSize,
+    search: nodeSearch.value.trim() || undefined,
+  })
+
   nodes.value = nodeRes.data.data || []
+  nodeTotal.value = nodeRes.data.total || 0
+  nodePage.value = page
+}
+
+function scheduleNodeSearch() {
+  if (nodeSearchTimer) {
+    clearTimeout(nodeSearchTimer)
+  }
+  nodeSearchTimer = setTimeout(() => {
+    loadNodeOptions(1).catch((error) => {
+      alert(`${t('agent_policies_page.load_nodes_failed')}: ${getErrorMessage(error)}`)
+    })
+  }, 250)
+}
+
+async function changeNodePage(page) {
+  if (page < 1) return
+  try {
+    await loadNodeOptions(page)
+  } catch (error) {
+    alert(`${t('agent_policies_page.load_nodes_failed')}: ${getErrorMessage(error)}`)
+  }
 }
 
 async function loadResolvedPreview() {
@@ -584,18 +743,21 @@ async function loadResolvedPreview() {
 }
 
 function openCreate() {
+  if (!canCreatePolicies.value) return
   resetForm()
   ensureModal()
   modal.show()
 }
 
 function openEdit(policy) {
+  if (!canEditPolicy(policy)) return
   applyPolicyToForm(policy)
   ensureModal()
   modal.show()
 }
 
 async function savePolicy() {
+  if (!canSaveCurrentForm.value) return
   try {
     const payload = buildPayload()
     if (editingId.value) {
@@ -614,6 +776,7 @@ async function savePolicy() {
 }
 
 async function handleDelete(policy) {
+  if (!canDeletePolicy(policy)) return
   if (!confirm(t('agent_policies_page.confirm_delete').replace('{name}', policy.name))) return
 
   try {
@@ -630,6 +793,12 @@ async function handleDelete(policy) {
 onMounted(async () => {
   fluentFields[fluentFields.length - 1].help = t('agent_policies_page.fluent_extra_files_help')
   await Promise.all([loadPolicies(), loadReferenceData()])
+})
+
+onBeforeUnmount(() => {
+  if (nodeSearchTimer) {
+    clearTimeout(nodeSearchTimer)
+  }
 })
 </script>
 

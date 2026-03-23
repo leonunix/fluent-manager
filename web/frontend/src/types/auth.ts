@@ -7,6 +7,7 @@ export interface User {
   is_active: boolean
   last_login_at: string | null
   roles: Role[]
+  scopes: UserScope[]
   created_at: string
   updated_at: string
 }

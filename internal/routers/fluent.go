@@ -41,11 +41,11 @@ func registerFluentRoutes(authed *gin.RouterGroup, h *allHandlers) {
 	// Agent policies
 	agentPolicies := authed.Group("/agent-policies")
 	{
-		agentPolicies.GET("", middleware.RequirePermission("configs", "read"), h.AgentPolicy.List)
+		agentPolicies.GET("", middleware.RequirePermission("agent_policies", "read"), h.AgentPolicy.List)
 		agentPolicies.GET("/resolve/:node_id", middleware.RequirePermission("nodes", "read"), h.AgentPolicy.ResolveForNode)
-		agentPolicies.GET("/:id", middleware.RequirePermission("configs", "read"), h.AgentPolicy.Get)
-		agentPolicies.POST("", middleware.RequirePermission("configs", "update"), h.AgentPolicy.Create)
-		agentPolicies.PUT("/:id", middleware.RequirePermission("configs", "update"), h.AgentPolicy.Update)
-		agentPolicies.DELETE("/:id", middleware.RequirePermission("configs", "update"), h.AgentPolicy.Delete)
+		agentPolicies.GET("/:id", middleware.RequirePermission("agent_policies", "read"), h.AgentPolicy.Get)
+		agentPolicies.POST("", middleware.RequirePermission("agent_policies", "create"), h.AgentPolicy.Create)
+		agentPolicies.PUT("/:id", middleware.RequirePermission("agent_policies", "update"), h.AgentPolicy.Update)
+		agentPolicies.DELETE("/:id", middleware.RequirePermission("agent_policies", "delete"), h.AgentPolicy.Delete)
 	}
 }

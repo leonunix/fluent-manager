@@ -47,7 +47,7 @@ func TestAgentPolicyResolveAppliesScopeOverrides(t *testing.T) {
 		Settings: AgentSettingsPatch{
 			HeartbeatInterval: &heartbeat50,
 		},
-	}, 1); err != nil {
+	}, 1, nil); err != nil {
 		t.Fatalf("create global policy: %v", err)
 	}
 	if _, err := svc.CreatePolicy(&AgentPolicyInput{
@@ -59,7 +59,7 @@ func TestAgentPolicyResolveAppliesScopeOverrides(t *testing.T) {
 		Settings: AgentSettingsPatch{
 			MetricsInterval: &metrics90,
 		},
-	}, 1); err != nil {
+	}, 1, nil); err != nil {
 		t.Fatalf("create env policy: %v", err)
 	}
 	if _, err := svc.CreatePolicy(&AgentPolicyInput{
@@ -71,7 +71,7 @@ func TestAgentPolicyResolveAppliesScopeOverrides(t *testing.T) {
 		Settings: AgentSettingsPatch{
 			FluentLogPath: &logPath,
 		},
-	}, 1); err != nil {
+	}, 1, nil); err != nil {
 		t.Fatalf("create cluster policy: %v", err)
 	}
 	if _, err := svc.CreatePolicy(&AgentPolicyInput{
@@ -83,7 +83,7 @@ func TestAgentPolicyResolveAppliesScopeOverrides(t *testing.T) {
 		Settings: AgentSettingsPatch{
 			FluentExtraFiles: &files,
 		},
-	}, 1); err != nil {
+	}, 1, nil); err != nil {
 		t.Fatalf("create label policy: %v", err)
 	}
 
@@ -117,14 +117,14 @@ func TestAgentPolicyCreateRejectsDuplicateGlobalPolicy(t *testing.T) {
 		Name:      "global-a",
 		ScopeType: models.AgentPolicyScopeGlobal,
 		IsEnabled: enabled,
-	}, 1); err != nil {
+	}, 1, nil); err != nil {
 		t.Fatalf("create first global policy: %v", err)
 	}
 	if _, err := svc.CreatePolicy(&AgentPolicyInput{
 		Name:      "global-b",
 		ScopeType: models.AgentPolicyScopeGlobal,
 		IsEnabled: enabled,
-	}, 1); err == nil {
+	}, 1, nil); err == nil {
 		t.Fatal("expected duplicate global policy to fail")
 	} else if !errors.Is(err, ErrConflict) {
 		t.Fatalf("expected ErrConflict, got %v", err)
@@ -156,7 +156,7 @@ func TestAgentPolicyResolveUsesClusterEnvironmentWhenNodeEnvironmentUnset(t *tes
 		Settings: AgentSettingsPatch{
 			MetricsInterval: &metrics120,
 		},
-	}, 1); err != nil {
+	}, 1, nil); err != nil {
 		t.Fatalf("create env policy: %v", err)
 	}
 
@@ -169,3 +169,128 @@ func TestAgentPolicyResolveUsesClusterEnvironmentWhenNodeEnvironmentUnset(t *tes
 	}
 }
 
+func TestAgentPolicyListPoliciesFiltersReadableScope(t *testing.T) {
+	db := testutil.NewTestDB()
+	svc := NewAgentPolicyService(db, AgentSettings{})
+
+	envA := models.Environment{Name: "prod-a"}
+	envB := models.Environment{Name: "prod-b"}
+	db.Create(&envA)
+	db.Create(&envB)
+
+	dc := models.DataCenter{Name: "dc-scope"}
+	db.Create(&dc)
+	region := models.Region{Name: "r-scope", DataCenterID: dc.ID}
+	db.Create(&region)
+
+	clusterA := models.Cluster{Name: "cluster-a", RegionID: region.ID, EnvironmentID: &envA.ID}
+	clusterB := models.Cluster{Name: "cluster-b", RegionID: region.ID, EnvironmentID: &envB.ID}
+	db.Create(&clusterA)
+	db.Create(&clusterB)
+
+	db.Create(&models.Node{
+		NodeUID:   "node-a",
+		Hostname:  "node-a",
+		ClusterID: &clusterA.ID,
+		Labels:    `{"team":"infra"}`,
+	})
+
+	enabled := true
+	if _, err := svc.CreatePolicy(&AgentPolicyInput{
+		Name:      "global",
+		ScopeType: models.AgentPolicyScopeGlobal,
+		IsEnabled: enabled,
+	}, 1, nil); err != nil {
+		t.Fatalf("create global: %v", err)
+	}
+	if _, err := svc.CreatePolicy(&AgentPolicyInput{
+		Name:          "env-a",
+		ScopeType:     models.AgentPolicyScopeEnvironment,
+		EnvironmentID: &envA.ID,
+		IsEnabled:     enabled,
+		Priority:      10,
+	}, 1, nil); err != nil {
+		t.Fatalf("create env policy: %v", err)
+	}
+	if _, err := svc.CreatePolicy(&AgentPolicyInput{
+		Name:      "cluster-a",
+		ScopeType: models.AgentPolicyScopeCluster,
+		ClusterID: &clusterA.ID,
+		IsEnabled: enabled,
+		Priority:  20,
+	}, 1, nil); err != nil {
+		t.Fatalf("create cluster-a policy: %v", err)
+	}
+	if _, err := svc.CreatePolicy(&AgentPolicyInput{
+		Name:      "cluster-b",
+		ScopeType: models.AgentPolicyScopeCluster,
+		ClusterID: &clusterB.ID,
+		IsEnabled: enabled,
+		Priority:  30,
+	}, 1, nil); err != nil {
+		t.Fatalf("create cluster-b policy: %v", err)
+	}
+	if _, err := svc.CreatePolicy(&AgentPolicyInput{
+		Name:          "labels",
+		ScopeType:     models.AgentPolicyScopeLabelSelector,
+		LabelSelector: `{"team":"infra"}`,
+		IsEnabled:     enabled,
+		Priority:      40,
+	}, 1, nil); err != nil {
+		t.Fatalf("create labels policy: %v", err)
+	}
+
+	policies, err := svc.ListPolicies([]uint{clusterA.ID})
+	if err != nil {
+		t.Fatalf("list policies: %v", err)
+	}
+	if len(policies) != 4 {
+		t.Fatalf("expected 4 visible policies, got %d", len(policies))
+	}
+	for _, policy := range policies {
+		if policy.Name == "cluster-b" {
+			t.Fatalf("out-of-scope cluster policy should not be visible: %+v", policy)
+		}
+	}
+}
+
+func TestAgentPolicyScopedUsersCanOnlyManageClusterScopedPolicies(t *testing.T) {
+	db := testutil.NewTestDB()
+	svc := NewAgentPolicyService(db, AgentSettings{})
+
+	dc := models.DataCenter{Name: "dc-write"}
+	db.Create(&dc)
+	region := models.Region{Name: "r-write", DataCenterID: dc.ID}
+	db.Create(&region)
+	clusterA := models.Cluster{Name: "cluster-a", RegionID: region.ID}
+	clusterB := models.Cluster{Name: "cluster-b", RegionID: region.ID}
+	db.Create(&clusterA)
+	db.Create(&clusterB)
+
+	enabled := true
+	if _, err := svc.CreatePolicy(&AgentPolicyInput{
+		Name:      "cluster-a",
+		ScopeType: models.AgentPolicyScopeCluster,
+		ClusterID: &clusterA.ID,
+		IsEnabled: enabled,
+	}, 1, []uint{clusterA.ID}); err != nil {
+		t.Fatalf("scoped cluster policy should be allowed: %v", err)
+	}
+
+	if _, err := svc.CreatePolicy(&AgentPolicyInput{
+		Name:      "global",
+		ScopeType: models.AgentPolicyScopeGlobal,
+		IsEnabled: enabled,
+	}, 1, []uint{clusterA.ID}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("expected ErrForbidden for global scoped write, got %v", err)
+	}
+
+	if _, err := svc.CreatePolicy(&AgentPolicyInput{
+		Name:      "cluster-b",
+		ScopeType: models.AgentPolicyScopeCluster,
+		ClusterID: &clusterB.ID,
+		IsEnabled: enabled,
+	}, 1, []uint{clusterA.ID}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("expected ErrForbidden for out-of-scope cluster write, got %v", err)
+	}
+}

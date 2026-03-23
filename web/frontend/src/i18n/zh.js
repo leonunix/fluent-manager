@@ -292,6 +292,14 @@ export default {
     choose_cluster: '请选择集群',
     choose_node: '请选择节点',
     disabled_note: '已禁用策略会保留，但不会下发给 agent',
+    node_search: '节点搜索',
+    node_search_placeholder: '搜索主机名、IP 或 Node UID',
+    node_results: '显示第 {start}-{end} 条，共 {total} 个节点',
+    no_nodes_found: '当前 Scope 下没有可选节点',
+    load_nodes_failed: '加载节点选项失败',
+    current_scope: '当前 Scope',
+    global_scope: '当前 Scope: 全局访问',
+    cluster_scope_hint: '当前 Scope 下可选集群数：{count}',
   },
 
   configs_page: {
@@ -555,6 +563,12 @@ export default {
   audit_page: {
     title: '审计日志',
     detail: '详情',
+    show_diff: '查看差异',
+    hide_diff: '收起差异',
+    operation: '操作类型',
+    before: '变更前',
+    after: '变更后',
+    changes: '变更项',
   },
 
   topology_page: {

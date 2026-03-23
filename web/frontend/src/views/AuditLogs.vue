@@ -15,14 +15,53 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="log in logs" :key="log.id">
-              <td>{{ formatTime(log.created_at) }}</td>
-              <td>{{ log.username || '-' }}</td>
-              <td><span class="badge bg-info">{{ log.action }}</span></td>
-              <td>{{ log.resource }}</td>
-              <td class="text-truncate" style="max-width: 250px;">{{ log.detail }}</td>
-              <td>{{ log.ip }}</td>
-            </tr>
+            <template v-for="log in logs" :key="log.id">
+              <tr>
+                <td>{{ formatTime(log.created_at) }}</td>
+                <td>{{ log.username || '-' }}</td>
+                <td><span class="badge bg-info">{{ log.action }}</span></td>
+                <td>{{ log.resource }}</td>
+                <td style="max-width: 320px;">
+                  <div v-if="hasAgentPolicyDiff(log)">
+                    <div class="fw-semibold">{{ summarizeAuditDetail(log) }}</div>
+                    <button class="btn btn-sm btn-outline-secondary mt-2" @click="toggleExpanded(log.id)">
+                      {{ expanded[log.id] ? t('audit_page.hide_diff') : t('audit_page.show_diff') }}
+                    </button>
+                  </div>
+                  <div v-else class="text-truncate">{{ summarizeAuditDetail(log) }}</div>
+                </td>
+                <td>{{ log.ip }}</td>
+              </tr>
+              <tr v-if="expanded[log.id] && hasAgentPolicyDiff(log)" class="table-light">
+                <td colspan="6">
+                  <div class="p-2">
+                    <div class="small text-muted mb-2">
+                      {{ t('audit_page.operation') }}: {{ parsedAuditDetail(log)?.operation || '-' }}
+                    </div>
+                    <div class="row g-3">
+                      <div class="col-md-6">
+                        <div class="border rounded p-3 h-100">
+                          <div class="fw-semibold mb-2">{{ t('audit_page.before') }}</div>
+                          <pre class="fm-audit-json mb-0">{{ formatJSON(parsedAuditDetail(log)?.before) }}</pre>
+                        </div>
+                      </div>
+                      <div class="col-md-6">
+                        <div class="border rounded p-3 h-100">
+                          <div class="fw-semibold mb-2">{{ t('audit_page.after') }}</div>
+                          <pre class="fm-audit-json mb-0">{{ formatJSON(parsedAuditDetail(log)?.after) }}</pre>
+                        </div>
+                      </div>
+                      <div class="col-12">
+                        <div class="border rounded p-3">
+                          <div class="fw-semibold mb-2">{{ t('audit_page.changes') }}</div>
+                          <pre class="fm-audit-json mb-0">{{ formatJSON(parsedAuditDetail(log)?.changes) }}</pre>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
       </div>
@@ -45,7 +84,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { reactive, ref, onMounted } from 'vue'
 import { getAuditLogs } from '../api'
 import { useI18n } from '../i18n'
 
@@ -53,9 +92,44 @@ const logs = ref([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = 50
+const expanded = reactive({})
 const { t, dateLocale } = useI18n()
 
 function formatTime(t) { return t ? new Date(t).toLocaleString(dateLocale.value) : '-' }
+
+function parsedAuditDetail(log) {
+  if (log.resource_type !== 'agent_policy') return null
+  try {
+    return JSON.parse(log.detail)
+  } catch {
+    return null
+  }
+}
+
+function hasAgentPolicyDiff(log) {
+  return !!parsedAuditDetail(log)
+}
+
+function summarizeAuditDetail(log) {
+  const parsed = parsedAuditDetail(log)
+  if (parsed?.operation) {
+    return `${log.resource_type || 'resource'} ${parsed.operation}`
+  }
+  return log.detail || '-'
+}
+
+function toggleExpanded(id) {
+  expanded[id] = !expanded[id]
+}
+
+function formatJSON(value) {
+  if (value === null || value === undefined) return '-'
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
 
 async function loadLogs() {
   const { data } = await getAuditLogs({ page: page.value, page_size: pageSize })
@@ -65,3 +139,17 @@ async function loadLogs() {
 
 onMounted(loadLogs)
 </script>
+
+<style scoped>
+.fm-audit-json {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.8rem;
+  max-height: 320px;
+  overflow: auto;
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 0.85rem;
+  border-radius: 0.5rem;
+}
+</style>

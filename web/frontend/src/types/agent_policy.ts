@@ -74,6 +74,7 @@ export interface AgentPolicy {
   priority: number
   is_enabled: boolean
   settings: AgentSettingsPatch
+  can_manage: boolean
   created_by: number
   creator?: User
   created_at: string
@@ -83,6 +84,7 @@ export interface AgentPolicy {
 export interface AgentPolicyListResponse {
   data: AgentPolicy[]
   defaults: AgentSettings
+  allowed_scope_types?: Array<'global' | 'environment' | 'cluster' | 'label_selector'>
 }
 
 export interface ResolvedAgentPolicy {

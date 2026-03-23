@@ -17,6 +17,7 @@ type User struct {
 	IsActive     bool           `gorm:"default:true" json:"is_active"`
 	LastLoginAt  *time.Time     `json:"last_login_at"`
 	Roles        []Role         `gorm:"many2many:user_roles;" json:"roles"`
+	Scopes       []UserScope    `gorm:"foreignKey:UserID" json:"scopes"`
 	CreatedAt    time.Time      `json:"created_at"`
 	UpdatedAt    time.Time      `json:"updated_at"`
 	DeletedAt    gorm.DeletedAt `gorm:"index" json:"-"`

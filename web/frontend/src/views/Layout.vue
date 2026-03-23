@@ -82,7 +82,7 @@
             <i class="bi bi-journal-text me-2"></i>{{ t('nav.audit') }}
           </router-link>
         </li>
-        <li class="nav-item">
+        <li v-if="auth.hasPermission('agent_policies', 'read')" class="nav-item">
           <router-link to="/agent-policies" class="fm-nav-link" active-class="active">
             <i class="bi bi-sliders me-2"></i>{{ t('nav.agent_policies') }}
           </router-link>

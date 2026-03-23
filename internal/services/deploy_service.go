@@ -182,8 +182,9 @@ func (s *deployService) GetAuditLogs(page, pageSize int, allowedClusters []uint)
 		query = query.Where(
 			"(resource_type = 'node' AND resource_id IN (SELECT id FROM nodes WHERE cluster_id IN ?)) "+
 				"OR (resource_type = 'cluster' AND resource_id IN ?) "+
-				"OR (resource_type NOT IN ('node', 'cluster') OR resource_type = '')",
-			allowedClusters, allowedClusters,
+				"OR (resource_type = 'agent_policy' AND resource_id IN (SELECT id FROM agent_policies WHERE scope_type = 'cluster' AND cluster_id IN ?)) "+
+				"OR (resource_type NOT IN ('node', 'cluster', 'agent_policy') OR resource_type = '')",
+			allowedClusters, allowedClusters, allowedClusters,
 		)
 	}
 

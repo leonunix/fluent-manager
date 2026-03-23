@@ -11,27 +11,27 @@ import (
 )
 
 type AgentSettingsPatch struct {
-	HeartbeatInterval   *int     `json:"heartbeat_interval,omitempty"`
-	MetricsInterval     *int     `json:"metrics_interval,omitempty"`
-	LogUploadInterval   *int     `json:"log_upload_interval,omitempty"`
-	LogBufferLines      *int     `json:"log_buffer_lines,omitempty"`
-	HealthPort          *int     `json:"health_port,omitempty"`
-	MaxRetries          *int     `json:"max_retries,omitempty"`
-	RetryBaseDelay      *int     `json:"retry_base_delay,omitempty"`
-	FluentType          *string  `json:"fluent_type,omitempty"`
-	FluentConfigPath    *string  `json:"fluent_config_path,omitempty"`
-	FluentConfigDir     *string  `json:"fluent_config_dir,omitempty"`
-	FluentBinary        *string  `json:"fluent_binary,omitempty"`
-	FluentServiceUnit   *string  `json:"fluent_service_unit,omitempty"`
-	FluentRestartCmd    *string  `json:"fluent_restart_cmd,omitempty"`
-	FluentReloadCmd     *string  `json:"fluent_reload_cmd,omitempty"`
-	FluentDryRunCmd     *string  `json:"fluent_dry_run_cmd,omitempty"`
-	FluentLogPath       *string  `json:"fluent_log_path,omitempty"`
+	HeartbeatInterval   *int      `json:"heartbeat_interval,omitempty"`
+	MetricsInterval     *int      `json:"metrics_interval,omitempty"`
+	LogUploadInterval   *int      `json:"log_upload_interval,omitempty"`
+	LogBufferLines      *int      `json:"log_buffer_lines,omitempty"`
+	HealthPort          *int      `json:"health_port,omitempty"`
+	MaxRetries          *int      `json:"max_retries,omitempty"`
+	RetryBaseDelay      *int      `json:"retry_base_delay,omitempty"`
+	FluentType          *string   `json:"fluent_type,omitempty"`
+	FluentConfigPath    *string   `json:"fluent_config_path,omitempty"`
+	FluentConfigDir     *string   `json:"fluent_config_dir,omitempty"`
+	FluentBinary        *string   `json:"fluent_binary,omitempty"`
+	FluentServiceUnit   *string   `json:"fluent_service_unit,omitempty"`
+	FluentRestartCmd    *string   `json:"fluent_restart_cmd,omitempty"`
+	FluentReloadCmd     *string   `json:"fluent_reload_cmd,omitempty"`
+	FluentDryRunCmd     *string   `json:"fluent_dry_run_cmd,omitempty"`
+	FluentLogPath       *string   `json:"fluent_log_path,omitempty"`
 	FluentExtraFiles    *[]string `json:"fluent_extra_files,omitempty"`
-	FluentMetricsURL    *string  `json:"fluent_metrics_url,omitempty"`
-	FluentMetricsFormat *string  `json:"fluent_metrics_format,omitempty"`
-	BackupDir           *string  `json:"backup_dir,omitempty"`
-	MaxBackups          *int     `json:"max_backups,omitempty"`
+	FluentMetricsURL    *string   `json:"fluent_metrics_url,omitempty"`
+	FluentMetricsFormat *string   `json:"fluent_metrics_format,omitempty"`
+	BackupDir           *string   `json:"backup_dir,omitempty"`
+	MaxBackups          *int      `json:"max_backups,omitempty"`
 }
 
 type AgentPolicyInput struct {
@@ -47,22 +47,23 @@ type AgentPolicyInput struct {
 }
 
 type AgentPolicyView struct {
-	ID            uint               `json:"id"`
-	Name          string             `json:"name"`
-	Description   string             `json:"description"`
-	ScopeType     string             `json:"scope_type"`
-	EnvironmentID *uint              `json:"environment_id"`
+	ID            uint                `json:"id"`
+	Name          string              `json:"name"`
+	Description   string              `json:"description"`
+	ScopeType     string              `json:"scope_type"`
+	EnvironmentID *uint               `json:"environment_id"`
 	Environment   *models.Environment `json:"environment,omitempty"`
-	ClusterID     *uint              `json:"cluster_id"`
-	Cluster       *models.Cluster    `json:"cluster,omitempty"`
-	LabelSelector string             `json:"label_selector"`
-	Priority      int                `json:"priority"`
-	IsEnabled     bool               `json:"is_enabled"`
-	Settings      AgentSettingsPatch `json:"settings"`
-	CreatedBy     uint               `json:"created_by"`
-	Creator       *models.User       `json:"creator,omitempty"`
-	CreatedAt     string             `json:"created_at"`
-	UpdatedAt     string             `json:"updated_at"`
+	ClusterID     *uint               `json:"cluster_id"`
+	Cluster       *models.Cluster     `json:"cluster,omitempty"`
+	LabelSelector string              `json:"label_selector"`
+	Priority      int                 `json:"priority"`
+	IsEnabled     bool                `json:"is_enabled"`
+	Settings      AgentSettingsPatch  `json:"settings"`
+	CanManage     bool                `json:"can_manage"`
+	CreatedBy     uint                `json:"created_by"`
+	Creator       *models.User        `json:"creator,omitempty"`
+	CreatedAt     string              `json:"created_at"`
+	UpdatedAt     string              `json:"updated_at"`
 }
 
 type ResolvedAgentPolicy struct {
@@ -71,11 +72,11 @@ type ResolvedAgentPolicy struct {
 }
 
 type AgentPolicyService interface {
-	ListPolicies() ([]AgentPolicyView, error)
-	GetPolicy(id uint) (*AgentPolicyView, error)
-	CreatePolicy(input *AgentPolicyInput, createdBy uint) (*AgentPolicyView, error)
-	UpdatePolicy(id uint, input *AgentPolicyInput) (*AgentPolicyView, error)
-	DeletePolicy(id uint) error
+	ListPolicies(allowedClusters []uint) ([]AgentPolicyView, error)
+	GetPolicy(id uint, allowedClusters []uint) (*AgentPolicyView, error)
+	CreatePolicy(input *AgentPolicyInput, createdBy uint, allowedClusters []uint) (*AgentPolicyView, error)
+	UpdatePolicy(id uint, input *AgentPolicyInput, allowedClusters []uint) (*AgentPolicyView, error)
+	DeletePolicy(id uint, allowedClusters []uint) error
 	GetDefaultSettings() AgentSettings
 	ResolveForNode(node *models.Node) (*ResolvedAgentPolicy, error)
 	ResolveForNodeID(nodeID uint) (*ResolvedAgentPolicy, error)
@@ -90,7 +91,7 @@ func NewAgentPolicyService(db *gorm.DB, defaults AgentSettings) AgentPolicyServi
 	return &agentPolicyService{db: db, defaults: defaults}
 }
 
-func (s *agentPolicyService) ListPolicies() ([]AgentPolicyView, error) {
+func (s *agentPolicyService) ListPolicies(allowedClusters []uint) ([]AgentPolicyView, error) {
 	var policies []models.AgentPolicy
 	if err := s.db.Preload("Environment").Preload("Cluster.Region.DataCenter").Preload("Creator").
 		Order("scope_type ASC, priority ASC, id ASC").
@@ -98,12 +99,18 @@ func (s *agentPolicyService) ListPolicies() ([]AgentPolicyView, error) {
 		return nil, err
 	}
 
-	result := make([]AgentPolicyView, 0, len(policies))
-	for _, policy := range policies {
+	filtered, err := s.filterReadablePolicies(policies, allowedClusters)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]AgentPolicyView, 0, len(filtered))
+	for _, policy := range filtered {
 		view, err := toAgentPolicyView(&policy)
 		if err != nil {
 			return nil, err
 		}
+		view.CanManage = canManageAgentPolicy(&policy, allowedClusters)
 		result = append(result, *view)
 	}
 	sort.SliceStable(result, func(i, j int) bool {
@@ -118,15 +125,31 @@ func (s *agentPolicyService) ListPolicies() ([]AgentPolicyView, error) {
 	return result, nil
 }
 
-func (s *agentPolicyService) GetPolicy(id uint) (*AgentPolicyView, error) {
+func (s *agentPolicyService) GetPolicy(id uint, allowedClusters []uint) (*AgentPolicyView, error) {
 	var policy models.AgentPolicy
 	if err := s.db.Preload("Environment").Preload("Cluster.Region.DataCenter").Preload("Creator").First(&policy, id).Error; err != nil {
 		return nil, err
 	}
-	return toAgentPolicyView(&policy)
+	allowed, err := s.isPolicyReadable(&policy, allowedClusters)
+	if err != nil {
+		return nil, err
+	}
+	if !allowed {
+		return nil, ErrForbidden
+	}
+	view, err := toAgentPolicyView(&policy)
+	if err != nil {
+		return nil, err
+	}
+	view.CanManage = canManageAgentPolicy(&policy, allowedClusters)
+	return view, nil
 }
 
-func (s *agentPolicyService) CreatePolicy(input *AgentPolicyInput, createdBy uint) (*AgentPolicyView, error) {
+func (s *agentPolicyService) CreatePolicy(input *AgentPolicyInput, createdBy uint, allowedClusters []uint) (*AgentPolicyView, error) {
+	if err := validateAgentPolicyWriteScope(input, allowedClusters); err != nil {
+		return nil, err
+	}
+
 	policy, err := s.buildPolicyModel(input, nil)
 	if err != nil {
 		return nil, err
@@ -135,12 +158,18 @@ func (s *agentPolicyService) CreatePolicy(input *AgentPolicyInput, createdBy uin
 	if err := s.db.Create(policy).Error; err != nil {
 		return nil, err
 	}
-	return s.GetPolicy(policy.ID)
+	return s.GetPolicy(policy.ID, allowedClusters)
 }
 
-func (s *agentPolicyService) UpdatePolicy(id uint, input *AgentPolicyInput) (*AgentPolicyView, error) {
+func (s *agentPolicyService) UpdatePolicy(id uint, input *AgentPolicyInput, allowedClusters []uint) (*AgentPolicyView, error) {
 	var existing models.AgentPolicy
-	if err := s.db.First(&existing, id).Error; err != nil {
+	if err := s.db.Preload("Environment").Preload("Cluster.Region.DataCenter").Preload("Creator").First(&existing, id).Error; err != nil {
+		return nil, err
+	}
+	if !canManageAgentPolicy(&existing, allowedClusters) {
+		return nil, ErrForbidden
+	}
+	if err := validateAgentPolicyWriteScope(input, allowedClusters); err != nil {
 		return nil, err
 	}
 
@@ -162,10 +191,17 @@ func (s *agentPolicyService) UpdatePolicy(id uint, input *AgentPolicyInput) (*Ag
 	if err := s.db.Model(&existing).Updates(updates).Error; err != nil {
 		return nil, err
 	}
-	return s.GetPolicy(id)
+	return s.GetPolicy(id, allowedClusters)
 }
 
-func (s *agentPolicyService) DeletePolicy(id uint) error {
+func (s *agentPolicyService) DeletePolicy(id uint, allowedClusters []uint) error {
+	var existing models.AgentPolicy
+	if err := s.db.First(&existing, id).Error; err != nil {
+		return err
+	}
+	if !canManageAgentPolicy(&existing, allowedClusters) {
+		return ErrForbidden
+	}
 	return s.db.Delete(&models.AgentPolicy{}, id).Error
 }
 
@@ -234,6 +270,149 @@ func (s *agentPolicyService) ResolveForNode(node *models.Node) (*ResolvedAgentPo
 		Settings:        settings,
 		MatchedPolicies: resolvedMatches,
 	}, nil
+}
+
+type agentPolicyScopeContext struct {
+	allowedClusters map[uint]struct{}
+	allowedEnvs     map[uint]struct{}
+	nodes           []models.Node
+}
+
+func (s *agentPolicyService) filterReadablePolicies(policies []models.AgentPolicy, allowedClusters []uint) ([]models.AgentPolicy, error) {
+	if allowedClusters == nil {
+		return policies, nil
+	}
+
+	scopeCtx, err := s.buildScopeContext(allowedClusters)
+	if err != nil {
+		return nil, err
+	}
+
+	filtered := make([]models.AgentPolicy, 0, len(policies))
+	for _, policy := range policies {
+		ok, err := isPolicyReadableWithContext(&policy, scopeCtx)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			filtered = append(filtered, policy)
+		}
+	}
+	return filtered, nil
+}
+
+func (s *agentPolicyService) isPolicyReadable(policy *models.AgentPolicy, allowedClusters []uint) (bool, error) {
+	if allowedClusters == nil {
+		return true, nil
+	}
+	scopeCtx, err := s.buildScopeContext(allowedClusters)
+	if err != nil {
+		return false, err
+	}
+	return isPolicyReadableWithContext(policy, scopeCtx)
+}
+
+func (s *agentPolicyService) buildScopeContext(allowedClusters []uint) (*agentPolicyScopeContext, error) {
+	clusterSet := make(map[uint]struct{}, len(allowedClusters))
+	for _, clusterID := range allowedClusters {
+		clusterSet[clusterID] = struct{}{}
+	}
+
+	scopeCtx := &agentPolicyScopeContext{
+		allowedClusters: clusterSet,
+		allowedEnvs:     map[uint]struct{}{},
+	}
+	if len(allowedClusters) == 0 {
+		return scopeCtx, nil
+	}
+
+	var clusters []models.Cluster
+	if err := s.db.Select("id", "environment_id").Where("id IN ?", allowedClusters).Find(&clusters).Error; err != nil {
+		return nil, err
+	}
+	for _, cluster := range clusters {
+		if cluster.EnvironmentID != nil {
+			scopeCtx.allowedEnvs[*cluster.EnvironmentID] = struct{}{}
+		}
+	}
+
+	if err := s.db.Select("id", "cluster_id", "environment_id", "labels").
+		Where("cluster_id IN ?", allowedClusters).
+		Find(&scopeCtx.nodes).Error; err != nil {
+		return nil, err
+	}
+	return scopeCtx, nil
+}
+
+func isPolicyReadableWithContext(policy *models.AgentPolicy, scopeCtx *agentPolicyScopeContext) (bool, error) {
+	if scopeCtx == nil {
+		return true, nil
+	}
+	if len(scopeCtx.allowedClusters) == 0 {
+		return false, nil
+	}
+
+	switch policy.ScopeType {
+	case models.AgentPolicyScopeGlobal:
+		return true, nil
+	case models.AgentPolicyScopeCluster:
+		if policy.ClusterID == nil {
+			return false, nil
+		}
+		_, ok := scopeCtx.allowedClusters[*policy.ClusterID]
+		return ok, nil
+	case models.AgentPolicyScopeEnvironment:
+		if policy.EnvironmentID == nil {
+			return false, nil
+		}
+		_, ok := scopeCtx.allowedEnvs[*policy.EnvironmentID]
+		return ok, nil
+	case models.AgentPolicyScopeLabelSelector:
+		for _, node := range scopeCtx.nodes {
+			matched, err := labelSelectorMatches(policy.LabelSelector, node.Labels)
+			if err != nil {
+				return false, err
+			}
+			if matched {
+				return true, nil
+			}
+		}
+		return false, nil
+	default:
+		return false, nil
+	}
+}
+
+func canManageAgentPolicy(policy *models.AgentPolicy, allowedClusters []uint) bool {
+	if allowedClusters == nil {
+		return true
+	}
+	if policy == nil || policy.ScopeType != models.AgentPolicyScopeCluster || policy.ClusterID == nil {
+		return false
+	}
+	return uintInSlice(*policy.ClusterID, allowedClusters)
+}
+
+func validateAgentPolicyWriteScope(input *AgentPolicyInput, allowedClusters []uint) error {
+	if allowedClusters == nil {
+		return nil
+	}
+	if input == nil {
+		return fmt.Errorf("%w: policy payload is required", ErrInvalidArgument)
+	}
+	if input.ScopeType != models.AgentPolicyScopeCluster || input.ClusterID == nil || !uintInSlice(*input.ClusterID, allowedClusters) {
+		return fmt.Errorf("%w: scoped users may only manage cluster-scoped agent policies inside allowed clusters", ErrForbidden)
+	}
+	return nil
+}
+
+func uintInSlice(target uint, items []uint) bool {
+	for _, item := range items {
+		if item == target {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *agentPolicyService) buildPolicyModel(input *AgentPolicyInput, existing *models.AgentPolicy) (*models.AgentPolicy, error) {

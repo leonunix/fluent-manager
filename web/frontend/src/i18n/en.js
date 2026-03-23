@@ -289,6 +289,14 @@ export default {
     choose_cluster: 'Select Cluster',
     choose_node: 'Select Node',
     disabled_note: 'Disabled policies are stored but not applied to agents',
+    node_search: 'Node Search',
+    node_search_placeholder: 'Search hostname, IP, or node UID',
+    node_results: 'Showing {start}-{end} of {total} nodes',
+    no_nodes_found: 'No nodes found in the current scope',
+    load_nodes_failed: 'Failed to load node options',
+    current_scope: 'Current Scope',
+    global_scope: 'Current Scope: Global access',
+    cluster_scope_hint: '{count} cluster candidates available for the current scope',
   },
 
   configs_page: {
@@ -552,6 +560,12 @@ export default {
   audit_page: {
     title: 'Audit Logs',
     detail: 'Detail',
+    show_diff: 'Show Diff',
+    hide_diff: 'Hide Diff',
+    operation: 'Operation',
+    before: 'Before',
+    after: 'After',
+    changes: 'Changes',
   },
 
   topology_page: {
