@@ -35,6 +35,7 @@ func NewTestDB() *gorm.DB {
 		&models.Role{},
 		&models.Permission{},
 		&models.UserScope{},
+		&models.AuthSettings{},
 		&models.Environment{},
 		&models.DataCenter{},
 		&models.Region{},

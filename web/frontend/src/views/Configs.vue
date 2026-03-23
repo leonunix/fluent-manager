@@ -14,6 +14,14 @@
           <i class="bi bi-magic me-1"></i>{{ t('configs_page.generate_wizard_preview') }}
         </button>
         <button
+          v-if="activeTab === 'assistant'"
+          class="btn btn-success"
+          :disabled="aiAssistantLoading || !aiAssistantForm.sample.trim()"
+          @click="runAIAssistant"
+        >
+          <i class="bi bi-stars me-1"></i>{{ aiAssistantLoading ? t('configs_page.ai_assistant_running') : t('configs_page.ai_assistant_run') }}
+        </button>
+        <button
           v-if="activeTab === 'templates'"
           class="btn btn-primary"
           @click="openCreateTemplate"
@@ -58,6 +66,13 @@
             @click="activeTab = 'wizard'"
           >
             {{ t('configs_page.wizard') }}
+          </button>
+          <button
+            class="nav-link"
+            :class="{ active: activeTab === 'assistant' }"
+            @click="activeTab = 'assistant'"
+          >
+            {{ t('configs_page.ai_assistant') }}
           </button>
           <button
             class="nav-link"
@@ -298,6 +313,143 @@
             </div>
             <div v-else class="text-center text-muted py-5">
               {{ t('configs_page.wizard_preview_empty') }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-else-if="activeTab === 'assistant'" class="row g-4">
+      <div class="col-xl-5">
+        <div class="card border-0 shadow-sm mb-4">
+          <div class="card-header bg-white">
+            <h6 class="mb-0">{{ t('configs_page.ai_assistant') }}</h6>
+          </div>
+          <div class="card-body">
+            <div class="alert alert-info py-2">
+              {{ t('configs_page.ai_assistant_intro') }}
+            </div>
+            <div class="row g-3 mb-3">
+              <div class="col-md-6">
+                <label class="form-label">{{ t('common.runtime') }}</label>
+                <select v-model="aiAssistantForm.fluent_type" class="form-select">
+                  <option value="fluentbit">Fluent Bit</option>
+                  <option value="fluentd">Fluentd</option>
+                </select>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">{{ t('configs_page.module_type_coverage') }}</label>
+                <select v-model="aiAssistantForm.module_type" class="form-select">
+                  <option v-for="type in moduleTypes" :key="type" :value="type">{{ type }}</option>
+                </select>
+              </div>
+              <div class="col-md-12">
+                <label class="form-label">{{ t('configs_page.ai_assistant_goal') }}</label>
+                <select v-model="aiAssistantForm.goal" class="form-select">
+                  <option value="module">{{ t('configs_page.ai_assistant_goal_module') }}</option>
+                  <option value="template">{{ t('configs_page.ai_assistant_goal_template') }}</option>
+                  <option value="both">{{ t('configs_page.ai_assistant_goal_both') }}</option>
+                </select>
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">{{ t('configs_page.sample_log') }}</label>
+              <textarea
+                v-model="aiAssistantForm.sample"
+                class="form-control font-monospace"
+                rows="12"
+                :placeholder="t('configs_page.ai_assistant_sample_placeholder')"
+              ></textarea>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">{{ t('common.description') }}</label>
+              <textarea
+                v-model="aiAssistantForm.extra_requirements"
+                class="form-control"
+                rows="4"
+                :placeholder="t('configs_page.ai_assistant_requirements_placeholder')"
+              ></textarea>
+            </div>
+            <button class="btn btn-success w-100" :disabled="aiAssistantLoading || !aiAssistantForm.sample.trim()" @click="runAIAssistant">
+              <i class="bi bi-stars me-1"></i>{{ aiAssistantLoading ? t('configs_page.ai_assistant_running') : t('configs_page.ai_assistant_run') }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-xl-7">
+        <div class="card border-0 shadow-sm">
+          <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <div>
+              <h6 class="mb-0">{{ t('configs_page.ai_assistant_result') }}</h6>
+              <div class="small text-muted mt-1">{{ t('configs_page.ai_assistant_result_hint') }}</div>
+            </div>
+            <div v-if="aiAssistantResult" class="d-flex gap-2">
+              <button class="btn btn-sm btn-outline-primary" @click="useAIModuleDraft">
+                <i class="bi bi-box-arrow-in-down-right me-1"></i>{{ t('configs_page.ai_use_module') }}
+              </button>
+              <button class="btn btn-sm btn-outline-primary" @click="useAITemplateDraft">
+                <i class="bi bi-box-arrow-in-down-right me-1"></i>{{ t('configs_page.ai_use_template') }}
+              </button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div v-if="aiAssistantResult">
+              <div class="d-flex flex-wrap gap-2 mb-3">
+                <span class="badge bg-info-subtle text-info-emphasis">{{ runtimeLabel(aiAssistantForm.fluent_type) }}</span>
+                <span class="badge text-bg-light">{{ aiAssistantResult.provider }}</span>
+                <span class="badge text-bg-light">{{ aiAssistantResult.account_name }}</span>
+              </div>
+
+              <div class="row g-3 mb-3">
+                <div class="col-md-6">
+                  <div class="fm-ai-result-box">
+                    <div class="fm-ai-result-box__label">{{ t('configs_page.ai_detected_format') }}</div>
+                    <div>{{ aiAssistantResult.detected_format || '-' }}</div>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="fm-ai-result-box">
+                    <div class="fm-ai-result-box__label">{{ t('configs_page.ai_summary') }}</div>
+                    <div>{{ aiAssistantResult.summary || '-' }}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="mb-3">
+                <label class="form-label">{{ t('configs_page.variables_json') }}</label>
+                <textarea class="form-control font-monospace fm-config-textarea" rows="7" readonly :value="aiAssistantResult.variables_json"></textarea>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">{{ t('configs_page.version_content') }}</label>
+                <textarea class="form-control font-monospace fm-config-textarea" rows="10" readonly :value="aiAssistantResult.module_content"></textarea>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">{{ t('configs_page.template_content') }}</label>
+                <textarea class="form-control font-monospace fm-config-textarea" rows="10" readonly :value="aiAssistantResult.template_content"></textarea>
+              </div>
+
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <div class="fm-ai-result-box">
+                    <div class="fm-ai-result-box__label">{{ t('configs_page.ai_assembly_steps') }}</div>
+                    <ul class="mb-0">
+                      <li v-for="(step, index) in aiAssistantResult.assembly_steps || []" :key="index">{{ step }}</li>
+                    </ul>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="fm-ai-result-box">
+                    <div class="fm-ai-result-box__label">{{ t('configs_page.ai_notes') }}</div>
+                    <ul class="mb-0">
+                      <li v-for="(note, index) in aiAssistantResult.notes || []" :key="index">{{ note }}</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-else class="text-center text-muted py-5">
+              {{ t('configs_page.ai_assistant_empty') }}
             </div>
           </div>
         </div>
@@ -967,6 +1119,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from '../i18n'
 import {
+  analyzeLogSampleAssistant,
   checkCompatibility,
   createModule,
   createModuleVersion,
@@ -996,6 +1149,8 @@ const currentModule = ref(null)
 const moduleVersions = ref([])
 const selectedPreviewModuleIds = ref([])
 const selectedWizardModuleIds = ref([])
+const aiAssistantLoading = ref(false)
+const aiAssistantResult = ref(null)
 const editingModuleId = ref(null)
 const wizardVariableValues = ref({})
 const moduleVariablesMode = ref('form')
@@ -1178,6 +1333,13 @@ const wizardForm = reactive({
   description: '',
   fluent_type: 'fluentbit',
   runtime_version: '',
+})
+const aiAssistantForm = reactive({
+  fluent_type: 'fluentbit',
+  goal: 'both',
+  module_type: 'input',
+  sample: '',
+  extra_requirements: '',
 })
 
 const sharedModuleCount = computed(() => modules.value.filter((item) => item.fluent_type === 'shared').length)
@@ -1478,6 +1640,19 @@ function openCreateTemplate() {
   templateModal.show()
 }
 
+function applyAIModuleVariables(raw) {
+  moduleForm.variables = raw || '{}'
+  try {
+    moduleVariableRows.value = buildModuleVariableRows(moduleForm.variables)
+    moduleVariablesMode.value = 'form'
+    moduleVariablesFormError.value = ''
+  } catch {
+    moduleVariablesMode.value = 'json'
+    moduleVariableRows.value = [{ key: '', type: 'string', value: '' }]
+    moduleVariablesFormError.value = ''
+  }
+}
+
 async function saveTemplate() {
   try {
     await createTemplate(templateForm)
@@ -1644,6 +1819,55 @@ async function saveWizardAsTemplate() {
 function openAdvancedPreviewFromWizard() {
   syncPreviewFromWizard()
   activeTab.value = 'preview'
+}
+
+async function runAIAssistant() {
+  if (!aiAssistantForm.sample.trim()) {
+    alert(t('configs_page.require_sample_log'))
+    return
+  }
+
+  aiAssistantLoading.value = true
+  try {
+    const { data } = await analyzeLogSampleAssistant({
+      fluent_type: aiAssistantForm.fluent_type,
+      goal: aiAssistantForm.goal,
+      module_type: aiAssistantForm.module_type,
+      sample: aiAssistantForm.sample,
+      extra_requirements: aiAssistantForm.extra_requirements,
+    })
+    aiAssistantResult.value = data
+  } catch (error) {
+    alert(`${t('configs_page.ai_assistant_failed')}: ${getErrorMessage(error)}`)
+  } finally {
+    aiAssistantLoading.value = false
+  }
+}
+
+function useAIModuleDraft() {
+  if (!aiAssistantResult.value) return
+
+  editingModuleId.value = null
+  moduleForm.name = aiAssistantResult.value.recommended_module_name || `ai-${aiAssistantForm.module_type}`
+  moduleForm.description = aiAssistantResult.value.summary || ''
+  moduleForm.module_type = aiAssistantResult.value.module_type || aiAssistantForm.module_type
+  moduleForm.fluent_type = aiAssistantForm.fluent_type
+  moduleForm.content = aiAssistantResult.value.module_content || ''
+  moduleForm.is_builtin = false
+  applyAIModuleVariables(aiAssistantResult.value.variables_json || '{}')
+  ensureModuleModal()
+  moduleModal.show()
+}
+
+function useAITemplateDraft() {
+  if (!aiAssistantResult.value) return
+
+  templateForm.name = aiAssistantResult.value.recommended_template_name || `ai-${aiAssistantForm.fluent_type}-template`
+  templateForm.description = aiAssistantResult.value.summary || ''
+  templateForm.fluent_type = aiAssistantForm.fluent_type
+  templateForm.content = aiAssistantResult.value.template_content || ''
+  ensureTemplateModal()
+  templateModal.show()
 }
 
 function wizardGoalLabel(goal) {
@@ -1897,5 +2121,22 @@ onMounted(async () => {
 .fm-config-textarea::placeholder {
   color: #94a3b8;
   opacity: 1;
+}
+
+.fm-ai-result-box {
+  height: 100%;
+  padding: 1rem 1.05rem;
+  border-radius: 14px;
+  border: 1px solid #d7e2ee;
+  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+}
+
+.fm-ai-result-box__label {
+  margin-bottom: 0.45rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
 }
 </style>

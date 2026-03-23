@@ -19,6 +19,8 @@ type AuthSettingsHandler struct {
 	SAMLProvider *auth.SAMLProvider
 }
 
+const maskedSecretValue = "********"
+
 // dtoToSAMLConfig converts a SAMLSettingsDTO to a SAMLConfig, routing
 // cert/key data to PEM fields or file path fields based on content.
 func dtoToSAMLConfig(dto services.SAMLSettingsDTO) config.SAMLConfig {
@@ -40,6 +42,20 @@ func dtoToSAMLConfig(dto services.SAMLSettingsDTO) config.SAMLConfig {
 		cfg.KeyFile = dto.KeyData
 	}
 	return cfg
+}
+
+func maskSecret(value string) string {
+	if value == "" {
+		return ""
+	}
+	return maskedSecretValue
+}
+
+func preserveMaskedSecret(incoming, existing string) string {
+	if incoming == maskedSecretValue {
+		return existing
+	}
+	return incoming
 }
 
 // GetEnabledMethods returns which auth methods (ldap, saml) are enabled.
@@ -70,7 +86,7 @@ func (h *AuthSettingsHandler) GetLDAPSettings(c *gin.Context) {
 	}
 	// Mask bind password in response
 	if settings.BindPassword != "" {
-		settings.BindPassword = "********"
+		settings.BindPassword = maskedSecretValue
 	}
 	c.JSON(http.StatusOK, settings)
 }
@@ -83,7 +99,7 @@ func (h *AuthSettingsHandler) UpdateLDAPSettings(c *gin.Context) {
 	}
 
 	// If password is masked, keep the existing one
-	if dto.BindPassword == "********" {
+	if dto.BindPassword == maskedSecretValue {
 		existing, _ := h.Svc.GetLDAPSettings()
 		if existing != nil {
 			dto.BindPassword = existing.BindPassword
@@ -105,7 +121,7 @@ func (h *AuthSettingsHandler) TestLDAPConnection(c *gin.Context) {
 	}
 
 	// If password is masked, use existing
-	if dto.BindPassword == "********" {
+	if dto.BindPassword == maskedSecretValue {
 		existing, _ := h.Svc.GetLDAPSettings()
 		if existing != nil {
 			dto.BindPassword = existing.BindPassword

@@ -82,6 +82,11 @@
             <i class="bi bi-journal-text me-2"></i>{{ t('nav.audit') }}
           </router-link>
         </li>
+        <li v-if="canSeeAISettings" class="nav-item">
+          <router-link to="/ai-settings" class="fm-nav-link" active-class="active">
+            <i class="bi bi-stars me-2"></i>{{ t('nav.ai_settings') }}
+          </router-link>
+        </li>
         <li v-if="auth.hasPermission('agent_policies', 'read')" class="nav-item">
           <router-link to="/agent-policies" class="fm-nav-link" active-class="active">
             <i class="bi bi-sliders me-2"></i>{{ t('nav.agent_policies') }}
@@ -153,12 +158,17 @@ const pageTitleKeys = {
   'Deploys': 'nav.deploys',
   'Runtime': 'nav.runtime',
   'AgentPolicies': 'nav.agent_policies',
+  'AISettings': 'nav.ai_settings',
   'Users': 'nav.users',
   'Roles': 'nav.roles',
   'AuditLogs': 'nav.audit',
 }
 
 const currentPageTitle = computed(() => t(pageTitleKeys[route.name] || 'nav.dashboard'))
+const isAdmin = computed(() => (auth.user?.roles || []).some(role => role.name === 'admin'))
+const canSeeAISettings = computed(() =>
+  isAdmin.value || auth.hasPermission('ai_settings', 'read') || auth.hasPermission('ai_settings', 'update')
+)
 
 function switchLocale() {
   setLocale(currentLocale.value)
@@ -176,7 +186,10 @@ function handleLogout() {
   router.push('/login')
 }
 
-onMounted(() => {
+onMounted(async () => {
+  if (auth.isAuthenticated) {
+    try { await auth.fetchProfile() } catch {}
+  }
   updateTime()
   timer = setInterval(updateTime, 1000)
 })

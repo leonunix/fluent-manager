@@ -3,6 +3,8 @@ package services
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/fluent-manager/fluent-manager/internal/config"
 	"github.com/fluent-manager/fluent-manager/internal/models"
@@ -42,6 +44,46 @@ type SAMLSettingsDTO struct {
 	GroupSyncStrategy string `json:"group_sync_strategy"`
 }
 
+// AIAccountDTO stores a single AI account under a provider.
+type AIAccountDTO struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Provider    string `json:"provider"`
+	Description string `json:"description"`
+	Enabled     bool   `json:"enabled"`
+	APIKey      string `json:"api_key"`
+	BaseURL     string `json:"base_url"`
+	Model       string `json:"model"`
+}
+
+// AISettingsDTO stores multi-account AI assistant settings editable from the GUI.
+type AISettingsDTO struct {
+	Enabled               bool           `json:"enabled"`
+	ActiveProvider        string         `json:"active_provider"`
+	ActiveAccountID       string         `json:"active_account_id"`
+	RequestTimeoutSeconds int            `json:"request_timeout_seconds"`
+	SystemPrompt          string         `json:"system_prompt"`
+	Accounts              []AIAccountDTO `json:"accounts"`
+}
+
+type legacyAIProviderSettingsDTO struct {
+	Enabled bool   `json:"enabled"`
+	APIKey  string `json:"api_key"`
+	BaseURL string `json:"base_url"`
+	Model   string `json:"model"`
+}
+
+type legacyAISettingsDTO struct {
+	Enabled               bool                        `json:"enabled"`
+	ActiveProvider        string                      `json:"active_provider"`
+	RequestTimeoutSeconds int                         `json:"request_timeout_seconds"`
+	SystemPrompt          string                      `json:"system_prompt"`
+	OpenAI                legacyAIProviderSettingsDTO `json:"openai"`
+	Claude                legacyAIProviderSettingsDTO `json:"claude"`
+	Gemini                legacyAIProviderSettingsDTO `json:"gemini"`
+	DeepSeek              legacyAIProviderSettingsDTO `json:"deepseek"`
+}
+
 // GroupMappingInput is used for setting external group mappings.
 type GroupMappingInput struct {
 	ExternalGroupName string `json:"external_group_name"`
@@ -54,6 +96,8 @@ type AuthSettingsService interface {
 	UpdateLDAPSettings(settings LDAPSettingsDTO) error
 	GetSAMLSettings() (*SAMLSettingsDTO, error)
 	UpdateSAMLSettings(settings SAMLSettingsDTO) error
+	GetAISettings() (*AISettingsDTO, error)
+	UpdateAISettings(settings AISettingsDTO) error
 	ListGroupMappings(source string) ([]models.ExternalGroupMapping, error)
 	SetGroupMappings(source string, mappings []GroupMappingInput) error
 	ResolveExternalGroups(source string, externalGroupNames []string) ([]models.Group, error)
@@ -67,6 +111,93 @@ type authSettingsService struct {
 
 func NewAuthSettingsService(db *gorm.DB) AuthSettingsService {
 	return &authSettingsService{db: db}
+}
+
+func defaultAISettings() AISettingsDTO {
+	return AISettingsDTO{
+		RequestTimeoutSeconds: 60,
+		SystemPrompt:          recommendedAISystemPrompt(),
+		Accounts:              []AIAccountDTO{},
+	}
+}
+
+func normalizeAISettings(dto *AISettingsDTO) {
+	defaults := defaultAISettings()
+	if dto.RequestTimeoutSeconds <= 0 {
+		dto.RequestTimeoutSeconds = defaults.RequestTimeoutSeconds
+	}
+	if strings.TrimSpace(dto.SystemPrompt) == "" {
+		dto.SystemPrompt = defaults.SystemPrompt
+	}
+
+	normalized := make([]AIAccountDTO, 0, len(dto.Accounts))
+	activeExists := false
+	for idx, account := range dto.Accounts {
+		switch account.Provider {
+		case "openai", "claude", "gemini", "deepseek":
+		default:
+			continue
+		}
+		if account.ID == "" {
+			account.ID = fmt.Sprintf("%s-%d-%d", account.Provider, time.Now().UnixNano(), idx)
+		}
+		if account.Name == "" {
+			account.Name = fmt.Sprintf("%s Account %d", strings.ToUpper(account.Provider[:1])+account.Provider[1:], idx+1)
+		}
+		if account.ID == dto.ActiveAccountID {
+			activeExists = true
+			dto.ActiveProvider = account.Provider
+		}
+		normalized = append(normalized, account)
+	}
+	dto.Accounts = normalized
+
+	if !activeExists {
+		dto.ActiveAccountID = ""
+		dto.ActiveProvider = ""
+		for _, account := range dto.Accounts {
+			if account.Enabled {
+				dto.ActiveAccountID = account.ID
+				dto.ActiveProvider = account.Provider
+				break
+			}
+		}
+		if dto.ActiveAccountID == "" && len(dto.Accounts) > 0 {
+			dto.ActiveAccountID = dto.Accounts[0].ID
+			dto.ActiveProvider = dto.Accounts[0].Provider
+		}
+	}
+}
+
+func convertLegacyAISettings(legacy legacyAISettingsDTO) AISettingsDTO {
+	settings := AISettingsDTO{
+		Enabled:               legacy.Enabled,
+		RequestTimeoutSeconds: legacy.RequestTimeoutSeconds,
+		SystemPrompt:          legacy.SystemPrompt,
+	}
+	appendAccount := func(provider string, item legacyAIProviderSettingsDTO) {
+		if !item.Enabled && item.APIKey == "" && item.BaseURL == "" && item.Model == "" {
+			return
+		}
+		settings.Accounts = append(settings.Accounts, AIAccountDTO{
+			ID:       provider + "-legacy",
+			Name:     strings.ToUpper(provider[:1]) + provider[1:] + " Account 1",
+			Provider: provider,
+			Enabled:  item.Enabled,
+			APIKey:   item.APIKey,
+			BaseURL:  item.BaseURL,
+			Model:    item.Model,
+		})
+		if legacy.ActiveProvider == provider {
+			settings.ActiveAccountID = provider + "-legacy"
+		}
+	}
+	appendAccount("openai", legacy.OpenAI)
+	appendAccount("claude", legacy.Claude)
+	appendAccount("gemini", legacy.Gemini)
+	appendAccount("deepseek", legacy.DeepSeek)
+	normalizeAISettings(&settings)
+	return settings
 }
 
 func (s *authSettingsService) getOrCreate(provider string) (*models.AuthSettings, error) {
@@ -159,6 +290,42 @@ func (s *authSettingsService) UpdateSAMLSettings(dto SAMLSettingsDTO) error {
 	}).Error
 }
 
+func (s *authSettingsService) GetAISettings() (*AISettingsDTO, error) {
+	settings, err := s.getOrCreate("ai")
+	if err != nil {
+		return nil, err
+	}
+
+	dto := defaultAISettings()
+	if err := json.Unmarshal([]byte(settings.Config), &dto); err != nil {
+		return &dto, nil
+	}
+	if len(dto.Accounts) == 0 && (strings.Contains(settings.Config, "\"openai\"") || strings.Contains(settings.Config, "\"claude\"") || strings.Contains(settings.Config, "\"gemini\"") || strings.Contains(settings.Config, "\"deepseek\"")) {
+		var legacy legacyAISettingsDTO
+		if legacyErr := json.Unmarshal([]byte(settings.Config), &legacy); legacyErr == nil {
+			converted := convertLegacyAISettings(legacy)
+			return &converted, nil
+		}
+	}
+	normalizeAISettings(&dto)
+	return &dto, nil
+}
+
+func (s *authSettingsService) UpdateAISettings(dto AISettingsDTO) error {
+	settings, err := s.getOrCreate("ai")
+	if err != nil {
+		return err
+	}
+
+	normalizeAISettings(&dto)
+	configJSON, err := json.Marshal(dto)
+	if err != nil {
+		return err
+	}
+
+	return s.db.Model(settings).Update("config", string(configJSON)).Error
+}
+
 func (s *authSettingsService) ListGroupMappings(source string) ([]models.ExternalGroupMapping, error) {
 	var mappings []models.ExternalGroupMapping
 	if err := s.db.Preload("Group").Where("source = ?", source).Find(&mappings).Error; err != nil {
@@ -234,15 +401,15 @@ func (s *authSettingsService) SeedFromConfig(authCfg config.AuthConfig) {
 		s.db.Model(&models.AuthSettings{}).Where("provider = ?", "ldap").Count(&count)
 		if count == 0 {
 			dto := LDAPSettingsDTO{
-				Enabled:      authCfg.LDAP.Enabled,
-				Host:         authCfg.LDAP.Host,
-				Port:         authCfg.LDAP.Port,
-				UseTLS:       authCfg.LDAP.UseTLS,
-				BindDN:       authCfg.LDAP.BindDN,
-				BindPassword: authCfg.LDAP.BindPassword,
-				BaseDN:       authCfg.LDAP.BaseDN,
-				UserFilter:   authCfg.LDAP.UserFilter,
-				GroupFilter:  authCfg.LDAP.GroupFilter,
+				Enabled:           authCfg.LDAP.Enabled,
+				Host:              authCfg.LDAP.Host,
+				Port:              authCfg.LDAP.Port,
+				UseTLS:            authCfg.LDAP.UseTLS,
+				BindDN:            authCfg.LDAP.BindDN,
+				BindPassword:      authCfg.LDAP.BindPassword,
+				BaseDN:            authCfg.LDAP.BaseDN,
+				UserFilter:        authCfg.LDAP.UserFilter,
+				GroupFilter:       authCfg.LDAP.GroupFilter,
 				GroupSyncStrategy: authCfg.LDAP.GroupSyncStrategy,
 			}
 			dto.Attributes.Username = authCfg.LDAP.Attributes.Username

@@ -33,6 +33,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'deploys', name: 'Deploys', component: () => import('../views/Deploys.vue') },
       { path: 'runtime', name: 'Runtime', component: () => import('../views/Runtime.vue') },
       { path: 'agent-policies', name: 'AgentPolicies', component: () => import('../views/AgentPolicies.vue') },
+      { path: 'ai-settings', name: 'AISettings', component: () => import('../views/AISettings.vue'), meta: { permission: { resource: 'ai_settings', action: 'read' } } },
       { path: 'users', name: 'Users', component: () => import('../views/Users.vue') },
       { path: 'roles', name: 'Roles', component: () => import('../views/Roles.vue') },
       { path: 'audit', name: 'AuditLogs', component: () => import('../views/AuditLogs.vue') },
@@ -95,6 +96,11 @@ router.beforeEach(async (to) => {
     return '/login'
   }
   if (to.meta.guest && auth.isAuthenticated) {
+    return '/'
+  }
+  const permission = to.meta.permission as { resource: string, action: string } | undefined
+  const isAdmin = (auth.user?.roles || []).some(role => role.name === 'admin')
+  if (permission && auth.isAuthenticated && !isAdmin && !auth.hasPermission(permission.resource, permission.action)) {
     return '/'
   }
 })

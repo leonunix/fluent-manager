@@ -25,6 +25,7 @@ type Registry struct {
 	Role         RoleService
 	Group        GroupService
 	AuthSettings AuthSettingsService
+	AI           AIService
 	Topology     TopologyService
 	Node         NodeService
 	Fluent       FluentService
@@ -40,21 +41,23 @@ type Registry struct {
 // NewRegistry creates all services with the given database connection.
 func NewRegistry(db *gorm.DB, fluentSharedKeySecret string, agentSettings AgentSettings) *Registry {
 	agentPolicySvc := NewAgentPolicyService(db, agentSettings)
+	authSettingsSvc := NewAuthSettingsService(db)
 	return &Registry{
 		Auth:         NewAuthService(db),
 		User:         NewUserService(db),
 		Role:         NewRoleService(db),
 		Group:        NewGroupService(db),
-		AuthSettings: NewAuthSettingsService(db),
+		AuthSettings: authSettingsSvc,
+		AI:           NewAIService(authSettingsSvc),
 		Topology:     NewTopologyService(db),
-		Node:        NewNodeService(db),
-		Fluent:      NewFluentService(db, fluentSharedKeySecret),
-		FluentOps:   NewFluentOpsService(db),
-		AgentPolicy: agentPolicySvc,
-		Config:      NewConfigService(db),
-		Deploy:      NewDeployService(db),
-		Agent:       NewAgentService(db, agentPolicySvc),
-		Metrics:     NewMetricsService(db),
-		Setup:       NewSetupService(db),
+		Node:         NewNodeService(db),
+		Fluent:       NewFluentService(db, fluentSharedKeySecret),
+		FluentOps:    NewFluentOpsService(db),
+		AgentPolicy:  agentPolicySvc,
+		Config:       NewConfigService(db),
+		Deploy:       NewDeployService(db),
+		Agent:        NewAgentService(db, agentPolicySvc),
+		Metrics:      NewMetricsService(db),
+		Setup:        NewSetupService(db),
 	}
 }

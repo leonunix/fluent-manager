@@ -182,6 +182,8 @@ func seedDefaultsOn(db *gorm.DB) {
 		{Name: "groups:delete", Resource: "groups", Action: "delete"},
 		{Name: "auth_settings:read", Resource: "auth_settings", Action: "read"},
 		{Name: "auth_settings:update", Resource: "auth_settings", Action: "update"},
+		{Name: "ai_settings:read", Resource: "ai_settings", Action: "read"},
+		{Name: "ai_settings:update", Resource: "ai_settings", Action: "update"},
 	}
 	for _, p := range permissions {
 		db.FirstOrCreate(&p, Permission{Name: p.Name})
