@@ -565,6 +565,17 @@ export default {
     save_scopes: 'Save Scope',
     confirm_delete: 'Delete user {name}?',
     scope_manage_title: 'Resource Scope',
+    role_selection: 'Role Assignment',
+    role_pick_hint: 'Choose one or more roles for this user. Effective access is stacked from all selected roles.',
+    role_pick_empty: 'No roles assigned yet',
+    roles_selected: 'Selected Roles',
+    permissions_granted: 'Permissions',
+    role_resources: 'Resources',
+    clear_roles: 'Clear Roles',
+    primary_role: 'Primary',
+    role_system: 'System Role',
+    role_custom: 'Custom Role',
+    role_no_description: 'This role has no description yet',
   },
 
   environments_page: {

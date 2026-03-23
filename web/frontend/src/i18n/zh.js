@@ -568,6 +568,17 @@ export default {
     save_scopes: '保存范围',
     confirm_delete: '确认删除用户 {name}?',
     scope_manage_title: '资源范围',
+    role_selection: '角色分配',
+    role_pick_hint: '为用户选择一个或多个角色，权限将自动叠加并立即反映到访问能力上。',
+    role_pick_empty: '暂未分配角色',
+    roles_selected: '已选角色',
+    permissions_granted: '权限项',
+    role_resources: '资源域',
+    clear_roles: '清空角色',
+    primary_role: '主角色',
+    role_system: '系统角色',
+    role_custom: '自定义角色',
+    role_no_description: '该角色暂未填写描述',
   },
 
   environments_page: {
