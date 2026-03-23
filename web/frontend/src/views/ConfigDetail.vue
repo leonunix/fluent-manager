@@ -303,43 +303,155 @@
     </div>
 
     <div class="modal fade" id="deployModal" tabindex="-1">
-      <div class="modal-dialog">
+      <div class="modal-dialog modal-xl">
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title">{{ t('config_detail.deploy_title').replace('{version}', selectedVersion?.version || '') }}</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body">
-            <div class="mb-3">
-              <label class="form-label">{{ t('config_detail.deploy_scope') }}</label>
-              <select v-model="deployForm.scope" class="form-select">
-                <option value="cluster">{{ t('config_detail.by_cluster') }}</option>
-                <option value="region">{{ t('config_detail.by_region') }}</option>
-                <option value="datacenter">{{ t('config_detail.by_datacenter') }}</option>
-                <option value="node">{{ t('config_detail.by_node') }}</option>
-              </select>
+            <div class="row g-3">
+              <div class="col-lg-4">
+                <label class="form-label">{{ t('config_detail.deploy_scope') }}</label>
+                <select v-model="deployForm.scope" class="form-select">
+                  <option value="cluster">{{ t('config_detail.by_cluster') }}</option>
+                  <option value="region">{{ t('config_detail.by_region') }}</option>
+                  <option value="datacenter">{{ t('config_detail.by_datacenter') }}</option>
+                  <option value="node">{{ t('config_detail.by_node') }}</option>
+                </select>
+              </div>
+              <div class="col-lg-4">
+                <label class="form-label">{{ t('config_detail.target_runtime') }}</label>
+                <div class="form-control d-flex align-items-center">
+                  <span class="badge bg-info">{{ matchingDeployFluentType || t('common.all_types') }}</span>
+                </div>
+              </div>
+              <div class="col-lg-4">
+                <label class="form-label">{{ t('config_detail.selected_nodes') }}</label>
+                <div class="form-control d-flex align-items-center">
+                  <span>{{ deployForm.node_ids.length }}</span>
+                  <span class="text-muted ms-2">{{ t('common.nodes') }}</span>
+                </div>
+              </div>
             </div>
-            <div v-if="deployForm.scope === 'cluster'" class="mb-3">
+
+            <div v-if="deployForm.scope === 'cluster'" class="mt-3">
               <label class="form-label">{{ t('config_detail.select_cluster') }}</label>
               <select v-model="deployForm.cluster_id" class="form-select">
+                <option :value="null">{{ t('common.unspecified') }}</option>
                 <option v-for="cl in clusters" :key="cl.id" :value="cl.id">{{ cl.alias || cl.name }}</option>
               </select>
             </div>
-            <div v-if="deployForm.scope === 'region'" class="mb-3">
+            <div v-if="deployForm.scope === 'region'" class="mt-3">
               <label class="form-label">{{ t('config_detail.select_region') }}</label>
               <select v-model="deployForm.region_id" class="form-select">
+                <option :value="null">{{ t('common.unspecified') }}</option>
                 <option v-for="r in regions" :key="r.id" :value="r.id">{{ r.alias || r.name }}</option>
               </select>
             </div>
-            <div v-if="deployForm.scope === 'datacenter'" class="mb-3">
+            <div v-if="deployForm.scope === 'datacenter'" class="mt-3">
               <label class="form-label">{{ t('config_detail.select_datacenter') }}</label>
               <select v-model="deployForm.datacenter_id" class="form-select">
+                <option :value="null">{{ t('common.unspecified') }}</option>
                 <option v-for="dc in datacenters" :key="dc.id" :value="dc.id">{{ dc.alias || dc.name }}</option>
               </select>
             </div>
-            <div v-if="deployForm.scope === 'node'" class="mb-3">
-              <label class="form-label">{{ t('config_detail.node_ids') }}</label>
-              <input v-model="deployForm.node_ids_text" type="text" class="form-control" placeholder="1,2,3">
+            <div v-if="deployForm.scope === 'node'" class="mt-4">
+              <div class="alert alert-info py-2 px-3 mb-3">
+                {{ matchingDeployFluentType
+                  ? t('config_detail.runtime_filter_hint').replace('{type}', matchingDeployFluentType)
+                  : t('config_detail.runtime_filter_shared') }}
+              </div>
+
+              <div class="row g-3 align-items-end mb-3">
+                <div class="col-lg-5">
+                  <label class="form-label">{{ t('common.name') }}</label>
+                  <input
+                    v-model="deployForm.node_search"
+                    type="text"
+                    class="form-control"
+                    :placeholder="t('config_detail.node_search_placeholder')"
+                    @input="queueLoadDeployNodes"
+                  >
+                </div>
+                <div class="col-lg-3">
+                  <label class="form-label">{{ t('status') }}</label>
+                  <select v-model="deployForm.node_status" class="form-select" @change="loadDeployNodes">
+                    <option value="">{{ t('common.all_status') }}</option>
+                    <option value="online">{{ t('nodes_page.online') }}</option>
+                    <option value="offline">{{ t('nodes_page.offline') }}</option>
+                    <option value="error">{{ t('nodes_page.error') }}</option>
+                  </select>
+                </div>
+                <div class="col-lg-4">
+                  <label class="form-label">{{ t('common.cluster') }}</label>
+                  <select v-model="deployForm.node_cluster_id" class="form-select" @change="loadDeployNodes">
+                    <option value="">{{ t('common.all_clusters') }}</option>
+                    <option v-for="cl in clusters" :key="cl.id" :value="String(cl.id)">{{ cl.alias || cl.name }}</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                <div class="small text-muted">
+                  {{ t('config_detail.showing_nodes').replace('{shown}', deployNodes.length).replace('{total}', deployNodesTotal) }}
+                </div>
+                <div class="d-flex gap-2">
+                  <button type="button" class="btn btn-sm btn-outline-primary" @click="toggleVisibleDeployNodes">
+                    {{ allVisibleDeployNodesSelected ? t('config_detail.clear_visible') : t('config_detail.select_all_visible') }}
+                  </button>
+                  <button type="button" class="btn btn-sm btn-outline-secondary" :disabled="!deployForm.node_ids.length" @click="clearDeploySelection">
+                    {{ t('config_detail.clear_selected') }}
+                  </button>
+                </div>
+              </div>
+
+              <div class="border rounded-3 fm-node-picker-table">
+                <table class="table table-hover align-middle mb-0">
+                  <thead class="table-light">
+                    <tr>
+                      <th style="width: 44px;"></th>
+                      <th>{{ t('nodes_page.hostname') }}</th>
+                      <th>IP</th>
+                      <th>{{ t('common.type') }}</th>
+                      <th>{{ t('status') }}</th>
+                      <th>{{ t('common.cluster') }}</th>
+                      <th>{{ t('nodes_page.last_heartbeat') }}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-if="deployNodesLoading">
+                      <td colspan="7" class="text-center text-muted py-4">{{ t('common.refresh') }}...</td>
+                    </tr>
+                    <tr v-for="node in deployNodes" :key="node.id">
+                      <td>
+                        <input
+                          class="form-check-input"
+                          type="checkbox"
+                          :checked="deployForm.node_ids.includes(node.id)"
+                          @change="toggleDeployNode(node.id)"
+                        >
+                      </td>
+                      <td>
+                        <div class="fw-semibold">{{ node.hostname }}</div>
+                        <div class="text-muted small">{{ node.node_uid }}</div>
+                      </td>
+                      <td>{{ node.ip_address || '-' }}</td>
+                      <td><span class="badge bg-info">{{ node.fluent_type || '-' }}</span></td>
+                      <td><span :class="nodeStatusClass(node.status)" class="badge">{{ nodeStatusText(node.status) }}</span></td>
+                      <td>{{ formatClusterPath(node) }}</td>
+                      <td>{{ formatTime(node.last_heartbeat) }}</td>
+                    </tr>
+                    <tr v-if="!deployNodesLoading && !deployNodes.length">
+                      <td colspan="7" class="text-center text-muted py-4">{{ t('config_detail.no_target_nodes') }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div v-if="deployForm.node_ids.length" class="small text-muted mt-2">
+                {{ t('config_detail.selected_ids').replace('{ids}', deployForm.node_ids.join(', ')) }}
+              </div>
             </div>
           </div>
           <div class="modal-footer">
@@ -362,6 +474,7 @@ import {
   diffConfig,
   getClusters,
   getDataCenters,
+  getNodes,
   getRegions,
   getTemplate,
   getVersions,
@@ -378,6 +491,9 @@ const selectedVersion = ref(null)
 const clusters = ref([])
 const regions = ref([])
 const datacenters = ref([])
+const deployNodes = ref([])
+const deployNodesLoading = ref(false)
+const deployNodesTotal = ref(0)
 
 const analysisTab = ref('analysis')
 const analysisResult = ref(null)
@@ -386,7 +502,16 @@ const replayResult = ref(null)
 const diffResult = ref(null)
 
 const versionForm = reactive({ content: '', comment: '' })
-const deployForm = reactive({ scope: 'cluster', cluster_id: null, region_id: null, datacenter_id: null, node_ids_text: '' })
+const deployForm = reactive({
+  scope: 'cluster',
+  cluster_id: null,
+  region_id: null,
+  datacenter_id: null,
+  node_ids: [],
+  node_search: '',
+  node_status: 'online',
+  node_cluster_id: '',
+})
 const analysisForm = reactive({
   runtime_version: '',
   node_id: '',
@@ -397,6 +522,7 @@ const analysisForm = reactive({
 
 let versionModal = null
 let deployModal = null
+let deployNodeSearchTimer = null
 const { t, dateLocale } = useI18n()
 
 const currentContent = computed(() => selectedVersion.value?.content || template.value?.content || '')
@@ -407,9 +533,39 @@ const currentTargetLabel = computed(() => (
 ))
 const compareVersionOptions = computed(() => versions.value.filter((version) => version.id !== selectedVersion.value?.id))
 const compareVersion = computed(() => compareVersionOptions.value.find((version) => version.id === analysisForm.compare_version_id) || null)
+const matchingDeployFluentType = computed(() => template.value?.fluent_type && template.value.fluent_type !== 'shared'
+  ? template.value.fluent_type
+  : '')
+const allVisibleDeployNodesSelected = computed(() => (
+  !!deployNodes.value.length && deployNodes.value.every((node) => deployForm.node_ids.includes(node.id))
+))
 
 function formatTime(value) {
   return value ? new Date(value).toLocaleString(dateLocale.value) : '-'
+}
+
+function nodeStatusClass(status) {
+  return {
+    'bg-success': status === 'online',
+    'bg-warning': status === 'offline',
+    'bg-danger': status === 'error',
+  }
+}
+
+function nodeStatusText(status) {
+  return {
+    online: t('nodes_page.online'),
+    offline: t('nodes_page.offline'),
+    error: t('nodes_page.error'),
+  }[status] || status
+}
+
+function formatClusterPath(node) {
+  if (!node?.cluster) return t('nodes_page.unassigned')
+  const datacenter = node.cluster.region?.datacenter?.alias || node.cluster.region?.datacenter?.name
+  const region = node.cluster.region?.alias || node.cluster.region?.name
+  const cluster = node.cluster.alias || node.cluster.name
+  return [datacenter, region, cluster].filter(Boolean).join(' / ') || t('nodes_page.unassigned')
 }
 
 function formatJson(value) {
@@ -485,22 +641,106 @@ function openDeploy() {
   deployForm.cluster_id = clusters.value[0]?.id || null
   deployForm.region_id = regions.value[0]?.id || null
   deployForm.datacenter_id = datacenters.value[0]?.id || null
-  deployForm.node_ids_text = ''
+  deployForm.node_ids = []
+  deployForm.node_search = ''
+  deployForm.node_status = 'online'
+  deployForm.node_cluster_id = ''
+  deployNodes.value = []
+  deployNodesTotal.value = 0
   if (!deployModal) deployModal = new window.bootstrap.Modal(document.getElementById('deployModal'))
   deployModal.show()
 }
 
-async function submitDeploy() {
-  const data = { config_version_id: selectedVersion.value.id }
-  if (deployForm.scope === 'cluster' && deployForm.cluster_id) data.cluster_id = deployForm.cluster_id
-  if (deployForm.scope === 'region' && deployForm.region_id) data.region_id = deployForm.region_id
-  if (deployForm.scope === 'datacenter' && deployForm.datacenter_id) data.datacenter_id = deployForm.datacenter_id
-  if (deployForm.scope === 'node' && deployForm.node_ids_text) {
-    data.node_ids = deployForm.node_ids_text.split(',').map((value) => parseInt(value.trim(), 10)).filter((value) => value > 0)
+async function loadDeployNodes() {
+  if (deployForm.scope !== 'node') return
+
+  deployNodesLoading.value = true
+  try {
+    const params = { page: 1, page_size: 200 }
+    if (deployForm.node_search) params.search = deployForm.node_search
+    if (deployForm.node_status) params.status = deployForm.node_status
+    if (deployForm.node_cluster_id) params.cluster_id = deployForm.node_cluster_id
+    if (matchingDeployFluentType.value) params.fluent_type = matchingDeployFluentType.value
+
+    const { data } = await getNodes(params)
+    deployNodes.value = data.data || []
+    deployNodesTotal.value = data.total || deployNodes.value.length
+  } catch (error) {
+    deployNodes.value = []
+    deployNodesTotal.value = 0
+    alert(`${t('config_detail.load_nodes_failed')}: ${getErrorMessage(error)}`)
+  } finally {
+    deployNodesLoading.value = false
   }
-  await createDeploy(data)
-  deployModal.hide()
-  router.push('/deploys')
+}
+
+function queueLoadDeployNodes() {
+  clearTimeout(deployNodeSearchTimer)
+  deployNodeSearchTimer = setTimeout(() => {
+    loadDeployNodes()
+  }, 250)
+}
+
+function toggleDeployNode(nodeID) {
+  if (deployForm.node_ids.includes(nodeID)) {
+    deployForm.node_ids = deployForm.node_ids.filter((id) => id !== nodeID)
+    return
+  }
+  deployForm.node_ids = [...deployForm.node_ids, nodeID]
+}
+
+function toggleVisibleDeployNodes() {
+  const visibleIDs = deployNodes.value.map((node) => node.id)
+  if (allVisibleDeployNodesSelected.value) {
+    deployForm.node_ids = deployForm.node_ids.filter((id) => !visibleIDs.includes(id))
+    return
+  }
+  deployForm.node_ids = Array.from(new Set([...deployForm.node_ids, ...visibleIDs]))
+}
+
+function clearDeploySelection() {
+  deployForm.node_ids = []
+}
+
+async function submitDeploy() {
+  if (!selectedVersion.value?.id) return
+
+  const data = { config_version_id: selectedVersion.value.id }
+  if (deployForm.scope === 'cluster') {
+    if (!deployForm.cluster_id) {
+      alert(t('config_detail.select_cluster_required'))
+      return
+    }
+    data.cluster_id = deployForm.cluster_id
+  }
+  if (deployForm.scope === 'region') {
+    if (!deployForm.region_id) {
+      alert(t('config_detail.select_region_required'))
+      return
+    }
+    data.region_id = deployForm.region_id
+  }
+  if (deployForm.scope === 'datacenter') {
+    if (!deployForm.datacenter_id) {
+      alert(t('config_detail.select_datacenter_required'))
+      return
+    }
+    data.datacenter_id = deployForm.datacenter_id
+  }
+  if (deployForm.scope === 'node') {
+    if (!deployForm.node_ids.length) {
+      alert(t('config_detail.select_nodes_required'))
+      return
+    }
+    data.node_ids = deployForm.node_ids
+  }
+  try {
+    await createDeploy(data)
+    deployModal.hide()
+    router.push('/deploys')
+  } catch (error) {
+    alert(`${t('config_detail.deploy_failed')}: ${getErrorMessage(error)}`)
+  }
 }
 
 function requireCurrentContent(actionLabel) {
@@ -597,6 +837,12 @@ watch(selectedVersion, (version) => {
 
 watch(versions, syncCompareVersion)
 
+watch(() => deployForm.scope, (scope) => {
+  if (scope === 'node') {
+    loadDeployNodes()
+  }
+})
+
 onMounted(loadData)
 </script>
 
@@ -622,5 +868,10 @@ onMounted(loadData)
 .fm-analysis-tabs .nav-link.active {
   background: linear-gradient(135deg, #0f766e 0%, #0d9488 100%);
   color: #fff;
+}
+
+.fm-node-picker-table {
+  max-height: 360px;
+  overflow: auto;
 }
 </style>

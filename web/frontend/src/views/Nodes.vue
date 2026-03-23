@@ -4,6 +4,11 @@
       <h4 class="mb-0">{{ t('nodes_page.title') }}</h4>
       <div class="d-flex gap-2">
         <input v-model="search" type="text" class="form-control" :placeholder="t('nodes_page.search_placeholder')" style="width: 200px;" @input="loadNodes">
+        <select v-model="fluentTypeFilter" class="form-select" style="width: 140px;" @change="loadNodes">
+          <option value="">{{ t('common.all_types') }}</option>
+          <option value="fluentbit">Fluent Bit</option>
+          <option value="fluentd">Fluentd</option>
+        </select>
         <select v-model="statusFilter" class="form-select" style="width: 110px;" @change="loadNodes">
           <option value="">{{ t('common.all_status') }}</option>
           <option value="online">{{ t('nodes_page.online') }}</option>
@@ -113,6 +118,7 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = 20
 const search = ref('')
+const fluentTypeFilter = ref(route.query.fluent_type || '')
 const statusFilter = ref('')
 const clusterFilter = ref(route.query.cluster_id || '')
 const envFilter = ref('')
@@ -135,6 +141,7 @@ function formatTime(t) {
 async function loadNodes() {
   const params = { page: page.value, page_size: pageSize }
   if (search.value) params.search = search.value
+  if (fluentTypeFilter.value) params.fluent_type = fluentTypeFilter.value
   if (statusFilter.value) params.status = statusFilter.value
   if (clusterFilter.value) params.cluster_id = clusterFilter.value
   if (envFilter.value) params.environment_id = envFilter.value
