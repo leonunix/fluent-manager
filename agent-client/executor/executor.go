@@ -219,13 +219,6 @@ func (e *Executor) RunCommand(action, args string) (string, error) {
 		}
 		return string(data), nil
 
-	case "exec":
-		// Execute arbitrary allowed command (be cautious)
-		if args == "" {
-			return "", fmt.Errorf("no command specified")
-		}
-		return e.runShell(args)
-
 	default:
 		return "", fmt.Errorf("unknown command: %s", action)
 	}

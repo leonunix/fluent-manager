@@ -194,10 +194,27 @@ type SendCommandRequest struct {
 	Args   string `json:"args"`
 }
 
+// allowedActions is the whitelist of permitted remote command actions.
+var allowedActions = map[string]bool{
+	"restart":     true,
+	"reload":      true,
+	"stop":        true,
+	"start":       true,
+	"status":      true,
+	"validate":    true,
+	"rollback":    true,
+	"show_config": true,
+}
+
 func (h *AgentHandler) SendCommand(c *gin.Context) {
 	var req SendCommandRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if !allowedActions[req.Action] {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "action not allowed; permitted actions: restart, reload, stop, start, status, validate, rollback, show_config"})
 		return
 	}
 

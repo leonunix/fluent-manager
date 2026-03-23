@@ -10,8 +10,8 @@ import (
 type DeployService interface {
 	Create(configVersionID uint, nodeIDs []uint, clusterID, regionID, dataCenterID, environmentID *uint, userID uint, allowedClusters []uint) (*models.DeployTask, error)
 	List(page, pageSize int, allowedClusters []uint) ([]models.DeployTask, int64, error)
-	Get(id uint) (*models.DeployTask, []models.DeployRecord, error)
-	GetAuditLogs(page, pageSize int) ([]models.AuditLog, int64, error)
+	Get(id uint, allowedClusters []uint) (*models.DeployTask, []models.DeployRecord, error)
+	GetAuditLogs(page, pageSize int, allowedClusters []uint) ([]models.AuditLog, int64, error)
 }
 
 type deployService struct {
@@ -148,10 +148,21 @@ func (s *deployService) List(page, pageSize int, allowedClusters []uint) ([]mode
 	return tasks, total, err
 }
 
-func (s *deployService) Get(id uint) (*models.DeployTask, []models.DeployRecord, error) {
+func (s *deployService) Get(id uint, allowedClusters []uint) (*models.DeployTask, []models.DeployRecord, error) {
 	var task models.DeployTask
 	if err := s.db.Preload("Config.Template").Preload("Creator").First(&task, id).Error; err != nil {
 		return nil, nil, err
+	}
+
+	// Scope check: verify the task has at least one record targeting a node in the user's allowed clusters
+	if allowedClusters != nil {
+		var count int64
+		s.db.Model(&models.DeployRecord{}).
+			Where("deploy_task_id = ? AND node_id IN (SELECT id FROM nodes WHERE cluster_id IN ?)", id, allowedClusters).
+			Count(&count)
+		if count == 0 {
+			return nil, nil, errors.New("deploy task not found")
+		}
 	}
 
 	var records []models.DeployRecord
@@ -159,13 +170,25 @@ func (s *deployService) Get(id uint) (*models.DeployTask, []models.DeployRecord,
 	return &task, records, nil
 }
 
-func (s *deployService) GetAuditLogs(page, pageSize int) ([]models.AuditLog, int64, error) {
+func (s *deployService) GetAuditLogs(page, pageSize int, allowedClusters []uint) ([]models.AuditLog, int64, error) {
+	query := s.db.Model(&models.AuditLog{})
+
+	// Scope filter: only show audit logs for resources within the user's scope
+	if allowedClusters != nil {
+		query = query.Where(
+			"resource_type = 'node' AND resource_id IN (SELECT id FROM nodes WHERE cluster_id IN ?) "+
+				"OR resource_type = 'cluster' AND resource_id IN ? "+
+				"OR resource_type NOT IN ('node', 'cluster')",
+			allowedClusters, allowedClusters,
+		)
+	}
+
 	var total int64
-	s.db.Model(&models.AuditLog{}).Count(&total)
+	query.Count(&total)
 
 	var logs []models.AuditLog
-	err := s.db.Order("created_at DESC").
-		Offset((page-1)*pageSize).Limit(pageSize).
+	err := query.Order("created_at DESC").
+		Offset((page - 1) * pageSize).Limit(pageSize).
 		Find(&logs).Error
 	return logs, total, err
 }

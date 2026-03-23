@@ -195,7 +195,7 @@ func TestDeployGet(t *testing.T) {
 
 	task, _ := svc.Create(cv.ID, nil, &cluster.ID, nil, nil, nil, 1, nil)
 
-	gotTask, records, err := svc.Get(task.ID)
+	gotTask, records, err := svc.Get(task.ID, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestGetAuditLogs(t *testing.T) {
 	db.Create(&models.AuditLog{UserID: 1, Username: "admin", Action: "create", Resource: "node"})
 	db.Create(&models.AuditLog{UserID: 1, Username: "admin", Action: "delete", Resource: "node"})
 
-	logs, total, err := svc.GetAuditLogs(1, 10)
+	logs, total, err := svc.GetAuditLogs(1, 10, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

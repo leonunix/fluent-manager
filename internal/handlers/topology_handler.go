@@ -20,6 +20,46 @@ func (h *TopologyHandler) allowedDCIDs(c *gin.Context) []uint {
 	return h.Svc.AllowedDCIDs(allowed)
 }
 
+// checkDCScope returns true if the user has access to the given datacenter ID.
+// nil allowedDCs means global access.
+func (h *TopologyHandler) checkDCScope(c *gin.Context, dcID uint) bool {
+	allowedDCs := h.allowedDCIDs(c)
+	if allowedDCs == nil {
+		return true
+	}
+	for _, id := range allowedDCs {
+		if id == dcID {
+			return true
+		}
+	}
+	c.JSON(http.StatusForbidden, gin.H{"error": "datacenter not in your scope"})
+	return false
+}
+
+// checkClusterScope returns true if the user has access to the given cluster ID.
+func (h *TopologyHandler) checkClusterScope(c *gin.Context, clusterID uint) bool {
+	allowed := middleware.GetAllowedClusters(c)
+	if allowed == nil {
+		return true
+	}
+	for _, id := range allowed {
+		if id == clusterID {
+			return true
+		}
+	}
+	c.JSON(http.StatusForbidden, gin.H{"error": "cluster not in your scope"})
+	return false
+}
+
+// regionDCID resolves the datacenter ID for a region.
+func (h *TopologyHandler) regionDCID(regionID uint) (uint, error) {
+	region, err := h.Svc.GetRegion(regionID)
+	if err != nil {
+		return 0, err
+	}
+	return region.DataCenterID, nil
+}
+
 // ============================================================================
 // DataCenter
 // ============================================================================
@@ -67,6 +107,11 @@ type CreateDataCenterRequest struct {
 }
 
 func (h *TopologyHandler) CreateDataCenter(c *gin.Context) {
+	// Scoped users cannot create new datacenters
+	if allowedDCs := h.allowedDCIDs(c); allowedDCs != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "scoped users cannot create datacenters"})
+		return
+	}
 	var req CreateDataCenterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -82,6 +127,9 @@ func (h *TopologyHandler) CreateDataCenter(c *gin.Context) {
 
 func (h *TopologyHandler) UpdateDataCenter(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	if !h.checkDCScope(c, uint(id)) {
+		return
+	}
 	var req CreateDataCenterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -97,6 +145,9 @@ func (h *TopologyHandler) UpdateDataCenter(c *gin.Context) {
 
 func (h *TopologyHandler) DeleteDataCenter(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	if !h.checkDCScope(c, uint(id)) {
+		return
+	}
 	if err := h.Svc.DeleteDataCenter(uint(id)); err != nil {
 		if errors.Is(err, services.ErrHasChildren) {
 			c.JSON(http.StatusConflict, gin.H{"error": "cannot delete datacenter with existing regions; delete regions first"})
@@ -159,6 +210,9 @@ func (h *TopologyHandler) CreateRegion(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if !h.checkDCScope(c, req.DataCenterID) {
+		return
+	}
 	region, err := h.Svc.CreateRegion(req.Name, req.Alias, req.DataCenterID, req.Description, req.Tags)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "datacenter not found"})
@@ -169,10 +223,25 @@ func (h *TopologyHandler) CreateRegion(c *gin.Context) {
 
 func (h *TopologyHandler) UpdateRegion(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	// Check scope on current region's DC
+	currentDCID, err := h.regionDCID(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "region not found"})
+		return
+	}
+	if !h.checkDCScope(c, currentDCID) {
+		return
+	}
 	var req CreateRegionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+	// Also check scope on target DC if it's being moved
+	if req.DataCenterID != currentDCID {
+		if !h.checkDCScope(c, req.DataCenterID) {
+			return
+		}
 	}
 	region, err := h.Svc.UpdateRegion(uint(id), req.Name, req.Alias, req.DataCenterID, req.Description, req.Tags)
 	if err != nil {
@@ -184,6 +253,15 @@ func (h *TopologyHandler) UpdateRegion(c *gin.Context) {
 
 func (h *TopologyHandler) DeleteRegion(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	// Scope check on region's DC
+	dcID, err := h.regionDCID(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "region not found"})
+		return
+	}
+	if !h.checkDCScope(c, dcID) {
+		return
+	}
 	if err := h.Svc.DeleteRegion(uint(id)); err != nil {
 		if errors.Is(err, services.ErrHasChildren) {
 			c.JSON(http.StatusConflict, gin.H{"error": "cannot delete region with existing clusters; delete clusters first"})
@@ -250,6 +328,15 @@ func (h *TopologyHandler) CreateCluster(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	// Scope check: verify user has access to the region's DC
+	dcID, err := h.regionDCID(req.RegionID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "region not found"})
+		return
+	}
+	if !h.checkDCScope(c, dcID) {
+		return
+	}
 	cluster, err := h.Svc.CreateCluster(req.Name, req.Alias, req.RegionID, req.EnvironmentID, req.IsDefault, req.ConfigID, req.Description, req.Tags)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "region not found"})
@@ -260,6 +347,10 @@ func (h *TopologyHandler) CreateCluster(c *gin.Context) {
 
 func (h *TopologyHandler) UpdateCluster(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	// Scope check on existing cluster
+	if !h.checkClusterScope(c, uint(id)) {
+		return
+	}
 	var req CreateClusterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -275,6 +366,10 @@ func (h *TopologyHandler) UpdateCluster(c *gin.Context) {
 
 func (h *TopologyHandler) DeleteCluster(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	// Scope check
+	if !h.checkClusterScope(c, uint(id)) {
+		return
+	}
 	if err := h.Svc.DeleteCluster(uint(id)); err != nil {
 		if errors.Is(err, services.ErrHasChildren) {
 			c.JSON(http.StatusConflict, gin.H{"error": "cannot delete cluster with existing nodes; move or delete nodes first"})
@@ -291,6 +386,10 @@ func (h *TopologyHandler) DeleteCluster(c *gin.Context) {
 // ============================================================================
 
 func (h *TopologyHandler) ListMatchRules(c *gin.Context) {
+	clusterID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	if !h.checkClusterScope(c, uint(clusterID)) {
+		return
+	}
 	rules, err := h.Svc.ListMatchRules(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -301,6 +400,9 @@ func (h *TopologyHandler) ListMatchRules(c *gin.Context) {
 
 func (h *TopologyHandler) CreateMatchRule(c *gin.Context) {
 	clusterID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	if !h.checkClusterScope(c, uint(clusterID)) {
+		return
+	}
 	var rule models.ClusterMatchRule
 	if err := c.ShouldBindJSON(&rule); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -315,6 +417,10 @@ func (h *TopologyHandler) CreateMatchRule(c *gin.Context) {
 }
 
 func (h *TopologyHandler) UpdateMatchRule(c *gin.Context) {
+	clusterID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	if !h.checkClusterScope(c, uint(clusterID)) {
+		return
+	}
 	ruleID, _ := strconv.ParseUint(c.Param("rule_id"), 10, 32)
 	var req models.ClusterMatchRule
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -330,6 +436,10 @@ func (h *TopologyHandler) UpdateMatchRule(c *gin.Context) {
 }
 
 func (h *TopologyHandler) DeleteMatchRule(c *gin.Context) {
+	clusterID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	if !h.checkClusterScope(c, uint(clusterID)) {
+		return
+	}
 	ruleID, _ := strconv.ParseUint(c.Param("rule_id"), 10, 32)
 	if err := h.Svc.DeleteMatchRule(uint(ruleID)); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

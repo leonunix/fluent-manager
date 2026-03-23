@@ -65,7 +65,8 @@ func (h *DeployHandler) List(c *gin.Context) {
 
 func (h *DeployHandler) Get(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
-	task, records, err := h.Svc.Get(uint(id))
+	allowed := middleware.GetAllowedClusters(c)
+	task, records, err := h.Svc.Get(uint(id), allowed)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "deploy task not found"})
 		return
@@ -86,7 +87,8 @@ func (h *DeployHandler) GetAuditLogs(c *gin.Context) {
 		pageSize = 50
 	}
 
-	logs, total, err := h.Svc.GetAuditLogs(page, pageSize)
+	allowed := middleware.GetAllowedClusters(c)
+	logs, total, err := h.Svc.GetAuditLogs(page, pageSize, allowed)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
