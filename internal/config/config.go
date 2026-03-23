@@ -11,7 +11,16 @@ type Config struct {
 	Database DatabaseConfig `yaml:"database"`
 	Auth     AuthConfig     `yaml:"auth"`
 	Agent    AgentConfig    `yaml:"agent"`
+	Cache    CacheConfig    `yaml:"cache"`
 	Log      LogConfig      `yaml:"log"`
+}
+
+type CacheConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	Addr     string `yaml:"addr"`
+	Password string `yaml:"password"`
+	DB       int    `yaml:"db"`
+	TTL      int    `yaml:"ttl"` // seconds
 }
 
 type ServerConfig struct {
@@ -75,6 +84,7 @@ func Load(path string) (*Config, error) {
 		Database: DatabaseConfig{Driver: "sqlite", DSN: "fluent_manager.db"},
 		Auth: AuthConfig{JWTSecret: "change-me-in-production", TokenExpireHours: 24},
 		Agent: AgentConfig{HeartbeatInterval: 30, SyncInterval: 60},
+		Cache: CacheConfig{Addr: "localhost:6379", TTL: 30},
 		Log: LogConfig{Level: "info"},
 	}
 

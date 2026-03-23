@@ -3,14 +3,14 @@ import zh from './zh'
 import en from './en'
 import ja from './ja'
 
-const messages = { zh, en, ja }
+const messages: Record<string, any> = { zh, en, ja }
 const supportedLocales = ['zh', 'en', 'ja']
 
-function detectLocale() {
+function detectLocale(): string {
   const saved = localStorage.getItem('fm_locale')
   if (saved && supportedLocales.includes(saved)) return saved
 
-  // Match browser language: zh-CN → zh, en-US → en, ja-JP → ja
+  // Match browser language: zh-CN -> zh, en-US -> en, ja-JP -> ja
   const langs = navigator.languages || [navigator.language]
   for (const lang of langs) {
     const code = lang.toLowerCase().split('-')[0]
@@ -22,9 +22,9 @@ function detectLocale() {
 const locale = ref(detectLocale())
 
 export function useI18n() {
-  function t(key) {
+  function t(key: string): string {
     const keys = key.split('.')
-    let val = messages[locale.value]
+    let val: any = messages[locale.value]
     for (const k of keys) {
       val = val?.[k]
     }
@@ -37,7 +37,7 @@ export function useI18n() {
     return val !== undefined ? val : key
   }
 
-  function setLocale(l) {
+  function setLocale(l: string) {
     locale.value = l
     localStorage.setItem('fm_locale', l)
   }
@@ -47,6 +47,6 @@ export function useI18n() {
     locale: computed(() => locale.value),
     setLocale,
     availableLocales: supportedLocales,
-    localeNames: { zh: '中文', en: 'English', ja: '日本語' },
+    localeNames: { zh: '中文', en: 'English', ja: '日本語' } as Record<string, string>,
   }
 }

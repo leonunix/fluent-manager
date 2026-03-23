@@ -41,6 +41,13 @@ agent:
   sync_interval: 60        # seconds
   api_key: "your-agent-api-key"
 
+cache:
+  enabled: false            # enable Redis caching for metrics aggregation
+  addr: "localhost:6379"
+  password: ""
+  db: 0
+  ttl: 30                  # cache TTL in seconds
+
 log:
   level: "info"
   file: ""  # empty = stdout

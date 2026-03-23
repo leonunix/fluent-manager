@@ -58,6 +58,16 @@ export default {
     deploy_status: 'ステータス',
     deploy_result: '成功/失敗/合計',
     node_online: 'ノードオンライン',
+    resource_overview: 'リソース概要',
+    avg_cpu: '平均CPU',
+    avg_mem: '平均メモリ',
+    avg_disk: '平均ディスク',
+    fluent_run_rate: 'Fluent稼働率',
+    top_nodes: 'Top 5 高負荷ノード',
+    dc_metrics: 'データセンターリソース使用状況',
+    hostname: 'ホスト名',
+    cluster: 'クラスター',
+    no_metrics: 'メトリクスデータなし',
   },
 
   login: {

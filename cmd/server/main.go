@@ -7,10 +7,12 @@ import (
 
 	"github.com/fluent-manager/fluent-manager/internal/agent"
 	"github.com/fluent-manager/fluent-manager/internal/auth"
+	"github.com/fluent-manager/fluent-manager/internal/cache"
 	"github.com/fluent-manager/fluent-manager/internal/config"
 	"github.com/fluent-manager/fluent-manager/internal/handlers"
 	"github.com/fluent-manager/fluent-manager/internal/middleware"
 	"github.com/fluent-manager/fluent-manager/internal/models"
+	"github.com/fluent-manager/fluent-manager/internal/services"
 	"github.com/gin-gonic/gin"
 )
 
@@ -49,20 +51,27 @@ func main() {
 		}
 	}
 
+	// Cache (Redis)
+	cache.Init(&cfg.Cache)
+
 	// Node monitor
 	monitor := agent.NewMonitor(cfg.Agent.HeartbeatInterval)
 	monitor.Start()
 	defer monitor.Stop()
 
+	// Service layer
+	svc := services.NewRegistry(models.DB)
+
 	// Handlers
-	authHandler := &handlers.AuthHandler{JWT: jwtSvc, LDAP: ldapAuth, SAML: samlAuth}
-	userHandler := &handlers.UserHandler{}
-	roleHandler := &handlers.RoleHandler{}
-	nodeHandler := &handlers.NodeHandler{}
-	topoHandler := &handlers.TopologyHandler{}
-	configHandler := &handlers.ConfigHandler{}
-	deployHandler := &handlers.DeployHandler{}
-	agentHandler := &handlers.AgentHandler{}
+	authHandler := &handlers.AuthHandler{JWT: jwtSvc, LDAP: ldapAuth, SAML: samlAuth, Svc: svc.Auth}
+	userHandler := &handlers.UserHandler{Svc: svc.User}
+	roleHandler := &handlers.RoleHandler{Svc: svc.Role}
+	nodeHandler := &handlers.NodeHandler{Svc: svc.Node}
+	topoHandler := &handlers.TopologyHandler{Svc: svc.Topology}
+	configHandler := &handlers.ConfigHandler{Svc: svc.Config}
+	deployHandler := &handlers.DeployHandler{Svc: svc.Deploy}
+	agentHandler := &handlers.AgentHandler{Svc: svc.Agent}
+	metricsHandler := &handlers.MetricsHandler{Svc: svc.Metrics}
 
 	// Router
 	gin.SetMode(cfg.Server.Mode)
@@ -226,6 +235,14 @@ func main() {
 			deploys.GET("", middleware.RequirePermission("configs", "read"), deployHandler.List)
 			deploys.GET("/:id", middleware.RequirePermission("configs", "read"), deployHandler.Get)
 			deploys.POST("", middleware.RequirePermission("configs", "deploy"), deployHandler.Create)
+		}
+
+		// Aggregated Metrics
+		metrics := authed.Group("/metrics")
+		{
+			metrics.GET("/overview", middleware.RequirePermission("nodes", "read"), metricsHandler.Overview)
+			metrics.GET("/top-nodes", middleware.RequirePermission("nodes", "read"), metricsHandler.TopNodes)
+			metrics.GET("/by-datacenter", middleware.RequirePermission("nodes", "read"), metricsHandler.ByDatacenter)
 		}
 
 		// Audit Logs

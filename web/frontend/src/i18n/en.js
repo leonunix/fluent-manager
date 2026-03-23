@@ -58,6 +58,16 @@ export default {
     deploy_status: 'Status',
     deploy_result: 'OK/Fail/Total',
     node_online: 'nodes online',
+    resource_overview: 'Resource Overview',
+    avg_cpu: 'Avg CPU',
+    avg_mem: 'Avg Memory',
+    avg_disk: 'Avg Disk',
+    fluent_run_rate: 'Fluent Running',
+    top_nodes: 'Top 5 High-Load Nodes',
+    dc_metrics: 'Datacenter Resource Usage',
+    hostname: 'Hostname',
+    cluster: 'Cluster',
+    no_metrics: 'No metrics data',
   },
 
   login: {

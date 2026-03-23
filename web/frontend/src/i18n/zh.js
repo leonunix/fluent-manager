@@ -61,6 +61,16 @@ export default {
     deploy_status: '状态',
     deploy_result: '成功/失败/总数',
     node_online: '节点在线',
+    resource_overview: '资源概览',
+    avg_cpu: '平均 CPU',
+    avg_mem: '平均内存',
+    avg_disk: '平均磁盘',
+    fluent_run_rate: 'Fluent 运行率',
+    top_nodes: 'Top 5 高负载节点',
+    dc_metrics: '数据中心资源使用',
+    hostname: '主机名',
+    cluster: '集群',
+    no_metrics: '暂无指标数据',
   },
 
   // Login
