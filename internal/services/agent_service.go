@@ -128,59 +128,60 @@ func (s *agentService) Heartbeat(nodeUID, configHash string, metrics map[string]
 }
 
 func (s *agentService) storeMetrics(nodeID uint, raw map[string]interface{}) {
-	m := models.NodeMetrics{NodeID: nodeID}
-	s.db.Where("node_id = ?", nodeID).FirstOrCreate(&m)
+	var m models.NodeMetrics
+	result := s.db.Where("node_id = ?", nodeID).First(&m)
+	if result.Error != nil {
+		m = models.NodeMetrics{NodeID: nodeID}
+		s.db.Create(&m)
+	}
 
-	updates := map[string]interface{}{}
 	if v, ok := raw["cpu_usage_percent"].(float64); ok {
-		updates["cpu_usage_percent"] = v
+		m.CPUUsagePercent = v
 	}
 	if v, ok := raw["mem_total_mb"].(float64); ok {
-		updates["mem_total_mb"] = uint64(v)
+		m.MemTotalMB = uint64(v)
 	}
 	if v, ok := raw["mem_used_mb"].(float64); ok {
-		updates["mem_used_mb"] = uint64(v)
+		m.MemUsedMB = uint64(v)
 	}
 	if v, ok := raw["mem_usage_percent"].(float64); ok {
-		updates["mem_usage_percent"] = v
+		m.MemUsagePercent = v
 	}
 	if v, ok := raw["disk_total_gb"].(float64); ok {
-		updates["disk_total_gb"] = uint64(v)
+		m.DiskTotalGB = uint64(v)
 	}
 	if v, ok := raw["disk_used_gb"].(float64); ok {
-		updates["disk_used_gb"] = uint64(v)
+		m.DiskUsedGB = uint64(v)
 	}
 	if v, ok := raw["disk_usage_percent"].(float64); ok {
-		updates["disk_usage_percent"] = v
+		m.DiskUsagePercent = v
 	}
 	if v, ok := raw["load_avg_1"].(float64); ok {
-		updates["load_avg_1"] = v
+		m.LoadAvg1 = v
 	}
 	if v, ok := raw["load_avg_5"].(float64); ok {
-		updates["load_avg_5"] = v
+		m.LoadAvg5 = v
 	}
 	if v, ok := raw["load_avg_15"].(float64); ok {
-		updates["load_avg_15"] = v
+		m.LoadAvg15 = v
 	}
 	if v, ok := raw["fluent_running"].(bool); ok {
-		updates["fluent_running"] = v
+		m.FluentRunning = v
 	}
 	if v, ok := raw["fluent_pid"].(float64); ok {
-		updates["fluent_pid"] = int(v)
+		m.FluentPID = int(v)
 	}
 	if v, ok := raw["fluent_cpu_percent"].(float64); ok {
-		updates["fluent_cpu_percent"] = v
+		m.FluentCPUPercent = v
 	}
 	if v, ok := raw["fluent_mem_mb"].(float64); ok {
-		updates["fluent_mem_mb"] = v
+		m.FluentMemMB = v
 	}
 	if v, ok := raw["fluent_open_fds"].(float64); ok {
-		updates["fluent_open_fds"] = int(v)
+		m.FluentOpenFDs = int(v)
 	}
 
-	if len(updates) > 0 {
-		s.db.Model(&m).Updates(updates)
-	}
+	s.db.Save(&m)
 }
 
 func (s *agentService) ReportStatus(nodeUID string, configID uint, success bool, message string) error {
