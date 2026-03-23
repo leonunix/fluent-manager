@@ -69,28 +69,29 @@ type SAMLConfig struct {
 }
 
 type AgentConfig struct {
-	HeartbeatInterval   int    `yaml:"heartbeat_interval"` // seconds
-	SyncInterval        int    `yaml:"sync_interval"`      // seconds
-	APIKey              string `yaml:"api_key"`
-	MetricsInterval     int    `yaml:"metrics_interval"`
-	LogUploadInterval   int    `yaml:"log_upload_interval"`
-	LogBufferLines      int    `yaml:"log_buffer_lines"`
-	HealthPort          int    `yaml:"health_port"`
-	MaxRetries          int    `yaml:"max_retries"`
-	RetryBaseDelay      int    `yaml:"retry_base_delay"`
-	FluentType          string `yaml:"fluent_type"`
-	FluentConfigPath    string `yaml:"fluent_config_path"`
-	FluentConfigDir     string `yaml:"fluent_config_dir"`
-	FluentBinary        string `yaml:"fluent_binary"`
-	FluentServiceUnit   string `yaml:"fluent_service_unit"`
-	FluentRestartCmd    string `yaml:"fluent_restart_cmd"`
-	FluentReloadCmd     string `yaml:"fluent_reload_cmd"`
-	FluentDryRunCmd     string `yaml:"fluent_dry_run_cmd"`
-	FluentLogPath       string `yaml:"fluent_log_path"`
-	FluentMetricsURL    string `yaml:"fluent_metrics_url"`
-	FluentMetricsFormat string `yaml:"fluent_metrics_format"`
-	BackupDir           string `yaml:"backup_dir"`
-	MaxBackups          int    `yaml:"max_backups"`
+	HeartbeatInterval   int      `yaml:"heartbeat_interval"` // seconds
+	SyncInterval        int      `yaml:"sync_interval"`      // seconds
+	APIKey              string   `yaml:"api_key"`
+	MetricsInterval     int      `yaml:"metrics_interval"`
+	LogUploadInterval   int      `yaml:"log_upload_interval"`
+	LogBufferLines      int      `yaml:"log_buffer_lines"`
+	HealthPort          int      `yaml:"health_port"`
+	MaxRetries          int      `yaml:"max_retries"`
+	RetryBaseDelay      int      `yaml:"retry_base_delay"`
+	FluentType          string   `yaml:"fluent_type"`
+	FluentConfigPath    string   `yaml:"fluent_config_path"`
+	FluentConfigDir     string   `yaml:"fluent_config_dir"`
+	FluentBinary        string   `yaml:"fluent_binary"`
+	FluentServiceUnit   string   `yaml:"fluent_service_unit"`
+	FluentRestartCmd    string   `yaml:"fluent_restart_cmd"`
+	FluentReloadCmd     string   `yaml:"fluent_reload_cmd"`
+	FluentDryRunCmd     string   `yaml:"fluent_dry_run_cmd"`
+	FluentLogPath       string   `yaml:"fluent_log_path"`
+	FluentExtraFiles    []string `yaml:"fluent_extra_files"`
+	FluentMetricsURL    string   `yaml:"fluent_metrics_url"`
+	FluentMetricsFormat string   `yaml:"fluent_metrics_format"`
+	BackupDir           string   `yaml:"backup_dir"`
+	MaxBackups          int      `yaml:"max_backups"`
 }
 
 type FluentConfig struct {

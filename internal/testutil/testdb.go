@@ -43,6 +43,7 @@ func NewTestDB() *gorm.DB {
 		&models.AggregationGroup{},
 		&models.Node{},
 		&models.NodeFluentProfile{},
+		&models.AgentPolicy{},
 		&models.NodeMetrics{},
 		&models.RemoteCommand{},
 		&models.NodeLog{},

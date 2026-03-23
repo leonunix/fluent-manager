@@ -49,6 +49,18 @@ export interface AgentSettingsPatch {
   max_backups?: number
 }
 
+export interface AgentPolicyInput {
+  name: string
+  description: string
+  scope_type: 'global' | 'environment' | 'cluster' | 'label_selector'
+  environment_id?: number | null
+  cluster_id?: number | null
+  label_selector: string
+  priority: number
+  is_enabled: boolean
+  settings: AgentSettingsPatch
+}
+
 export interface AgentPolicy {
   id: number
   name: string
@@ -77,4 +89,3 @@ export interface ResolvedAgentPolicy {
   settings: AgentSettings
   matched_policies: AgentPolicy[]
 }
-

@@ -55,6 +55,7 @@ agent:
   fluent_reload_cmd: ""
   fluent_dry_run_cmd: ""
   fluent_log_path: ""
+  fluent_extra_files: []
   fluent_metrics_url: ""
   fluent_metrics_format: ""
   backup_dir: ""

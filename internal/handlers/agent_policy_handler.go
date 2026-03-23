@@ -33,7 +33,7 @@ func (h *AgentPolicyHandler) Get(c *gin.Context) {
 	}
 	policy, err := h.Svc.GetPolicy(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "agent policy not found"})
+		writeAgentPolicyError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, policy)
@@ -117,4 +117,3 @@ func writeAgentPolicyError(c *gin.Context, err error) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 	}
 }
-

@@ -81,6 +81,7 @@ func main() {
 		FluentReloadCmd:     cfg.Agent.FluentReloadCmd,
 		FluentDryRunCmd:     cfg.Agent.FluentDryRunCmd,
 		FluentLogPath:       cfg.Agent.FluentLogPath,
+		FluentExtraFiles:    cfg.Agent.FluentExtraFiles,
 		FluentMetricsURL:    cfg.Agent.FluentMetricsURL,
 		FluentMetricsFormat: cfg.Agent.FluentMetricsFormat,
 		BackupDir:           cfg.Agent.BackupDir,
@@ -327,11 +328,11 @@ func main() {
 		agentPolicies := authed.Group("/agent-policies")
 		{
 			agentPolicies.GET("", middleware.RequirePermission("configs", "read"), agentPolicyHandler.List)
+			agentPolicies.GET("/resolve/:node_id", middleware.RequirePermission("nodes", "read"), agentPolicyHandler.ResolveForNode)
 			agentPolicies.GET("/:id", middleware.RequirePermission("configs", "read"), agentPolicyHandler.Get)
 			agentPolicies.POST("", middleware.RequirePermission("configs", "update"), agentPolicyHandler.Create)
 			agentPolicies.PUT("/:id", middleware.RequirePermission("configs", "update"), agentPolicyHandler.Update)
 			agentPolicies.DELETE("/:id", middleware.RequirePermission("configs", "update"), agentPolicyHandler.Delete)
-			agentPolicies.GET("/resolve/:node_id", middleware.RequirePermission("nodes", "read"), agentPolicyHandler.ResolveForNode)
 		}
 
 		// Audit Logs
