@@ -1,6 +1,8 @@
 package services
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -43,7 +45,7 @@ type TestDBRequest struct {
 // SetupService handles first-run system initialization.
 type SetupService interface {
 	IsInitialized() (bool, error)
-	Initialize(req SetupRequest) (*models.User, error)
+	Initialize(req SetupRequest, cfgPath string) (*models.User, error)
 	TestDBConnection(req TestDBRequest) error
 	InitializeTarget(req SetupRequest, cfgPath string) (*models.User, error)
 }
@@ -131,6 +133,12 @@ func (s *setupService) InitializeTarget(req SetupRequest, cfgPath string) (*mode
 	}
 	cfg.Database.Driver = driver
 	cfg.Database.DSN = dsn
+
+	// Auto-generate JWT secret if it's the default placeholder or empty
+	if cfg.Auth.JWTSecret == "" || cfg.Auth.JWTSecret == "change-me-in-production" {
+		cfg.Auth.JWTSecret = generateRandomSecret(32)
+	}
+
 	if err := config.Save(cfgPath, cfg); err != nil {
 		return nil, fmt.Errorf("failed to save config: %w", err)
 	}
@@ -145,7 +153,8 @@ func (s *setupService) InitializeTarget(req SetupRequest, cfgPath string) (*mode
 
 // Initialize creates the admin user on the current (boot) database.
 // Used when the user keeps the default SQLite without changing DB settings.
-func (s *setupService) Initialize(req SetupRequest) (*models.User, error) {
+// It also auto-generates a JWT secret in config.yaml if needed.
+func (s *setupService) Initialize(req SetupRequest, cfgPath string) (*models.User, error) {
 	initialized, err := s.IsInitialized()
 	if err != nil {
 		return nil, err
@@ -161,7 +170,19 @@ func (s *setupService) Initialize(req SetupRequest) (*models.User, error) {
 		return nil, errors.New("password must be at least 8 characters")
 	}
 
-	return createAdminUser(s.db, req)
+	user, err := createAdminUser(s.db, req)
+	if err != nil {
+		return nil, err
+	}
+
+	// Auto-generate JWT secret if it's the default placeholder or empty
+	cfg, loadErr := config.Load(cfgPath)
+	if loadErr == nil && (cfg.Auth.JWTSecret == "" || cfg.Auth.JWTSecret == "change-me-in-production") {
+		cfg.Auth.JWTSecret = generateRandomSecret(32)
+		_ = config.Save(cfgPath, cfg)
+	}
+
+	return user, nil
 }
 
 func createAdminUser(db *gorm.DB, req SetupRequest) (*models.User, error) {
@@ -195,4 +216,13 @@ func createAdminUser(db *gorm.DB, req SetupRequest) (*models.User, error) {
 
 	db.Preload("Roles.Permissions").First(&user, user.ID)
 	return &user, nil
+}
+
+func generateRandomSecret(length int) string {
+	b := make([]byte, length)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback — should never happen
+		return "auto-generated-fallback-secret-change-me"
+	}
+	return hex.EncodeToString(b)
 }

@@ -90,7 +90,7 @@ func (h *SetupHandler) Initialize(c *gin.Context) {
 	}
 
 	// Simple init: keep current SQLite database
-	u, err := h.Svc.Initialize(req)
+	u, err := h.Svc.Initialize(req, h.CfgPath)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

@@ -1,9 +1,11 @@
 bin/
+server
 *.db
 *.exe
 vendor/
 web/frontend/node_modules/
 web/frontend/dist/
+config.yaml
 .env
 *.key
 *.crt
