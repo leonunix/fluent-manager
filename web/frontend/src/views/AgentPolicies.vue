@@ -4,9 +4,35 @@
       <div>
         <h4 class="mb-1">{{ t('agent_policies_page.title') }}</h4>
         <div class="text-muted">{{ t('agent_policies_page.subtitle') }}</div>
-        <div class="small text-muted mt-2">{{ userScopeSummary }}</div>
+        <div class="mt-3">
+          <div class="small text-muted mb-2">{{ t('agent_policies_page.current_scope') }}</div>
+          <div class="d-flex flex-wrap gap-2">
+            <span
+              v-if="!userScopes.length"
+              class="badge rounded-pill fm-user-scope-badge fm-user-scope-badge-global"
+            >
+              {{ t('agent_policies_page.global_scope_badge') }}
+            </span>
+            <span
+              v-for="scope in userScopes"
+              :key="scope.id"
+              class="badge rounded-pill fm-user-scope-badge"
+              :class="scopeBadgeClass(scope.scope_type)"
+            >
+              {{ scopeBadgeLabel(scope) }}
+            </span>
+          </div>
+        </div>
+        <div v-if="createDisabledReason" class="small text-warning mt-2">
+          {{ createDisabledReason }}
+        </div>
       </div>
-      <button v-if="canCreatePolicies" class="btn btn-primary" @click="openCreate">
+      <button
+        v-if="canCreatePolicies"
+        class="btn btn-primary"
+        :disabled="!!createDisabledReason"
+        @click="openCreate"
+      >
         <i class="bi bi-plus-lg me-1"></i>{{ t('agent_policies_page.create') }}
       </button>
     </div>
@@ -262,8 +288,12 @@
                     {{ cluster.alias || cluster.name }}
                   </option>
                 </select>
-                <div class="form-text">
+                <div v-if="selectableClusters.length" class="form-text">
                   {{ t('agent_policies_page.cluster_scope_hint').replace('{count}', String(selectableClusters.length)) }}
+                </div>
+                <div v-else class="alert alert-warning mt-3 mb-0">
+                  <div class="fw-semibold">{{ t('agent_policies_page.no_cluster_targets_title') }}</div>
+                  <div class="small mt-1">{{ t('agent_policies_page.no_cluster_targets_body') }}</div>
                 </div>
               </div>
               <div v-if="form.scope_type === 'label_selector'" class="col-12">
@@ -326,10 +356,14 @@
               v-if="canSaveCurrentForm"
               type="button"
               class="btn btn-primary"
+              :disabled="!!formBlockingReason"
               @click="savePolicy"
             >
               {{ t('save') }}
             </button>
+            <div v-if="formBlockingReason" class="small text-warning w-100 text-end">
+              {{ formBlockingReason }}
+            </div>
           </div>
         </div>
       </div>
@@ -419,15 +453,6 @@ const nodeRangeEnd = computed(() => {
 
 const userScopes = computed(() => auth.user?.scopes || [])
 
-const userScopeSummary = computed(() => {
-  if (!userScopes.value.length) {
-    return t('agent_policies_page.global_scope')
-  }
-  return `${t('agent_policies_page.current_scope')}: ${userScopes.value
-    .map((scope) => scope.scope_name || `${scope.scope_type}:${scope.scope_id}`)
-    .join(', ')}`
-})
-
 const canCreatePolicies = computed(() =>
   auth.hasPermission('agent_policies', 'create') && allowedScopeTypes.value.length > 0
 )
@@ -458,6 +483,21 @@ const selectableClusters = computed(() => {
     if (cluster.region?.datacenter_id && datacenterScopeIDs.has(cluster.region.datacenter_id)) return true
     return false
   })
+})
+
+const createDisabledReason = computed(() => {
+  if (!canCreatePolicies.value) return ''
+  if (allowedScopeTypes.value.length === 1 && allowedScopeTypes.value[0] === 'cluster' && !selectableClusters.value.length) {
+    return t('agent_policies_page.create_blocked_no_cluster_scope')
+  }
+  return ''
+})
+
+const formBlockingReason = computed(() => {
+  if (form.scope_type === 'cluster' && !selectableClusters.value.length) {
+    return t('agent_policies_page.no_cluster_targets_body')
+  }
+  return ''
 })
 
 function createEmptyForm() {
@@ -518,6 +558,15 @@ function handleScopeChange() {
 
 function scopeLabel(scopeType) {
   return t(`agent_policies_page.scope_${scopeType}`)
+}
+
+function scopeBadgeClass(scopeType) {
+  return `fm-user-scope-badge-${scopeType}`
+}
+
+function scopeBadgeLabel(scope) {
+  const target = scope.scope_name || `#${scope.scope_id}`
+  return `${scopeLabel(scope.scope_type)} · ${target}`
 }
 
 function formatTime(value) {
@@ -743,7 +792,7 @@ async function loadResolvedPreview() {
 }
 
 function openCreate() {
-  if (!canCreatePolicies.value) return
+  if (!canCreatePolicies.value || createDisabledReason.value) return
   resetForm()
   ensureModal()
   modal.show()
@@ -757,7 +806,7 @@ function openEdit(policy) {
 }
 
 async function savePolicy() {
-  if (!canSaveCurrentForm.value) return
+  if (!canSaveCurrentForm.value || formBlockingReason.value) return
   try {
     const payload = buildPayload()
     if (editingId.value) {
@@ -827,5 +876,41 @@ onBeforeUnmount(() => {
   background: #e2e8f0;
   color: #0f172a;
   font-weight: 600;
+}
+
+.fm-user-scope-badge {
+  padding: 0.5rem 0.85rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.fm-user-scope-badge-global {
+  background: #e0f2fe;
+  color: #075985;
+  border-color: #bae6fd;
+}
+
+.fm-user-scope-badge-cluster {
+  background: #dcfce7;
+  color: #166534;
+  border-color: #bbf7d0;
+}
+
+.fm-user-scope-badge-region {
+  background: #fef3c7;
+  color: #92400e;
+  border-color: #fde68a;
+}
+
+.fm-user-scope-badge-datacenter {
+  background: #fee2e2;
+  color: #991b1b;
+  border-color: #fecaca;
+}
+
+.fm-user-scope-badge-environment {
+  background: #ede9fe;
+  color: #5b21b6;
+  border-color: #ddd6fe;
 }
 </style>

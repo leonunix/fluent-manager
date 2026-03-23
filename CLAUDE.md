@@ -44,6 +44,7 @@ internal/
   config/config.go            # YAML config loader
   handlers/                   # REST API handlers (HTTP parsing + response only)
     agent_handler.go          # Agent register, heartbeat, commands
+    agent_policy_handler.go   # Agent policy CRUD, resolve preview, audit snapshots
     auth_handler.go           # Login, profile, password
     config_handler.go         # Config templates + modules + rendered previews
     deploy_handler.go         # Deployment tasks
@@ -61,6 +62,7 @@ internal/
     role_service.go           # RoleService: CRUD + permissions
     topology_service.go       # TopologyService: DC/Region/Cluster/Env/MatchRule/Scope/Tree
     node_service.go           # NodeService: CRUD + scope filter + stats
+    agent_policy_service.go   # AgentPolicyService: scoped overrides + resolved delivery settings
     fluent_service.go         # FluentService: aggregation groups + node fluent profiles
     fluent_ops_service.go     # FluentOpsService: pipelines + analysis + runtime views
     config_service.go         # ConfigService: templates + modules + rendered previews
@@ -74,6 +76,7 @@ internal/
     auth.go                   # User, Role, Permission, UserScope
     topology.go               # DataCenter, Region, Cluster, Environment, ClusterMatchRule
     node.go                   # Node, NodeMetrics, RemoteCommand, NodeLog
+    agent_policy.go           # AgentPolicy
     fluent.go                 # AggregationGroup, NodeFluentProfile, node roles
     fluent_ops.go             # LogPipeline, ConfigAnalysisResult, NodeRuntimeState
     config.go                 # ConfigTemplate, ConfigVersion, ConfigModule, RenderedConfig
@@ -123,15 +126,17 @@ DataCenter  →  Region  →  Cluster  →  Node
 - **LogPipeline**: Explicit forwarding link from cluster/group/selector to aggregator or terminal output
 - **NodeFluentProfile**: Runtime capability snapshot reported or edited per node
 - **NodeRuntimeState**: Desired/effective hash, queue/retry/flush state for drift and health views
+- **AgentPolicy**: Global / environment / cluster / label-selector override policy that is merged into the final server-delivered agent settings
 
 Config inheritance: Node config > Cluster config (EffectiveConfigID)
+Agent runtime inheritance: server bootstrap defaults > matching agent policies (ordered by priority) > node runtime detection/local persisted UID
 
 ## RBAC Model
 
 Two levels of access control:
 
 1. **Permission-based** (action level): `resource:action` pairs on roles
-   - Resources: `nodes`, `topology`, `configs`, `users`, `roles`, `audit`
+   - Resources: `nodes`, `topology`, `configs`, `users`, `roles`, `audit`, `agent_policies`
    - Actions: `create`, `read`, `update`, `delete`, `deploy`
    - Default roles: `admin` (all), `operator` (nodes+configs+topology), `viewer` (read-only)
 
@@ -166,7 +171,12 @@ make frontend                  # npm install + build
 - Server: `config.yaml` (see `config.yaml.example`)
 - Agent: `agent.yaml` (see `agent.yaml.example`)
 
-Key server config sections: `server`, `database`, `auth` (jwt/ldap/saml), `agent` (heartbeat/api_key), `fluent` (shared key encryption), `cache` (redis, optional), `log`
+Key server config sections: `server`, `database`, `auth` (jwt/ldap/saml), `agent` (agent bootstrap defaults + API key + runtime delivery defaults), `fluent` (shared key encryption), `cache` (redis, optional), `log`
+
+Agent bootstrap is intentionally minimal now:
+- required: `server_url`, `api_key`
+- optional: `node_uid` (auto-generated and persisted if omitted)
+- runtime-specific fluent paths/commands/intervals can be delivered by the server and overridden by Agent Policies, instead of requiring local hand-written agent config on every node
 
 ## API Routes
 
@@ -186,6 +196,7 @@ All under `/api/v1`:
 | Config Analysis | `POST /config-analysis/lint`, `POST /config-analysis/replay`, `POST /config-analysis/diff`, `POST /config-analysis/compatibility`, `GET /config-analysis/:id` | JWT + configs perm |
 | Deploys | `GET\|POST /deploys` (supports scope: node/cluster/region/datacenter) | JWT + configs perm |
 | Runtime | `GET /runtime/drift`, `GET /runtime/health/graph`, `GET /runtime/recommendations` | JWT + nodes perm |
+| Agent Policies | CRUD `/agent-policies`, `GET /agent-policies/resolve/:node_id` | JWT + agent_policies perm (resolve uses nodes read) |
 | Users/Roles | CRUD `/users`, `/roles`, `GET /permissions` | JWT + users/roles perm |
 | Audit | `GET /audit-logs` | JWT + audit perm |
 
@@ -204,9 +215,10 @@ All under `/api/v1`:
 | Config Detail | `/configs/:id` | Versions, topology-scoped deployment |
 | Deploys | `/deploys` | Deployment task list and detail |
 | Runtime | `/runtime` | Drift table, runtime health graph, optimization recommendations |
+| Agent Policies | `/agent-policies` | Scoped policy CRUD, current user scope badges, resolved preview, node search, and policy targeting UX |
 | Users | `/users` | User CRUD with role assignment and scope editor |
 | Roles | `/roles` | Role + permission management |
-| Audit Logs | `/audit` | Paginated audit trail |
+| Audit Logs | `/audit` | Paginated audit trail with expandable Agent Policy field-level diffs |
 
 ## Layering Convention
 
@@ -221,6 +233,9 @@ Handler (HTTP) → Service (business logic, interface) → Model (GORM/DB)
 - Fluent-specific logic is split into:
   - `FluentService` for aggregation groups and per-node runtime capability metadata
   - `FluentOpsService` for pipelines, analysis, drift, metrics, and recommendations
+- Agent runtime delivery is split into:
+  - `AgentService` for registration, heartbeat, reporting, commands, and log upload
+  - `AgentPolicyService` for final delivered agent settings, scoped overrides, and node resolve previews
 - `scope.go` functions (`AllowedClusterIDs`, `AutoAssignCluster`) still use global `models.DB` (to be refactored later)
 
 ## Development Notes
@@ -228,11 +243,14 @@ Handler (HTTP) → Service (business logic, interface) → Model (GORM/DB)
 - Database auto-migrates on startup. Delete `fluent_manager.db` to reset SQLite.
 - Default admin: `admin` / `admin123`
 - Agent API key is in config.yaml `agent.api_key`
+- `/auth/profile` includes `roles`, `permissions`, and `scopes`; frontend uses it for UX-side scope hints and secondary cluster filtering
 - Frontend dev server proxies `/api` to `http://localhost:8080`
 - Frontend uses TypeScript (`strict: false` for incremental adoption); Vue components remain JS (`<script setup>` without `lang="ts"`)
 - ECharts is lazy-loaded per component (tree in Topology, pie+bar in Dashboard)
 - Match rules are evaluated by priority (lower number = higher priority) on agent registration
 - Scope filtering is applied via `ScopeFilter` middleware; handlers use `middleware.GetAllowedClusters(c)`
+- Agent Policy reads are scope-filtered; scoped users can only create/manage cluster-scoped policies inside their allowed clusters
 - Redis cache is optional; metrics service falls back to direct DB queries if cache is disabled
 - Aggregation group shared keys are encrypted at rest via `fluent.shared_key_secret` (falls back to JWT secret if unset)
+- Agent Policy create/update/delete writes structured audit detail; the audit page can expand and render field-level before/after changes
 - Semantic replay / diff / compatibility are baseline heuristics today, designed to be upgraded into deeper parser-grade engines later

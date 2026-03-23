@@ -1,9 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/fluent-manager/fluent-manager/internal/agent"
 	"github.com/fluent-manager/fluent-manager/internal/auth"
@@ -80,17 +85,62 @@ func main() {
 		MaxBackups:          cfg.Agent.MaxBackups,
 	})
 
+	// Restart channel — setup handler sends on this to trigger server restart
+	restartCh := make(chan struct{}, 1)
+
 	// Router
 	r := routers.SetupRouter(routers.Deps{
-		Cfg:      cfg,
-		Svc:      svc,
-		JWTSvc:   jwtSvc,
-		SAMLAuth: samlAuth,
+		Cfg:       cfg,
+		Svc:       svc,
+		JWTSvc:    jwtSvc,
+		SAMLAuth:  samlAuth,
+		CfgPath:   cfgPath,
+		RestartCh: restartCh,
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-	log.Printf("Fluent Manager server starting on %s", addr)
-	if err := r.Run(addr); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: r,
+	}
+
+	// Start HTTP server in a goroutine
+	go func() {
+		log.Printf("Fluent Manager server starting on %s", addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Failed to start server: %v", err)
+		}
+	}()
+
+	// Wait for shutdown signal or restart request
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	restart := false
+	select {
+	case <-quit:
+		log.Println("Received shutdown signal")
+	case <-restartCh:
+		log.Println("Received restart request from setup wizard")
+		restart = true
+	}
+
+	// Graceful shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("Server shutdown error: %v", err)
+	}
+	log.Println("Server stopped")
+
+	if restart {
+		log.Println("Re-executing server process...")
+		execPath, err := os.Executable()
+		if err != nil {
+			log.Fatalf("Failed to get executable path: %v", err)
+		}
+		if err := syscall.Exec(execPath, os.Args, os.Environ()); err != nil {
+			log.Fatalf("Failed to restart: %v", err)
+		}
 	}
 }

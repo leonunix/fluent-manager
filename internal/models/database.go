@@ -3,10 +3,8 @@ package models
 import (
 	"crypto/sha256"
 	"fmt"
-	"log"
 
 	"github.com/fluent-manager/fluent-manager/internal/config"
-	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
@@ -16,26 +14,55 @@ import (
 
 var DB *gorm.DB
 
-func InitDB(cfg *config.DatabaseConfig) error {
+// OpenDB opens a GORM connection for the given driver and DSN without running migrations.
+func OpenDB(driver, dsn string) (*gorm.DB, error) {
 	var dialector gorm.Dialector
-	switch cfg.Driver {
+	switch driver {
 	case "mysql":
-		dialector = mysql.Open(cfg.DSN)
+		dialector = mysql.Open(dsn)
 	case "postgres":
-		dialector = postgres.Open(cfg.DSN)
+		dialector = postgres.Open(dsn)
 	default:
-		dialector = sqlite.Open(cfg.DSN)
+		dialector = sqlite.Open(dsn)
 	}
 
-	var err error
-	DB, err = gorm.Open(dialector, &gorm.Config{
+	db, err := gorm.Open(dialector, &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Info),
 	})
 	if err != nil {
-		return fmt.Errorf("failed to connect database: %w", err)
+		return nil, fmt.Errorf("failed to connect database: %w", err)
+	}
+	return db, nil
+}
+
+// InitDBWithConn opens a connection, runs migrations and seeds defaults.
+// Returns the *gorm.DB without setting the global DB variable.
+func InitDBWithConn(driver, dsn string) (*gorm.DB, error) {
+	db, err := OpenDB(driver, dsn)
+	if err != nil {
+		return nil, err
 	}
 
-	if err := DB.AutoMigrate(
+	if err := migrateAll(db); err != nil {
+		return nil, err
+	}
+
+	seedDefaultsOn(db)
+	return db, nil
+}
+
+// InitDB initializes the global DB variable with migrations and seed data.
+func InitDB(cfg *config.DatabaseConfig) error {
+	db, err := InitDBWithConn(cfg.Driver, cfg.DSN)
+	if err != nil {
+		return err
+	}
+	DB = db
+	return nil
+}
+
+func migrateAll(db *gorm.DB) error {
+	if err := db.AutoMigrate(
 		&User{},
 		&Role{},
 		&Permission{},
@@ -67,11 +94,9 @@ func InitDB(cfg *config.DatabaseConfig) error {
 	); err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)
 	}
-	if err := MigrateSoftDeleteUniqueIndexes(DB); err != nil {
+	if err := MigrateSoftDeleteUniqueIndexes(db); err != nil {
 		return fmt.Errorf("failed to migrate soft delete unique indexes: %w", err)
 	}
-
-	seedDefaults()
 	return nil
 }
 
@@ -108,8 +133,8 @@ func MigrateSoftDeleteUniqueIndexes(db *gorm.DB) error {
 	return nil
 }
 
-func seedDefaults() {
-	// Seed default environments
+// seedDefaultsOn seeds environments, permissions, and roles on the given db.
+func seedDefaultsOn(db *gorm.DB) {
 	defaultEnvs := []Environment{
 		{Name: "production", Alias: "生产环境", Color: "#dc3545", SortOrder: 1, Description: "Production environment"},
 		{Name: "staging", Alias: "预发布环境", Color: "#ffc107", SortOrder: 2, Description: "Staging / pre-production"},
@@ -117,10 +142,9 @@ func seedDefaults() {
 		{Name: "testing", Alias: "测试环境", Color: "#6c757d", SortOrder: 4, Description: "Testing / QA environment"},
 	}
 	for _, env := range defaultEnvs {
-		DB.FirstOrCreate(&env, Environment{Name: env.Name})
+		db.FirstOrCreate(&env, Environment{Name: env.Name})
 	}
 
-	// Seed permissions
 	permissions := []Permission{
 		{Name: "nodes:create", Resource: "nodes", Action: "create"},
 		{Name: "nodes:read", Resource: "nodes", Action: "read"},
@@ -150,67 +174,44 @@ func seedDefaults() {
 		{Name: "audit:read", Resource: "audit", Action: "read"},
 	}
 	for _, p := range permissions {
-		DB.FirstOrCreate(&p, Permission{Name: p.Name})
+		db.FirstOrCreate(&p, Permission{Name: p.Name})
 	}
 
-	// Seed admin role with all permissions
 	var allPerms []Permission
-	DB.Find(&allPerms)
+	db.Find(&allPerms)
 
 	var adminRole Role
-	result := DB.Where("name = ?", "admin").First(&adminRole)
+	result := db.Where("name = ?", "admin").First(&adminRole)
 	if result.RowsAffected == 0 {
 		adminRole = Role{Name: "admin", Description: "System administrator with full access"}
-		DB.Create(&adminRole)
+		db.Create(&adminRole)
 	}
-	DB.Model(&adminRole).Association("Permissions").Replace(allPerms)
+	db.Model(&adminRole).Association("Permissions").Replace(allPerms)
 
-	// Seed viewer role
 	var viewerRole Role
-	result = DB.Where("name = ?", "viewer").First(&viewerRole)
+	result = db.Where("name = ?", "viewer").First(&viewerRole)
 	var readPerms []Permission
-	DB.Where("action = ?", "read").Find(&readPerms)
+	db.Where("action = ?", "read").Find(&readPerms)
 	if result.RowsAffected == 0 {
 		viewerRole = Role{Name: "viewer", Description: "Read-only access"}
-		DB.Create(&viewerRole)
+		db.Create(&viewerRole)
 	}
-	DB.Model(&viewerRole).Association("Permissions").Replace(readPerms)
+	db.Model(&viewerRole).Association("Permissions").Replace(readPerms)
 
-	// Seed operator role
 	var operatorRole Role
-	result = DB.Where("name = ?", "operator").First(&operatorRole)
+	result = db.Where("name = ?", "operator").First(&operatorRole)
 	var opPerms []Permission
-	DB.Where("resource IN ? AND action IN ?",
+	db.Where("resource IN ? AND action IN ?",
 		[]string{"nodes", "configs", "topology", "agent_policies"},
 		[]string{"create", "read", "update", "deploy"},
 	).Find(&opPerms)
 	if result.RowsAffected == 0 {
 		operatorRole = Role{Name: "operator", Description: "Can manage nodes and configs"}
-		DB.Create(&operatorRole)
+		db.Create(&operatorRole)
 	}
-	DB.Model(&operatorRole).Association("Permissions").Replace(opPerms)
+	db.Model(&operatorRole).Association("Permissions").Replace(opPerms)
 
-	// Seed default admin user
-	var adminUser User
-	result = DB.Where("username = ?", "admin").First(&adminUser)
-	if result.RowsAffected == 0 {
-		hash, err := bcrypt.GenerateFromPassword([]byte("admin123"), bcrypt.DefaultCost)
-		if err != nil {
-			log.Printf("WARNING: failed to hash admin password: %v", err)
-			return
-		}
-		adminUser = User{
-			Username:     "admin",
-			Email:        "admin@localhost",
-			DisplayName:  "Administrator",
-			PasswordHash: string(hash),
-			AuthSource:   "local",
-			IsActive:     true,
-		}
-		DB.Create(&adminUser)
-		DB.Model(&adminUser).Association("Roles").Append(&adminRole)
-		log.Println("Default admin user created (admin / admin123)")
-	}
+	// Admin user is created via the setup page on first run.
 }
 
 func HashConfig(content string) string {

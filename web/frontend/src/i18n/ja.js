@@ -295,7 +295,11 @@ export default {
     load_nodes_failed: 'ノード候補の読み込みに失敗しました',
     current_scope: '現在のスコープ',
     global_scope: '現在のスコープ: グローバルアクセス',
+    global_scope_badge: 'グローバルアクセス',
     cluster_scope_hint: '現在のスコープで選択可能なクラスター: {count}',
+    no_cluster_targets_title: '現在のスコープに選択可能なクラスターがありません',
+    no_cluster_targets_body: 'このポリシーはクラスター対象ですが、現在のスコープでは選択可能なクラスターが見つかりません。別のスコープを選ぶか、割り当てスコープを広げてください。',
+    create_blocked_no_cluster_scope: '現在のスコープで可視なクラスターがないため、クラスター対象ポリシーは作成できません。',
   },
 
   audit_page: {
@@ -307,6 +311,9 @@ export default {
     before: '変更前',
     after: '変更後',
     changes: '変更点',
+    settings_group: '設定',
+    no_value: '未設定',
+    no_structured_changes: 'このレコードには表示可能な構造化フィールド差分がありません',
   },
 
   config_detail: {

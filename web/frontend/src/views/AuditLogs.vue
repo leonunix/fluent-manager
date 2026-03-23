@@ -35,29 +35,30 @@
               <tr v-if="expanded[log.id] && hasAgentPolicyDiff(log)" class="table-light">
                 <td colspan="6">
                   <div class="p-2">
-                    <div class="small text-muted mb-2">
+                    <div class="small text-muted mb-3">
                       {{ t('audit_page.operation') }}: {{ parsedAuditDetail(log)?.operation || '-' }}
                     </div>
-                    <div class="row g-3">
-                      <div class="col-md-6">
-                        <div class="border rounded p-3 h-100">
-                          <div class="fw-semibold mb-2">{{ t('audit_page.before') }}</div>
-                          <pre class="fm-audit-json mb-0">{{ formatJSON(parsedAuditDetail(log)?.before) }}</pre>
-                        </div>
-                      </div>
-                      <div class="col-md-6">
-                        <div class="border rounded p-3 h-100">
-                          <div class="fw-semibold mb-2">{{ t('audit_page.after') }}</div>
-                          <pre class="fm-audit-json mb-0">{{ formatJSON(parsedAuditDetail(log)?.after) }}</pre>
-                        </div>
-                      </div>
-                      <div class="col-12">
-                        <div class="border rounded p-3">
-                          <div class="fw-semibold mb-2">{{ t('audit_page.changes') }}</div>
-                          <pre class="fm-audit-json mb-0">{{ formatJSON(parsedAuditDetail(log)?.changes) }}</pre>
+                    <div v-if="diffEntries(log).length" class="row g-3">
+                      <div v-for="entry in diffEntries(log)" :key="entry.key" class="col-xl-6">
+                        <div class="fm-audit-diff-card h-100">
+                          <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+                            <div class="fw-semibold">{{ entry.label }}</div>
+                            <span v-if="entry.group" class="badge text-bg-light">{{ entry.group }}</span>
+                          </div>
+                          <div class="row g-3">
+                            <div class="col-6">
+                              <div class="small text-muted mb-2">{{ t('audit_page.before') }}</div>
+                              <div class="fm-audit-diff-value">{{ formatAuditValue(entry.before, entry.key) }}</div>
+                            </div>
+                            <div class="col-6">
+                              <div class="small text-muted mb-2">{{ t('audit_page.after') }}</div>
+                              <div class="fm-audit-diff-value">{{ formatAuditValue(entry.after, entry.key) }}</div>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
+                    <div v-else class="text-muted small">{{ t('audit_page.no_structured_changes') }}</div>
                   </div>
                 </td>
               </tr>
@@ -113,7 +114,7 @@ function hasAgentPolicyDiff(log) {
 function summarizeAuditDetail(log) {
   const parsed = parsedAuditDetail(log)
   if (parsed?.operation) {
-    return `${log.resource_type || 'resource'} ${parsed.operation}`
+    return `${t('nav.agent_policies')} ${parsed.operation}`
   }
   return log.detail || '-'
 }
@@ -122,13 +123,130 @@ function toggleExpanded(id) {
   expanded[id] = !expanded[id]
 }
 
-function formatJSON(value) {
-  if (value === null || value === undefined) return '-'
-  try {
-    return JSON.stringify(value, null, 2)
-  } catch {
-    return String(value)
+function prettifyFieldName(key) {
+  return key
+    .split('.')
+    .pop()
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+function formatFieldLabel(key) {
+  const labels = {
+    name: t('common.name'),
+    description: t('common.description'),
+    scope_type: t('agent_policies_page.scope'),
+    environment_id: t('common.environment'),
+    cluster_id: t('common.cluster'),
+    label_selector: t('agent_policies_page.scope_label_selector'),
+    priority: t('agent_policies_page.priority'),
+    is_enabled: t('agent_policies_page.enabled'),
   }
+
+  if (key.startsWith('settings.')) {
+    return `${t('audit_page.settings_group')} / ${prettifyFieldName(key)}`
+  }
+  return labels[key] || prettifyFieldName(key)
+}
+
+function scopeTypeLabel(value) {
+  if (!value) return t('audit_page.no_value')
+  return t(`agent_policies_page.scope_${value}`)
+}
+
+function formatAuditValue(value, key = '') {
+  if (value === null || value === undefined || value === '') return t('audit_page.no_value')
+  if (key === 'scope_type') return scopeTypeLabel(value)
+  if (typeof value === 'boolean') return value ? t('yes') : t('no')
+  if (Array.isArray(value)) return value.length ? value.join(', ') : t('audit_page.no_value')
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value, null, 2)
+    } catch {
+      return String(value)
+    }
+  }
+  return String(value)
+}
+
+function areEqual(before, after) {
+  return JSON.stringify(before) === JSON.stringify(after)
+}
+
+function flattenSettingsChange(change) {
+  const before = change?.before || {}
+  const after = change?.after || {}
+  const keys = new Set([...Object.keys(before), ...Object.keys(after)])
+
+  return [...keys]
+    .filter((key) => !areEqual(before[key], after[key]))
+    .map((key) => ({
+      key: `settings.${key}`,
+      label: formatFieldLabel(`settings.${key}`),
+      group: t('audit_page.settings_group'),
+      before: before[key],
+      after: after[key],
+    }))
+}
+
+function flattenSnapshot(snapshot, direction) {
+  if (!snapshot) return []
+
+  const entries = []
+  for (const [key, value] of Object.entries(snapshot)) {
+    if (key === 'id') continue
+    if (key === 'settings' && value && typeof value === 'object') {
+      for (const [settingKey, settingValue] of Object.entries(value)) {
+        entries.push({
+          key: `settings.${settingKey}`,
+          label: formatFieldLabel(`settings.${settingKey}`),
+          group: t('audit_page.settings_group'),
+          before: direction === 'before' ? settingValue : null,
+          after: direction === 'after' ? settingValue : null,
+        })
+      }
+      continue
+    }
+
+    entries.push({
+      key,
+      label: formatFieldLabel(key),
+      group: '',
+      before: direction === 'before' ? value : null,
+      after: direction === 'after' ? value : null,
+    })
+  }
+
+  return entries
+}
+
+function diffEntries(log) {
+  const parsed = parsedAuditDetail(log)
+  if (!parsed) return []
+
+  if (parsed.changes && typeof parsed.changes === 'object') {
+    const entries = []
+    for (const [key, change] of Object.entries(parsed.changes)) {
+      if (key === 'settings') {
+        entries.push(...flattenSettingsChange(change))
+        continue
+      }
+      entries.push({
+        key,
+        label: formatFieldLabel(key),
+        group: '',
+        before: change?.before,
+        after: change?.after,
+      })
+    }
+    if (entries.length) return entries
+  }
+
+  if (parsed.operation === 'create') return flattenSnapshot(parsed.after, 'after')
+  if (parsed.operation === 'delete') return flattenSnapshot(parsed.before, 'before')
+  return []
 }
 
 async function loadLogs() {
@@ -141,11 +259,19 @@ onMounted(loadLogs)
 </script>
 
 <style scoped>
-.fm-audit-json {
+.fm-audit-diff-card {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 14px;
+  padding: 1rem;
+  background: #fff;
+}
+
+.fm-audit-diff-value {
   white-space: pre-wrap;
   word-break: break-word;
   font-size: 0.8rem;
-  max-height: 320px;
+  min-height: 72px;
+  max-height: 240px;
   overflow: auto;
   background: #0f172a;
   color: #e2e8f0;

@@ -13,10 +13,12 @@ import (
 
 // Deps holds all dependencies needed for route registration.
 type Deps struct {
-	Cfg      *config.Config
-	Svc      *services.Registry
-	JWTSvc   *auth.JWTService
-	SAMLAuth *auth.SAMLAuth
+	Cfg       *config.Config
+	Svc       *services.Registry
+	JWTSvc    *auth.JWTService
+	SAMLAuth  *auth.SAMLAuth
+	CfgPath   string
+	RestartCh chan struct{}
 }
 
 // SetupRouter creates the gin.Engine with all routes registered.
@@ -57,6 +59,7 @@ func SetupRouter(deps Deps) *gin.Engine {
 
 	// Public routes
 	registerAuthRoutes(api, h)
+	registerSetupRoutes(api, h)
 
 	// Agent API (authenticated via API key)
 	registerAgentRoutes(api, cfg, h)
@@ -92,6 +95,7 @@ type allHandlers struct {
 	Agent       *handlers.AgentHandler
 	AgentPolicy *handlers.AgentPolicyHandler
 	Metrics     *handlers.MetricsHandler
+	Setup       *handlers.SetupHandler
 }
 
 func buildHandlers(deps Deps) *allHandlers {
@@ -114,5 +118,6 @@ func buildHandlers(deps Deps) *allHandlers {
 		Agent:       &handlers.AgentHandler{Svc: deps.Svc.Agent, NodeSvc: deps.Svc.Node},
 		AgentPolicy: &handlers.AgentPolicyHandler{Svc: deps.Svc.AgentPolicy, NodeSvc: deps.Svc.Node},
 		Metrics:     &handlers.MetricsHandler{Svc: deps.Svc.Metrics, TopoSvc: deps.Svc.Topology},
+		Setup:       &handlers.SetupHandler{Svc: deps.Svc.Setup, JWT: deps.JWTSvc, CfgPath: deps.CfgPath, RestartCh: deps.RestartCh},
 	}
 }

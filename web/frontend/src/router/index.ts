@@ -1,7 +1,14 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '../store/auth'
+import { getSetupStatus } from '../api/setup'
 
 const routes: RouteRecordRaw[] = [
+  {
+    path: '/setup',
+    name: 'Setup',
+    component: () => import('../views/Setup.vue'),
+    meta: { setup: true },
+  },
   {
     path: '/login',
     name: 'Login',
@@ -37,8 +44,39 @@ const router = createRouter({
   routes,
 })
 
-router.beforeEach((to) => {
+// Cache setup status to avoid repeated API calls within the same session
+let setupStatusCache: boolean | null = null
+
+// Reset cache after setup completes (called by Setup.vue after initialization)
+export function resetSetupCache() {
+  setupStatusCache = true
+}
+
+router.beforeEach(async (to) => {
   const auth = useAuthStore()
+
+  // Check setup status if not yet cached
+  if (setupStatusCache === null) {
+    try {
+      const res = await getSetupStatus()
+      setupStatusCache = res.data.initialized
+    } catch {
+      // If API is unreachable, assume initialized to avoid blocking
+      setupStatusCache = true
+    }
+  }
+
+  // System not initialized: force setup page
+  if (!setupStatusCache && !to.meta.setup) {
+    return '/setup'
+  }
+
+  // System initialized: block access to setup page
+  if (setupStatusCache && to.meta.setup) {
+    return '/login'
+  }
+
+  // Normal auth guards
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
     return '/login'
   }
