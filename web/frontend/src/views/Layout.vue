@@ -5,7 +5,7 @@
       <!-- Logo -->
       <div class="fm-sidebar-logo">
         <div class="fm-logo-icon">
-          <i class="bi bi-diagram-3-fill"></i>
+          <img src="/brand/logo-flow-mesh.svg" alt="Fluent Manager logo">
         </div>
         <div>
           <div class="fm-logo-title">Fluent Manager</div>
@@ -201,17 +201,18 @@ onUnmounted(() => clearInterval(timer))
   margin-bottom: 8px;
 }
 .fm-logo-icon {
-  width: 38px;
-  height: 38px;
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-  border-radius: 10px;
+  width: 42px;
+  height: 42px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  font-size: 1.15rem;
   flex-shrink: 0;
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.35);
+}
+.fm-logo-icon img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  filter: drop-shadow(0 4px 12px rgba(21, 94, 239, 0.26));
 }
 .fm-logo-title {
   font-weight: 700;

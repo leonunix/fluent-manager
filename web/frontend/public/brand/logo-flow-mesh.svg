@@ -1,0 +1,33 @@
+<svg width="160" height="160" viewBox="0 0 160 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="fmBg" x1="20" y1="18" x2="138" y2="144" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0B1328"/>
+      <stop offset="0.5" stop-color="#155EEF"/>
+      <stop offset="1" stop-color="#14B8A6"/>
+    </linearGradient>
+    <linearGradient id="fmFlow" x1="42" y1="42" x2="118" y2="112" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FAFC"/>
+      <stop offset="1" stop-color="#A5F3FC"/>
+    </linearGradient>
+    <filter id="fmShadow" x="4" y="4" width="152" height="152" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#020617" flood-opacity="0.22"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#fmShadow)">
+    <rect x="20" y="20" width="120" height="120" rx="32" fill="url(#fmBg)"/>
+    <circle cx="80" cy="80" r="47" stroke="white" stroke-opacity="0.12" stroke-width="2"/>
+    <circle cx="80" cy="80" r="30" fill="white" fill-opacity="0.06"/>
+
+    <path d="M44 57C53 47.5 64.5 42 77.5 42C96.5 42 110.5 52.5 117 71" stroke="url(#fmFlow)" stroke-width="10" stroke-linecap="round"/>
+    <path d="M44 101C53.5 111.5 65.5 118 81 118C97 118 109.5 111.5 117 97" stroke="url(#fmFlow)" stroke-width="10" stroke-linecap="round"/>
+    <path d="M52 80H108" stroke="url(#fmFlow)" stroke-width="10" stroke-linecap="round"/>
+
+    <circle cx="42" cy="57" r="8" fill="#F8FAFC"/>
+    <circle cx="42" cy="101" r="8" fill="#CCFBF1"/>
+    <circle cx="118" cy="72" r="8" fill="#E0F2FE"/>
+    <circle cx="118" cy="96" r="8" fill="#99F6E4"/>
+    <circle cx="80" cy="80" r="10" fill="#22D3EE"/>
+    <circle cx="80" cy="80" r="4" fill="#F8FAFC"/>
+  </g>
+</svg>

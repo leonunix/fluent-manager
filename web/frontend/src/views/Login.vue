@@ -3,7 +3,7 @@
     <div class="fm-login-left">
       <div class="fm-login-brand">
         <div class="fm-login-logo">
-          <i class="bi bi-diagram-3-fill"></i>
+          <img src="/brand/logo-flow-mesh.svg" alt="Fluent Manager logo">
         </div>
         <h1>Fluent Manager</h1>
         <p>Enterprise Log Agent Management Platform</p>
@@ -140,17 +140,18 @@ async function handleLogin() {
   margin-bottom: 48px;
 }
 .fm-login-logo {
-  width: 56px;
-  height: 56px;
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
-  border-radius: 14px;
+  width: 64px;
+  height: 64px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  font-size: 1.5rem;
   margin-bottom: 24px;
-  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.4);
+}
+.fm-login-logo img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  filter: drop-shadow(0 10px 24px rgba(37, 99, 235, 0.28));
 }
 .fm-login-brand h1 {
   font-size: 2rem;
