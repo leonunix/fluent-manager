@@ -166,7 +166,11 @@ func (s *deployService) Get(id uint, allowedClusters []uint) (*models.DeployTask
 	}
 
 	var records []models.DeployRecord
-	s.db.Where("deploy_task_id = ?", id).Preload("Node").Find(&records)
+	recordQuery := s.db.Where("deploy_task_id = ?", id).Preload("Node")
+	if allowedClusters != nil {
+		recordQuery = recordQuery.Where("node_id IN (SELECT id FROM nodes WHERE cluster_id IN ?)", allowedClusters)
+	}
+	recordQuery.Find(&records)
 	return &task, records, nil
 }
 
@@ -176,9 +180,9 @@ func (s *deployService) GetAuditLogs(page, pageSize int, allowedClusters []uint)
 	// Scope filter: only show audit logs for resources within the user's scope
 	if allowedClusters != nil {
 		query = query.Where(
-			"resource_type = 'node' AND resource_id IN (SELECT id FROM nodes WHERE cluster_id IN ?) "+
-				"OR resource_type = 'cluster' AND resource_id IN ? "+
-				"OR resource_type NOT IN ('node', 'cluster')",
+			"(resource_type = 'node' AND resource_id IN (SELECT id FROM nodes WHERE cluster_id IN ?)) "+
+				"OR (resource_type = 'cluster' AND resource_id IN ?) "+
+				"OR (resource_type NOT IN ('node', 'cluster') OR resource_type = '')",
 			allowedClusters, allowedClusters,
 		)
 	}

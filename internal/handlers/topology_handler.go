@@ -356,6 +356,15 @@ func (h *TopologyHandler) UpdateCluster(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	// Scope check on target region's DC to prevent moving cluster out of scope
+	dcID, err := h.regionDCID(req.RegionID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "region not found"})
+		return
+	}
+	if !h.checkDCScope(c, dcID) {
+		return
+	}
 	cluster, err := h.Svc.UpdateCluster(uint(id), req.Name, req.Alias, req.RegionID, req.EnvironmentID, req.IsDefault, req.ConfigID, req.Description, req.Tags)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "cluster not found"})
@@ -427,7 +436,7 @@ func (h *TopologyHandler) UpdateMatchRule(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	rule, err := h.Svc.UpdateMatchRule(uint(ruleID), &req)
+	rule, err := h.Svc.UpdateMatchRule(uint(clusterID), uint(ruleID), &req)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "rule not found"})
 		return
@@ -441,7 +450,7 @@ func (h *TopologyHandler) DeleteMatchRule(c *gin.Context) {
 		return
 	}
 	ruleID, _ := strconv.ParseUint(c.Param("rule_id"), 10, 32)
-	if err := h.Svc.DeleteMatchRule(uint(ruleID)); err != nil {
+	if err := h.Svc.DeleteMatchRule(uint(clusterID), uint(ruleID)); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

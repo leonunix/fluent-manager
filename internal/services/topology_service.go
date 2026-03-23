@@ -78,8 +78,8 @@ type TopologyService interface {
 	// Match Rules
 	ListMatchRules(clusterID string) ([]models.ClusterMatchRule, error)
 	CreateMatchRule(clusterID uint, rule *models.ClusterMatchRule) (*models.ClusterMatchRule, error)
-	UpdateMatchRule(ruleID uint, rule *models.ClusterMatchRule) (*models.ClusterMatchRule, error)
-	DeleteMatchRule(ruleID uint) error
+	UpdateMatchRule(clusterID, ruleID uint, rule *models.ClusterMatchRule) (*models.ClusterMatchRule, error)
+	DeleteMatchRule(clusterID, ruleID uint) error
 
 	// User Scopes
 	ListUserScopes(userID string) ([]models.UserScope, error)
@@ -347,10 +347,13 @@ func (s *topologyService) CreateMatchRule(clusterID uint, rule *models.ClusterMa
 	return rule, nil
 }
 
-func (s *topologyService) UpdateMatchRule(ruleID uint, req *models.ClusterMatchRule) (*models.ClusterMatchRule, error) {
+func (s *topologyService) UpdateMatchRule(clusterID, ruleID uint, req *models.ClusterMatchRule) (*models.ClusterMatchRule, error) {
 	var rule models.ClusterMatchRule
 	if err := s.db.First(&rule, ruleID).Error; err != nil {
 		return nil, err
+	}
+	if rule.ClusterID != clusterID {
+		return nil, gorm.ErrRecordNotFound
 	}
 	s.db.Model(&rule).Updates(map[string]interface{}{
 		"name": req.Name, "priority": req.Priority,
@@ -361,8 +364,15 @@ func (s *topologyService) UpdateMatchRule(ruleID uint, req *models.ClusterMatchR
 	return &rule, nil
 }
 
-func (s *topologyService) DeleteMatchRule(ruleID uint) error {
-	return s.db.Delete(&models.ClusterMatchRule{}, ruleID).Error
+func (s *topologyService) DeleteMatchRule(clusterID, ruleID uint) error {
+	var rule models.ClusterMatchRule
+	if err := s.db.First(&rule, ruleID).Error; err != nil {
+		return err
+	}
+	if rule.ClusterID != clusterID {
+		return gorm.ErrRecordNotFound
+	}
+	return s.db.Delete(&rule).Error
 }
 
 // ---------- User Scopes ----------

@@ -269,7 +269,7 @@ func TestMatchRuleCRUD(t *testing.T) {
 	}
 
 	// Update
-	updated, err := svc.UpdateMatchRule(rule.ID, &models.ClusterMatchRule{
+	updated, err := svc.UpdateMatchRule(cluster.ID, rule.ID, &models.ClusterMatchRule{
 		Name:            "web-rule-updated",
 		Priority:        2,
 		HostnamePattern: "web-prod-*",
@@ -283,7 +283,7 @@ func TestMatchRuleCRUD(t *testing.T) {
 	}
 
 	// Delete
-	if err := svc.DeleteMatchRule(rule.ID); err != nil {
+	if err := svc.DeleteMatchRule(cluster.ID, rule.ID); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
