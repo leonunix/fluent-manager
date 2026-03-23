@@ -45,6 +45,7 @@ internal/
   handlers/                   # REST API handlers (HTTP parsing + response only)
     agent_handler.go          # Agent register, heartbeat, commands
     agent_policy_handler.go   # Agent policy CRUD, resolve preview, audit snapshots
+    ai_handler.go             # AI settings + log sample analysis
     auth_handler.go           # Login, profile, password
     config_handler.go         # Config templates + modules + rendered previews
     deploy_handler.go         # Deployment tasks
@@ -58,6 +59,7 @@ internal/
   services/                   # Business logic layer (interface + implementation)
     services.go               # Registry, NewRegistry(db), ErrHasChildren
     auth_service.go           # AuthService: login, LDAP user, password
+    ai_service.go             # AIService: log sample analysis + provider dispatch
     user_service.go           # UserService: CRUD + bcrypt
     role_service.go           # RoleService: CRUD + permissions
     topology_service.go       # TopologyService: DC/Region/Cluster/Env/MatchRule/Scope/Tree
@@ -90,6 +92,7 @@ web/frontend/                 # Vue 3 SPA (TypeScript)
   src/types/                  # Type definitions (auth, topology, node, config, deploy, audit, common)
   src/api/                    # API modules (split by domain, typed)
     client.ts                 # Axios instance + interceptors
+    ai.ts                     # AI settings + provider analysis API
     auth.ts                   # Auth API
     users.ts, roles.ts        # User/Role API
     topology.ts               # DC/Region/Cluster/Env/MatchRule/Scope API
@@ -102,6 +105,7 @@ web/frontend/                 # Vue 3 SPA (TypeScript)
     index.ts                  # Barrel re-export (backward compatible)
   src/router/index.ts         # Vue Router config
   src/views/                  # Page components (.vue, not yet lang="ts")
+    AISettings.vue            # AI account / key management
   src/components/             # Reusable components (TopologyGraph, FluentFlowGraph)
   src/store/auth.ts           # Pinia auth store
   src/i18n/                   # i18n (index.ts + zh/en/ja.js)
@@ -136,7 +140,7 @@ Agent runtime inheritance: server bootstrap defaults > matching agent policies (
 Two levels of access control:
 
 1. **Permission-based** (action level): `resource:action` pairs on roles
-   - Resources: `nodes`, `topology`, `configs`, `users`, `roles`, `audit`, `agent_policies`
+   - Resources: `nodes`, `topology`, `configs`, `users`, `roles`, `audit`, `agent_policies`, `auth_settings`, `ai_settings`
    - Actions: `create`, `read`, `update`, `delete`, `deploy`
    - Default roles: `admin` (all), `operator` (nodes+configs+topology), `viewer` (read-only)
 
@@ -193,10 +197,11 @@ All under `/api/v1`:
 | Fluent | CRUD `/aggregation-groups`, `GET /aggregation-groups/deleted`, `POST /aggregation-groups/:id/restore`, `GET /aggregation-groups/:id/metrics`, `GET/PUT /nodes/:id/fluent-profile` | JWT + topology/nodes perm |
 | Pipelines | CRUD `/log-pipelines`, `GET /log-pipelines/graph` | JWT + topology perm |
 | Configs | CRUD `/configs/templates`, `/configs/templates/:id/versions`, `/configs/modules`, `/configs/modules/:id/versions`, `POST /configs/rendered-configs/preview`, `GET /configs/rendered-configs/:id` | JWT + configs perm |
-| Config Analysis | `POST /config-analysis/lint`, `POST /config-analysis/replay`, `POST /config-analysis/diff`, `POST /config-analysis/compatibility`, `GET /config-analysis/:id` | JWT + configs perm |
+| Config Analysis | `POST /config-analysis/log-sample-assistant`, `POST /config-analysis/lint`, `POST /config-analysis/replay`, `POST /config-analysis/diff`, `POST /config-analysis/compatibility`, `GET /config-analysis/:id` | JWT + configs perm |
 | Deploys | `GET\|POST /deploys` (supports scope: node/cluster/region/datacenter) | JWT + configs perm |
 | Runtime | `GET /runtime/drift`, `GET /runtime/health/graph`, `GET /runtime/recommendations` | JWT + nodes perm |
 | Agent Policies | CRUD `/agent-policies`, `GET /agent-policies/resolve/:node_id` | JWT + agent_policies perm (resolve uses nodes read) |
+| AI Settings | `GET /ai-settings`, `PUT /ai-settings`, `POST /ai-settings/log-sample-analysis` | JWT + ai_settings perm |
 | Users/Roles | CRUD `/users`, `/roles`, `GET /permissions` | JWT + users/roles perm |
 | Audit | `GET /audit-logs` | JWT + audit perm |
 
@@ -211,11 +216,12 @@ All under `/api/v1`:
 | Node Detail | `/nodes/:id` | Metrics, commands, logs, fluent role/profile |
 | Aggregation Groups | `/aggregation-groups` | Fluent fan-in group CRUD, deleted list restore, runtime metrics |
 | Pipelines | `/pipelines` | Explicit forwarding topology graph and pipeline CRUD |
-| Configs | `/configs` | Template CRUD, module workspace, render preview, lint/replay/compatibility |
+| Configs | `/configs` | Template CRUD, module workspace, config wizard, log sample analysis assistant, render preview, lint/replay/compatibility |
 | Config Detail | `/configs/:id` | Versions, topology-scoped deployment |
 | Deploys | `/deploys` | Deployment task list and detail |
 | Runtime | `/runtime` | Drift table, runtime health graph, optimization recommendations |
 | Agent Policies | `/agent-policies` | Scoped policy CRUD, current user scope badges, resolved preview, node search, and policy targeting UX |
+| AI Settings | `/ai-settings` | Standalone AI account/key management, default active account, and platform system prompt override |
 | Users | `/users` | User CRUD with role assignment and scope editor |
 | Roles | `/roles` | Role + permission management |
 | Audit Logs | `/audit` | Paginated audit trail with expandable Agent Policy field-level diffs |
@@ -250,7 +256,10 @@ Handler (HTTP) → Service (business logic, interface) → Model (GORM/DB)
 - Match rules are evaluated by priority (lower number = higher priority) on agent registration
 - Scope filtering is applied via `ScopeFilter` middleware; handlers use `middleware.GetAllowedClusters(c)`
 - Agent Policy reads are scope-filtered; scoped users can only create/manage cluster-scoped policies inside their allowed clusters
+- AI settings are independent from user management; only users with `ai_settings:read` / `ai_settings:update` should see or modify them
+- Log sample analysis is intentionally exposed under the config analysis domain as well, so configuration users can generate module/template drafts without needing direct AI settings permissions
 - Redis cache is optional; metrics service falls back to direct DB queries if cache is disabled
 - Aggregation group shared keys are encrypted at rest via `fluent.shared_key_secret` (falls back to JWT secret if unset)
 - Agent Policy create/update/delete writes structured audit detail; the audit page can expand and render field-level before/after changes
 - Semantic replay / diff / compatibility are baseline heuristics today, designed to be upgraded into deeper parser-grade engines later
+- AI settings support multiple accounts per provider (for example two Gemini accounts) and the platform provides a built-in default system prompt for enterprise-oriented log analysis and template generation
