@@ -1,16 +1,16 @@
 <template>
   <div>
-    <h4 class="mb-4">审计日志</h4>
+    <h4 class="mb-4">{{ t('audit_page.title') }}</h4>
     <div class="card border-0 shadow-sm">
       <div class="card-body p-0">
         <table class="table table-hover mb-0">
           <thead>
             <tr>
-              <th>时间</th>
-              <th>用户</th>
-              <th>操作</th>
-              <th>资源</th>
-              <th>详情</th>
+              <th>{{ t('dashboard.time') }}</th>
+              <th>{{ t('dashboard.user') }}</th>
+              <th>{{ t('dashboard.action') }}</th>
+              <th>{{ t('dashboard.resource') }}</th>
+              <th>{{ t('audit_page.detail') }}</th>
               <th>IP</th>
             </tr>
           </thead>
@@ -31,13 +31,13 @@
     <nav v-if="total > pageSize" class="mt-3">
       <ul class="pagination justify-content-center">
         <li class="page-item" :class="{ disabled: page <= 1 }">
-          <a class="page-link" href="#" @click.prevent="page--; loadLogs()">上一页</a>
+          <a class="page-link" href="#" @click.prevent="page--; loadLogs()">{{ t('common.previous') }}</a>
         </li>
         <li class="page-item disabled">
           <span class="page-link">{{ page }} / {{ Math.ceil(total / pageSize) }}</span>
         </li>
         <li class="page-item" :class="{ disabled: page >= Math.ceil(total / pageSize) }">
-          <a class="page-link" href="#" @click.prevent="page++; loadLogs()">下一页</a>
+          <a class="page-link" href="#" @click.prevent="page++; loadLogs()">{{ t('common.next') }}</a>
         </li>
       </ul>
     </nav>
@@ -47,13 +47,15 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { getAuditLogs } from '../api'
+import { useI18n } from '../i18n'
 
 const logs = ref([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = 50
+const { t, dateLocale } = useI18n()
 
-function formatTime(t) { return t ? new Date(t).toLocaleString('zh-CN') : '-' }
+function formatTime(t) { return t ? new Date(t).toLocaleString(dateLocale.value) : '-' }
 
 async function loadLogs() {
   const { data } = await getAuditLogs({ page: page.value, page_size: pageSize })

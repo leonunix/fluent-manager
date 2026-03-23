@@ -18,11 +18,12 @@ type ConfigApplier interface {
 
 // HeartbeatResponse is the server's response to a heartbeat.
 type HeartbeatResponse struct {
-	Status        string    `json:"status"` // ok, update_config, exec_command
-	ConfigHash    string    `json:"config_hash,omitempty"`
-	ConfigContent string    `json:"config_content,omitempty"`
-	ConfigID      uint      `json:"config_id,omitempty"`
-	Commands      []Command `json:"commands,omitempty"` // remote commands to execute
+	Status        string                 `json:"status"` // ok, update_config, exec_command
+	ConfigHash    string                 `json:"config_hash,omitempty"`
+	ConfigContent string                 `json:"config_content,omitempty"`
+	ConfigID      uint                   `json:"config_id,omitempty"`
+	Commands      []Command              `json:"commands,omitempty"` // remote commands to execute
+	AgentSettings *config.ServerSettings `json:"agent_settings,omitempty"`
 }
 
 // Command is a remote command from the server.
@@ -63,12 +64,13 @@ func (h *Heartbeat) loop() {
 	// Run one heartbeat immediately
 	h.beat()
 
-	ticker := time.NewTicker(time.Duration(h.cfg.HeartbeatInterval) * time.Second)
-	defer ticker.Stop()
-
 	for {
+		wait := time.Duration(h.cfg.Snapshot().HeartbeatInterval) * time.Second
+		if wait <= 0 {
+			wait = 30 * time.Second
+		}
 		select {
-		case <-ticker.C:
+		case <-time.After(wait):
 			h.beat()
 		case <-h.stopCh:
 			return
@@ -77,12 +79,18 @@ func (h *Heartbeat) loop() {
 }
 
 func (h *Heartbeat) beat() {
+	if err := h.cfg.RefreshRuntimeProfile(); err != nil {
+		log.Printf("[heartbeat] refresh runtime profile failed: %v", err)
+	}
+
+	snapshotCfg := h.cfg.Snapshot()
 	snapshot := h.metrics.Snapshot()
 
 	body := map[string]interface{}{
-		"node_uid":    h.cfg.NodeUID,
-		"config_hash": h.applier.CurrentConfigHash(),
-		"metrics":     snapshot,
+		"node_uid":       snapshotCfg.NodeUID,
+		"config_hash":    h.applier.CurrentConfigHash(),
+		"metrics":        snapshot,
+		"fluent_profile": snapshotCfg.RuntimeProfile,
 	}
 
 	resp, err := h.client.APICall("POST", "/api/v1/agent/heartbeat", body)
@@ -95,6 +103,11 @@ func (h *Heartbeat) beat() {
 	if err := json.Unmarshal(resp, &result); err != nil {
 		log.Printf("[heartbeat] bad response: %v", err)
 		return
+	}
+	if result.AgentSettings != nil {
+		if err := h.cfg.ApplyServerSettings(result.AgentSettings); err != nil {
+			log.Printf("[heartbeat] failed to apply agent settings: %v", err)
+		}
 	}
 
 	// Handle config update
@@ -119,8 +132,9 @@ func (h *Heartbeat) beat() {
 }
 
 func (h *Heartbeat) reportConfigResult(configID uint, success bool, message string) {
+	snapshotCfg := h.cfg.Snapshot()
 	body := map[string]interface{}{
-		"node_uid":  h.cfg.NodeUID,
+		"node_uid":  snapshotCfg.NodeUID,
 		"config_id": configID,
 		"success":   success,
 		"message":   message,
@@ -131,8 +145,9 @@ func (h *Heartbeat) reportConfigResult(configID uint, success bool, message stri
 }
 
 func (h *Heartbeat) reportCommandResult(commandID uint, status, output string) {
+	snapshotCfg := h.cfg.Snapshot()
 	body := map[string]interface{}{
-		"node_uid":   h.cfg.NodeUID,
+		"node_uid":   snapshotCfg.NodeUID,
 		"command_id": commandID,
 		"status":     status,
 		"output":     output,

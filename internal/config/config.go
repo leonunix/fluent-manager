@@ -11,6 +11,7 @@ type Config struct {
 	Database DatabaseConfig `yaml:"database"`
 	Auth     AuthConfig     `yaml:"auth"`
 	Agent    AgentConfig    `yaml:"agent"`
+	Fluent   FluentConfig   `yaml:"fluent"`
 	Cache    CacheConfig    `yaml:"cache"`
 	Log      LogConfig      `yaml:"log"`
 }
@@ -35,10 +36,10 @@ type DatabaseConfig struct {
 }
 
 type AuthConfig struct {
-	JWTSecret       string     `yaml:"jwt_secret"`
-	TokenExpireHours int       `yaml:"token_expire_hours"`
-	LDAP            LDAPConfig `yaml:"ldap"`
-	SAML            SAMLConfig `yaml:"saml"`
+	JWTSecret        string     `yaml:"jwt_secret"`
+	TokenExpireHours int        `yaml:"token_expire_hours"`
+	LDAP             LDAPConfig `yaml:"ldap"`
+	SAML             SAMLConfig `yaml:"saml"`
 }
 
 type LDAPConfig struct {
@@ -68,9 +69,32 @@ type SAMLConfig struct {
 }
 
 type AgentConfig struct {
-	HeartbeatInterval int    `yaml:"heartbeat_interval"` // seconds
-	SyncInterval      int    `yaml:"sync_interval"`      // seconds
-	APIKey            string `yaml:"api_key"`
+	HeartbeatInterval   int    `yaml:"heartbeat_interval"` // seconds
+	SyncInterval        int    `yaml:"sync_interval"`      // seconds
+	APIKey              string `yaml:"api_key"`
+	MetricsInterval     int    `yaml:"metrics_interval"`
+	LogUploadInterval   int    `yaml:"log_upload_interval"`
+	LogBufferLines      int    `yaml:"log_buffer_lines"`
+	HealthPort          int    `yaml:"health_port"`
+	MaxRetries          int    `yaml:"max_retries"`
+	RetryBaseDelay      int    `yaml:"retry_base_delay"`
+	FluentType          string `yaml:"fluent_type"`
+	FluentConfigPath    string `yaml:"fluent_config_path"`
+	FluentConfigDir     string `yaml:"fluent_config_dir"`
+	FluentBinary        string `yaml:"fluent_binary"`
+	FluentServiceUnit   string `yaml:"fluent_service_unit"`
+	FluentRestartCmd    string `yaml:"fluent_restart_cmd"`
+	FluentReloadCmd     string `yaml:"fluent_reload_cmd"`
+	FluentDryRunCmd     string `yaml:"fluent_dry_run_cmd"`
+	FluentLogPath       string `yaml:"fluent_log_path"`
+	FluentMetricsURL    string `yaml:"fluent_metrics_url"`
+	FluentMetricsFormat string `yaml:"fluent_metrics_format"`
+	BackupDir           string `yaml:"backup_dir"`
+	MaxBackups          int    `yaml:"max_backups"`
+}
+
+type FluentConfig struct {
+	SharedKeySecret string `yaml:"shared_key_secret"`
 }
 
 type LogConfig struct {
@@ -80,12 +104,23 @@ type LogConfig struct {
 
 func Load(path string) (*Config, error) {
 	cfg := &Config{
-		Server: ServerConfig{Host: "0.0.0.0", Port: 8080, Mode: "debug"},
+		Server:   ServerConfig{Host: "0.0.0.0", Port: 8080, Mode: "debug"},
 		Database: DatabaseConfig{Driver: "sqlite", DSN: "fluent_manager.db"},
-		Auth: AuthConfig{JWTSecret: "change-me-in-production", TokenExpireHours: 24},
-		Agent: AgentConfig{HeartbeatInterval: 30, SyncInterval: 60},
-		Cache: CacheConfig{Addr: "localhost:6379", TTL: 30},
-		Log: LogConfig{Level: "info"},
+		Auth:     AuthConfig{JWTSecret: "change-me-in-production", TokenExpireHours: 24},
+		Agent: AgentConfig{
+			HeartbeatInterval: 30,
+			SyncInterval:      60,
+			MetricsInterval:   60,
+			LogUploadInterval: 120,
+			LogBufferLines:    500,
+			HealthPort:        9880,
+			MaxRetries:        5,
+			RetryBaseDelay:    1000,
+			MaxBackups:        10,
+		},
+		Fluent: FluentConfig{},
+		Cache:  CacheConfig{Addr: "localhost:6379", TTL: 30},
+		Log:    LogConfig{Level: "info"},
 	}
 
 	data, err := os.ReadFile(path)

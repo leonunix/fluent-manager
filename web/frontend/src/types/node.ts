@@ -7,15 +7,52 @@ export interface Node {
   agent_version: string
   fluent_type: string
   fluent_version: string
+  node_role: string
   status: string
   cluster_id: number | null
   cluster?: import('./topology').Cluster
+  aggregation_group_id: number | null
+  aggregation_group?: AggregationGroup
   environment_id: number | null
   environment?: import('./topology').Environment
   labels: string
   config_id: number | null
   config?: import('./config').ConfigVersion
+  fluent_profile?: NodeFluentProfile
   last_heartbeat: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AggregationGroup {
+  id: number
+  name: string
+  alias: string
+  description: string
+  fluent_type: string
+  mode: string
+  endpoint_host: string
+  endpoint_port: number
+  enable_tls: boolean
+  has_shared_key: boolean
+  cluster_id: number | null
+  cluster?: import('./topology').Cluster
+  created_at: string
+  updated_at: string
+}
+
+export interface NodeFluentProfile {
+  id: number
+  node_id: number
+  node?: Node
+  loaded_plugins: string
+  supports_hot_reload: boolean
+  supports_multiline: boolean
+  supports_storage_layer: boolean
+  supports_forward_tls: boolean
+  supports_metrics_api: boolean
+  metadata: string
+  last_reported_at: string | null
   created_at: string
   updated_at: string
 }

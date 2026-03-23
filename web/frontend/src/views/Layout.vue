@@ -38,6 +38,16 @@
             <i class="bi bi-hdd-network me-2"></i>{{ t('nav.nodes') }}
           </router-link>
         </li>
+        <li class="nav-item">
+          <router-link to="/aggregation-groups" class="fm-nav-link" active-class="active">
+            <i class="bi bi-diagram-2 me-2"></i>{{ t('nav.aggregation_groups') }}
+          </router-link>
+        </li>
+        <li class="nav-item">
+          <router-link to="/pipelines" class="fm-nav-link" active-class="active">
+            <i class="bi bi-bezier2 me-2"></i>{{ t('nav.pipelines') }}
+          </router-link>
+        </li>
 
         <li class="fm-nav-section">{{ t('nav.config_deploy') }}</li>
         <li class="nav-item">
@@ -48,6 +58,11 @@
         <li class="nav-item">
           <router-link to="/deploys" class="fm-nav-link" active-class="active">
             <i class="bi bi-rocket-takeoff me-2"></i>{{ t('nav.deploys') }}
+          </router-link>
+        </li>
+        <li class="nav-item">
+          <router-link to="/runtime" class="fm-nav-link" active-class="active">
+            <i class="bi bi-activity me-2"></i>{{ t('nav.runtime') }}
           </router-link>
         </li>
 
@@ -67,6 +82,11 @@
             <i class="bi bi-journal-text me-2"></i>{{ t('nav.audit') }}
           </router-link>
         </li>
+        <li class="nav-item">
+          <router-link to="/agent-policies" class="fm-nav-link" active-class="active">
+            <i class="bi bi-sliders me-2"></i>{{ t('nav.agent_policies') }}
+          </router-link>
+        </li>
       </ul>
 
       <!-- User footer -->
@@ -78,7 +98,7 @@
           <div class="fm-user-name">{{ auth.user?.display_name || auth.user?.username }}</div>
           <div class="fm-user-role">{{ auth.user?.roles?.[0]?.name || 'user' }}</div>
         </div>
-        <button class="btn btn-sm fm-logout-btn" @click="handleLogout" title="退出登录">
+        <button class="btn btn-sm fm-logout-btn" @click="handleLogout" :title="t('nav.logout')">
           <i class="bi bi-box-arrow-right"></i>
         </button>
       </div>
@@ -126,9 +146,13 @@ const pageTitleKeys = {
   'Environments': 'nav.environments',
   'Nodes': 'nav.nodes',
   'NodeDetail': 'nav.nodes',
+  'AggregationGroups': 'nav.aggregation_groups',
+  'Pipelines': 'nav.pipelines',
   'Configs': 'nav.configs',
   'ConfigDetail': 'nav.configs',
   'Deploys': 'nav.deploys',
+  'Runtime': 'nav.runtime',
+  'AgentPolicies': 'nav.agent_policies',
   'Users': 'nav.users',
   'Roles': 'nav.roles',
   'AuditLogs': 'nav.audit',
@@ -141,7 +165,10 @@ function switchLocale() {
 }
 
 function updateTime() {
-  currentTime.value = new Date().toLocaleString('zh-CN', { hour12: false })
+  currentTime.value = new Date().toLocaleString(
+    locale.value === 'zh' ? 'zh-CN' : locale.value === 'ja' ? 'ja-JP' : 'en-US',
+    { hour12: false }
+  )
 }
 
 function handleLogout() {

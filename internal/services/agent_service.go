@@ -1,6 +1,7 @@
 package services
 
 import (
+	"errors"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ type HeartbeatResponse struct {
 	ConfigContent string             `json:"config_content,omitempty"`
 	ConfigID      uint               `json:"config_id,omitempty"`
 	Commands      []HeartbeatCommand `json:"commands,omitempty"`
+	AgentSettings *AgentSettings     `json:"agent_settings,omitempty"`
 }
 
 type HeartbeatCommand struct {
@@ -22,9 +24,44 @@ type HeartbeatCommand struct {
 	Args   string `json:"args"`
 }
 
+type AgentSettings struct {
+	HeartbeatInterval   int      `json:"heartbeat_interval,omitempty"`
+	MetricsInterval     int      `json:"metrics_interval,omitempty"`
+	LogUploadInterval   int      `json:"log_upload_interval,omitempty"`
+	LogBufferLines      int      `json:"log_buffer_lines,omitempty"`
+	HealthPort          int      `json:"health_port,omitempty"`
+	MaxRetries          int      `json:"max_retries,omitempty"`
+	RetryBaseDelay      int      `json:"retry_base_delay,omitempty"`
+	FluentType          string   `json:"fluent_type,omitempty"`
+	FluentConfigPath    string   `json:"fluent_config_path,omitempty"`
+	FluentConfigDir     string   `json:"fluent_config_dir,omitempty"`
+	FluentBinary        string   `json:"fluent_binary,omitempty"`
+	FluentServiceUnit   string   `json:"fluent_service_unit,omitempty"`
+	FluentRestartCmd    string   `json:"fluent_restart_cmd,omitempty"`
+	FluentReloadCmd     string   `json:"fluent_reload_cmd,omitempty"`
+	FluentDryRunCmd     string   `json:"fluent_dry_run_cmd,omitempty"`
+	FluentLogPath       string   `json:"fluent_log_path,omitempty"`
+	FluentExtraFiles    []string `json:"fluent_extra_files,omitempty"`
+	FluentMetricsURL    string   `json:"fluent_metrics_url,omitempty"`
+	FluentMetricsFormat string   `json:"fluent_metrics_format,omitempty"`
+	BackupDir           string   `json:"backup_dir,omitempty"`
+	MaxBackups          int      `json:"max_backups,omitempty"`
+}
+
+type AgentFluentProfileReport struct {
+	LoadedPlugins        string `json:"loaded_plugins"`
+	SupportsHotReload    bool   `json:"supports_hot_reload"`
+	SupportsMultiline    bool   `json:"supports_multiline"`
+	SupportsStorageLayer bool   `json:"supports_storage_layer"`
+	SupportsForwardTLS   bool   `json:"supports_forward_tls"`
+	SupportsMetricsAPI   bool   `json:"supports_metrics_api"`
+	Metadata             string `json:"metadata"`
+}
+
 type AgentService interface {
-	Register(nodeUID, hostname, ipAddress, os, agentVersion, fluentType, fluentVersion, labels string) (uint, error)
-	Heartbeat(nodeUID, configHash string, metrics map[string]interface{}) (*HeartbeatResponse, error)
+	Register(nodeUID, hostname, ipAddress, os, agentVersion, fluentType, fluentVersion, labels string, profile *AgentFluentProfileReport) (uint, error)
+	Heartbeat(nodeUID, configHash string, metrics map[string]interface{}, profile *AgentFluentProfileReport) (*HeartbeatResponse, error)
+	GetSettingsForNodeID(nodeID uint) (*AgentSettings, error)
 	ReportStatus(nodeUID string, configID uint, success bool, message string) error
 	ReportCommandResult(commandID uint, status, output string) error
 	UploadLogs(nodeUID string, lines []string) error
@@ -35,14 +72,15 @@ type AgentService interface {
 }
 
 type agentService struct {
-	db *gorm.DB
+	db        *gorm.DB
+	policySvc AgentPolicyService
 }
 
-func NewAgentService(db *gorm.DB) AgentService {
-	return &agentService{db: db}
+func NewAgentService(db *gorm.DB, policySvc AgentPolicyService) AgentService {
+	return &agentService{db: db, policySvc: policySvc}
 }
 
-func (s *agentService) Register(nodeUID, hostname, ipAddress, os, agentVersion, fluentType, fluentVersion, labels string) (uint, error) {
+func (s *agentService) Register(nodeUID, hostname, ipAddress, os, agentVersion, fluentType, fluentVersion, labels string, profile *AgentFluentProfileReport) (uint, error) {
 	now := time.Now()
 	var node models.Node
 	result := s.db.Where("node_uid = ?", nodeUID).First(&node)
@@ -56,6 +94,7 @@ func (s *agentService) Register(nodeUID, hostname, ipAddress, os, agentVersion, 
 			AgentVersion:  agentVersion,
 			FluentType:    fluentType,
 			FluentVersion: fluentVersion,
+			NodeRole:      models.NodeRoleStandalone,
 			Labels:        labels,
 			ClusterID:     clusterID,
 			Status:        "online",
@@ -76,10 +115,13 @@ func (s *agentService) Register(nodeUID, hostname, ipAddress, os, agentVersion, 
 			"last_heartbeat": &now,
 		})
 	}
+	if err := s.upsertFluentProfile(node.ID, profile, now); err != nil {
+		return 0, err
+	}
 	return node.ID, nil
 }
 
-func (s *agentService) Heartbeat(nodeUID, configHash string, metrics map[string]interface{}) (*HeartbeatResponse, error) {
+func (s *agentService) Heartbeat(nodeUID, configHash string, metrics map[string]interface{}, profile *AgentFluentProfileReport) (*HeartbeatResponse, error) {
 	now := time.Now()
 	var node models.Node
 	if err := s.db.Where("node_uid = ?", nodeUID).Preload("Config").Preload("Cluster").First(&node).Error; err != nil {
@@ -94,8 +136,16 @@ func (s *agentService) Heartbeat(nodeUID, configHash string, metrics map[string]
 	if metrics != nil {
 		s.storeMetrics(node.ID, metrics)
 	}
+	if err := s.upsertFluentProfile(node.ID, profile, now); err != nil {
+		return nil, err
+	}
+	s.updateRuntimeStateFromHeartbeat(&node, configHash, metrics, now)
 
-	resp := &HeartbeatResponse{Status: "ok"}
+	settings, err := s.resolveSettingsForNode(&node)
+	if err != nil {
+		return nil, err
+	}
+	resp := &HeartbeatResponse{Status: "ok", AgentSettings: settings}
 
 	// Use EffectiveConfigID for cluster-level config inheritance
 	effectiveConfigID := node.EffectiveConfigID()
@@ -125,6 +175,55 @@ func (s *agentService) Heartbeat(nodeUID, configHash string, metrics map[string]
 	}
 
 	return resp, nil
+}
+
+func (s *agentService) GetSettingsForNodeID(nodeID uint) (*AgentSettings, error) {
+	var node models.Node
+	if err := s.db.Preload("Cluster.Environment").Preload("Environment").First(&node, nodeID).Error; err != nil {
+		return nil, err
+	}
+	return s.resolveSettingsForNode(&node)
+}
+
+func (s *agentService) resolveSettingsForNode(node *models.Node) (*AgentSettings, error) {
+	if s.policySvc == nil {
+		settings := AgentSettings{}
+		return &settings, nil
+	}
+	resolved, err := s.policySvc.ResolveForNode(node)
+	if err != nil {
+		return nil, err
+	}
+	return &resolved.Settings, nil
+}
+
+func (s *agentService) upsertFluentProfile(nodeID uint, profile *AgentFluentProfileReport, reportedAt time.Time) error {
+	if profile == nil {
+		return nil
+	}
+
+	var existing models.NodeFluentProfile
+	err := s.db.Where("node_id = ?", nodeID).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		existing = models.NodeFluentProfile{NodeID: nodeID}
+		if err := s.db.Create(&existing).Error; err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+
+	updates := map[string]interface{}{
+		"loaded_plugins":         strings.TrimSpace(profile.LoadedPlugins),
+		"supports_hot_reload":    profile.SupportsHotReload,
+		"supports_multiline":     profile.SupportsMultiline,
+		"supports_storage_layer": profile.SupportsStorageLayer,
+		"supports_forward_tls":   profile.SupportsForwardTLS,
+		"supports_metrics_api":   profile.SupportsMetricsAPI,
+		"metadata":               profile.Metadata,
+		"last_reported_at":       &reportedAt,
+	}
+	return s.db.Model(&existing).Updates(updates).Error
 }
 
 func (s *agentService) storeMetrics(nodeID uint, raw map[string]interface{}) {
@@ -195,6 +294,7 @@ func (s *agentService) ReportStatus(nodeUID string, configID uint, success bool,
 		status = "failed"
 		s.db.Model(&node).Update("status", "error")
 	}
+	s.updateRuntimeStateFromDeployResult(node.ID, configID, success, message)
 
 	// Use configID to target the specific deploy record(s) for this config deployment
 	result := s.db.Model(&models.DeployRecord{}).
@@ -233,6 +333,115 @@ func (s *agentService) ReportStatus(nodeUID string, configID uint, success bool,
 		}
 	}
 	return nil
+}
+
+func (s *agentService) updateRuntimeStateFromHeartbeat(node *models.Node, configHash string, metrics map[string]interface{}, now time.Time) {
+	if node == nil {
+		return
+	}
+
+	desiredHash := ""
+	effectiveConfigID := node.EffectiveConfigID()
+	if effectiveConfigID != nil {
+		var version models.ConfigVersion
+		if err := s.db.First(&version, *effectiveConfigID).Error; err == nil {
+			desiredHash = version.Hash
+		}
+	}
+
+	state := models.NodeRuntimeState{
+		NodeID:              node.ID,
+		DesiredConfigHash:   desiredHash,
+		EffectiveConfigHash: configHash,
+		LastSyncAt:          &now,
+	}
+	if metrics != nil {
+		if v, ok := metrics["queue_depth"].(float64); ok {
+			state.QueueDepth = int(v)
+		}
+		if v, ok := metrics["retry_count"].(float64); ok {
+			state.RetryCount = int(v)
+		}
+		if v, ok := metrics["flush_latency_ms"].(float64); ok {
+			state.FlushLatencyMS = int(v)
+		}
+		if v, ok := metrics["input_status"].(string); ok {
+			state.InputStatus = v
+		}
+		if v, ok := metrics["output_status"].(string); ok {
+			state.OutputStatus = v
+		}
+	}
+
+	var existing models.NodeRuntimeState
+	err := s.db.Where("node_id = ?", node.ID).First(&existing).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			_ = s.db.Create(&state).Error
+		}
+		return
+	}
+
+	updates := map[string]interface{}{
+		"desired_config_hash":   state.DesiredConfigHash,
+		"effective_config_hash": state.EffectiveConfigHash,
+		"last_sync_at":          state.LastSyncAt,
+	}
+	if state.QueueDepth > 0 {
+		updates["queue_depth"] = state.QueueDepth
+	}
+	if state.RetryCount > 0 {
+		updates["retry_count"] = state.RetryCount
+	}
+	if state.FlushLatencyMS > 0 {
+		updates["flush_latency_ms"] = state.FlushLatencyMS
+	}
+	if state.InputStatus != "" {
+		updates["input_status"] = state.InputStatus
+	}
+	if state.OutputStatus != "" {
+		updates["output_status"] = state.OutputStatus
+	}
+	_ = s.db.Model(&existing).Updates(updates).Error
+}
+
+func (s *agentService) updateRuntimeStateFromDeployResult(nodeID, configID uint, success bool, message string) {
+	now := time.Now()
+	desiredHash := ""
+	if configID != 0 {
+		var version models.ConfigVersion
+		if err := s.db.First(&version, configID).Error; err == nil {
+			desiredHash = version.Hash
+		}
+	}
+
+	var existing models.NodeRuntimeState
+	err := s.db.Where("node_id = ?", nodeID).First(&existing).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			state := models.NodeRuntimeState{
+				NodeID:            nodeID,
+				DesiredConfigHash: desiredHash,
+				LastReloadAt:      &now,
+			}
+			if !success {
+				state.LastError = message
+			}
+			_ = s.db.Create(&state).Error
+		}
+		return
+	}
+
+	updates := map[string]interface{}{
+		"desired_config_hash": desiredHash,
+		"last_reload_at":      &now,
+	}
+	if success {
+		updates["last_error"] = ""
+	} else {
+		updates["last_error"] = message
+	}
+	_ = s.db.Model(&existing).Updates(updates).Error
 }
 
 func (s *agentService) ReportCommandResult(commandID uint, status, output string) error {

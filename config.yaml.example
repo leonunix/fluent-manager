@@ -37,9 +37,31 @@ auth:
     key_file: "/etc/fluent-manager/saml.key"
 
 agent:
-  heartbeat_interval: 30   # seconds
-  sync_interval: 60        # seconds
+  heartbeat_interval: 30    # seconds
+  sync_interval: 60         # reserved for future server-side reconciliation loops
+  metrics_interval: 60      # seconds
+  log_upload_interval: 120  # seconds
+  log_buffer_lines: 500
+  health_port: 9880
+  max_retries: 5
+  retry_base_delay: 1000    # milliseconds
   api_key: "your-agent-api-key"
+  fluent_type: ""           # optional: empty = agent auto-detects
+  fluent_config_path: ""
+  fluent_config_dir: ""
+  fluent_binary: ""
+  fluent_service_unit: ""
+  fluent_restart_cmd: ""
+  fluent_reload_cmd: ""
+  fluent_dry_run_cmd: ""
+  fluent_log_path: ""
+  fluent_metrics_url: ""
+  fluent_metrics_format: ""
+  backup_dir: ""
+  max_backups: 10
+
+fluent:
+  shared_key_secret: "use-a-dedicated-secret-in-production"  # optional, falls back to auth.jwt_secret if empty
 
 cache:
   enabled: false            # enable Redis caching for metrics aggregation

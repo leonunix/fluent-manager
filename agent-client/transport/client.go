@@ -22,6 +22,12 @@ type Client struct {
 	httpClient *http.Client
 }
 
+type RegisterResponse struct {
+	NodeID        uint                   `json:"node_id"`
+	Message       string                 `json:"message"`
+	AgentSettings *config.ServerSettings `json:"agent_settings,omitempty"`
+}
+
 func New(cfg *config.Config) *Client {
 	return &Client{
 		cfg: cfg,
@@ -32,20 +38,30 @@ func New(cfg *config.Config) *Client {
 }
 
 // Register sends the initial registration to the server.
-func (c *Client) Register(agentVersion string) error {
+func (c *Client) Register(agentVersion string) (*RegisterResponse, error) {
+	snapshot := c.cfg.Snapshot()
 	hostname, _ := os.Hostname()
-	body := map[string]string{
-		"node_uid":       c.cfg.NodeUID,
+	body := map[string]interface{}{
+		"node_uid":       snapshot.NodeUID,
 		"hostname":       hostname,
 		"ip_address":     getOutboundIP(),
 		"os":             runtime.GOOS + "/" + runtime.GOARCH,
 		"agent_version":  agentVersion,
-		"fluent_type":    c.cfg.FluentType,
-		"fluent_version": getFluentVersion(c.cfg),
-		"labels":         c.cfg.Labels,
+		"fluent_type":    snapshot.FluentType,
+		"fluent_version": getFluentVersion(snapshot),
+		"labels":         snapshot.Labels,
+		"fluent_profile": snapshot.RuntimeProfile,
 	}
-	_, err := c.APICall("POST", "/api/v1/agent/register", body)
-	return err
+	respBody, err := c.APICall("POST", "/api/v1/agent/register", body)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp RegisterResponse
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return nil, fmt.Errorf("decode register response: %w", err)
+	}
+	return &resp, nil
 }
 
 // APICall makes an HTTP request to the server with automatic retries.
@@ -56,20 +72,23 @@ func (c *Client) APICall(method, path string, body interface{}) ([]byte, error) 
 	}
 
 	var lastErr error
-	for attempt := 0; attempt <= c.cfg.MaxRetries; attempt++ {
+	snapshot := c.cfg.Snapshot()
+	for attempt := 0; attempt <= snapshot.MaxRetries; attempt++ {
 		if attempt > 0 {
-			delay := time.Duration(float64(c.cfg.RetryBaseDelay)*math.Pow(2, float64(attempt-1))) * time.Millisecond
-			log.Printf("Retry %d/%d after %v...", attempt, c.cfg.MaxRetries, delay)
+			snapshot = c.cfg.Snapshot()
+			delay := time.Duration(float64(snapshot.RetryBaseDelay)*math.Pow(2, float64(attempt-1))) * time.Millisecond
+			log.Printf("Retry %d/%d after %v...", attempt, snapshot.MaxRetries, delay)
 			time.Sleep(delay)
 		}
+		snapshot = c.cfg.Snapshot()
 
-		req, err := http.NewRequest(method, c.cfg.ServerURL+path, bytes.NewBuffer(jsonData))
+		req, err := http.NewRequest(method, snapshot.ServerURL+path, bytes.NewBuffer(jsonData))
 		if err != nil {
 			return nil, fmt.Errorf("create request: %w", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Agent-Key", c.cfg.APIKey)
-		req.Header.Set("X-Node-UID", c.cfg.NodeUID)
+		req.Header.Set("X-Agent-Key", snapshot.APIKey)
+		req.Header.Set("X-Node-UID", snapshot.NodeUID)
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
@@ -96,7 +115,8 @@ func (c *Client) APICall(method, path string, body interface{}) ([]byte, error) 
 		return respBody, nil
 	}
 
-	return nil, fmt.Errorf("all %d retries exhausted: %w", c.cfg.MaxRetries, lastErr)
+	snapshot = c.cfg.Snapshot()
+	return nil, fmt.Errorf("all %d retries exhausted: %w", snapshot.MaxRetries, lastErr)
 }
 
 // getOutboundIP tries to discover the node's primary outbound IP.
@@ -107,7 +127,7 @@ func getOutboundIP() string {
 	return ""
 }
 
-func getFluentVersion(cfg *config.Config) string {
+func getFluentVersion(cfg config.Snapshot) string {
 	out, err := runCmd(cfg.FluentBinary + " --version")
 	if err != nil {
 		return "unknown"

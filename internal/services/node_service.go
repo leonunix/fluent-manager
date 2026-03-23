@@ -38,7 +38,12 @@ func NewNodeService(db *gorm.DB) NodeService {
 }
 
 func (s *nodeService) List(filters NodeListFilters, allowedClusters []uint, page, pageSize int) ([]models.Node, int64, error) {
-	query := s.db.Preload("Cluster.Region.DataCenter").Preload("Cluster.Environment").Preload("Environment").Preload("Config.Template")
+	query := s.db.Preload("Cluster.Region.DataCenter").
+		Preload("Cluster.Environment").
+		Preload("Environment").
+		Preload("Config.Template").
+		Preload("AggregationGroup").
+		Preload("FluentProfile")
 
 	if allowedClusters != nil {
 		query = query.Where("nodes.cluster_id IN ?", allowedClusters)
@@ -79,7 +84,13 @@ func (s *nodeService) List(filters NodeListFilters, allowedClusters []uint, page
 
 func (s *nodeService) Get(id uint) (*models.Node, error) {
 	var node models.Node
-	if err := s.db.Preload("Cluster.Region.DataCenter").Preload("Cluster.Environment").Preload("Environment").Preload("Config.Template").First(&node, id).Error; err != nil {
+	if err := s.db.Preload("Cluster.Region.DataCenter").
+		Preload("Cluster.Environment").
+		Preload("Environment").
+		Preload("Config.Template").
+		Preload("AggregationGroup").
+		Preload("FluentProfile").
+		First(&node, id).Error; err != nil {
 		return nil, err
 	}
 	return &node, nil
@@ -91,7 +102,12 @@ func (s *nodeService) Update(id uint, updates map[string]interface{}) (*models.N
 		return nil, err
 	}
 	s.db.Model(&node).Updates(updates)
-	s.db.Preload("Cluster.Region.DataCenter").Preload("Environment").Preload("Config").First(&node, node.ID)
+	s.db.Preload("Cluster.Region.DataCenter").
+		Preload("Environment").
+		Preload("Config").
+		Preload("AggregationGroup").
+		Preload("FluentProfile").
+		First(&node, node.ID)
 	return &node, nil
 }
 

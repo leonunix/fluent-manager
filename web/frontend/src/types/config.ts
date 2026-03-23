@@ -24,3 +24,52 @@ export interface ConfigVersion {
   creator?: import('./auth').User
   created_at: string
 }
+
+export interface ConfigModule {
+  id: number
+  name: string
+  description: string
+  module_type: string
+  fluent_type: string
+  content: string
+  variables: string
+  is_builtin: boolean
+  versions?: ConfigModuleVersion[]
+  created_by: number
+  creator?: import('./auth').User
+  created_at: string
+  updated_at: string
+}
+
+export interface ConfigModuleVersion {
+  id: number
+  module_id: number
+  module?: ConfigModule
+  version: number
+  content: string
+  variables: string
+  hash: string
+  comment: string
+  created_by: number
+  creator?: import('./auth').User
+  created_at: string
+}
+
+export interface RenderModuleRef {
+  module_id: number
+  version_id?: number
+}
+
+export interface RenderedConfig {
+  id: number
+  name: string
+  fluent_type: string
+  runtime_version: string
+  source_modules: string
+  variables: string
+  content: string
+  hash: string
+  created_by: number
+  creator?: import('./auth').User
+  created_at: string
+}

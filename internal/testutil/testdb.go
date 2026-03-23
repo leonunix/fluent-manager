@@ -40,17 +40,29 @@ func NewTestDB() *gorm.DB {
 		&models.Region{},
 		&models.Cluster{},
 		&models.ClusterMatchRule{},
+		&models.AggregationGroup{},
 		&models.Node{},
+		&models.NodeFluentProfile{},
 		&models.NodeMetrics{},
 		&models.RemoteCommand{},
 		&models.NodeLog{},
 		&models.ConfigTemplate{},
 		&models.ConfigVersion{},
+		&models.ConfigModule{},
+		&models.ConfigModuleVersion{},
+		&models.RenderedConfig{},
+		&models.LogPipeline{},
+		&models.ConfigAnalysisResult{},
+		&models.ConfigAnalysisFinding{},
+		&models.NodeRuntimeState{},
 		&models.DeployTask{},
 		&models.DeployRecord{},
 		&models.AuditLog{},
 	); err != nil {
 		panic("failed to migrate test db: " + err.Error())
+	}
+	if err := models.MigrateSoftDeleteUniqueIndexes(db); err != nil {
+		panic("failed to migrate soft delete unique indexes: " + err.Error())
 	}
 
 	// Set global DB for scope.go functions

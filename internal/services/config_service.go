@@ -1,9 +1,68 @@
 package services
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
+	"text/template"
+
 	"github.com/fluent-manager/fluent-manager/internal/models"
 	"gorm.io/gorm"
 )
+
+var (
+	validConfigFluentTypes = map[string]bool{
+		"fluentbit": true,
+		"fluentd":   true,
+		"shared":    true,
+	}
+	validRenderedConfigTypes = map[string]bool{
+		"fluentbit": true,
+		"fluentd":   true,
+	}
+	validConfigModuleTypes = map[string]bool{
+		"service": true,
+		"input":   true,
+		"parser":  true,
+		"filter":  true,
+		"route":   true,
+		"output":  true,
+	}
+	moduleTypeOrder = map[string]int{
+		"service": 0,
+		"input":   1,
+		"parser":  2,
+		"filter":  3,
+		"route":   4,
+		"output":  5,
+	}
+)
+
+type ConfigModuleInput struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	ModuleType  string `json:"module_type"`
+	FluentType  string `json:"fluent_type"`
+	Content     string `json:"content"`
+	Variables   string `json:"variables"`
+	IsBuiltin   bool   `json:"is_builtin"`
+}
+
+type RenderModuleRef struct {
+	ModuleID  uint  `json:"module_id"`
+	VersionID *uint `json:"version_id"`
+}
+
+type RenderedConfigPreviewInput struct {
+	Name           string            `json:"name"`
+	FluentType     string            `json:"fluent_type"`
+	RuntimeVersion string            `json:"runtime_version"`
+	Modules        []RenderModuleRef `json:"modules"`
+	Variables      string            `json:"variables"`
+}
 
 type ConfigService interface {
 	ListTemplates(fluentType, search string, page, pageSize int) ([]models.ConfigTemplate, int64, error)
@@ -14,6 +73,16 @@ type ConfigService interface {
 	ListVersions(templateID uint) ([]models.ConfigVersion, error)
 	CreateVersion(templateID, createdBy uint, content, comment string) (*models.ConfigVersion, error)
 	GetVersion(versionID uint) (*models.ConfigVersion, error)
+
+	ListModules(fluentType, moduleType, search string, page, pageSize int) ([]models.ConfigModule, int64, error)
+	GetModule(id uint) (*models.ConfigModule, error)
+	CreateModule(input *ConfigModuleInput, createdBy uint) (*models.ConfigModule, error)
+	UpdateModule(id uint, input *ConfigModuleInput) (*models.ConfigModule, error)
+	DeleteModule(id uint) error
+	ListModuleVersions(moduleID uint) ([]models.ConfigModuleVersion, error)
+	CreateModuleVersion(moduleID, createdBy uint, content, variables, comment string) (*models.ConfigModuleVersion, error)
+	PreviewRenderedConfig(input *RenderedConfigPreviewInput, createdBy uint) (*models.RenderedConfig, error)
+	GetRenderedConfig(id uint) (*models.RenderedConfig, error)
 }
 
 type configService struct {
@@ -128,4 +197,314 @@ func (s *configService) GetVersion(versionID uint) (*models.ConfigVersion, error
 		return nil, err
 	}
 	return &version, nil
+}
+
+func (s *configService) ListModules(fluentType, moduleType, search string, page, pageSize int) ([]models.ConfigModule, int64, error) {
+	query := s.db.Preload("Creator")
+	if fluentType != "" {
+		query = query.Where("fluent_type = ?", fluentType)
+	}
+	if moduleType != "" {
+		query = query.Where("module_type = ?", moduleType)
+	}
+	if search != "" {
+		query = query.Where("name LIKE ? OR description LIKE ?", "%"+search+"%", "%"+search+"%")
+	}
+
+	var total int64
+	query.Model(&models.ConfigModule{}).Count(&total)
+
+	var modules []models.ConfigModule
+	err := query.Order("module_type ASC, name ASC").
+		Offset((page - 1) * pageSize).
+		Limit(pageSize).
+		Find(&modules).Error
+	return modules, total, err
+}
+
+func (s *configService) GetModule(id uint) (*models.ConfigModule, error) {
+	var module models.ConfigModule
+	if err := s.db.Preload("Creator").Preload("Versions").First(&module, id).Error; err != nil {
+		return nil, err
+	}
+	return &module, nil
+}
+
+func (s *configService) CreateModule(input *ConfigModuleInput, createdBy uint) (*models.ConfigModule, error) {
+	module, err := validateConfigModuleInput(input)
+	if err != nil {
+		return nil, err
+	}
+	module.CreatedBy = createdBy
+	if err := s.db.Create(module).Error; err != nil {
+		return nil, err
+	}
+	return module, nil
+}
+
+func (s *configService) UpdateModule(id uint, input *ConfigModuleInput) (*models.ConfigModule, error) {
+	module, err := validateConfigModuleInput(input)
+	if err != nil {
+		return nil, err
+	}
+
+	var current models.ConfigModule
+	if err := s.db.First(&current, id).Error; err != nil {
+		return nil, err
+	}
+	module.ID = current.ID
+	module.CreatedBy = current.CreatedBy
+	module.CreatedAt = current.CreatedAt
+
+	if err := s.db.Model(&current).Updates(map[string]interface{}{
+		"name":        module.Name,
+		"description": module.Description,
+		"module_type": module.ModuleType,
+		"fluent_type": module.FluentType,
+		"content":     module.Content,
+		"variables":   module.Variables,
+		"is_builtin":  module.IsBuiltin,
+	}).Error; err != nil {
+		return nil, err
+	}
+
+	return s.GetModule(id)
+}
+
+func (s *configService) DeleteModule(id uint) error {
+	var module models.ConfigModule
+	if err := s.db.First(&module, id).Error; err != nil {
+		return err
+	}
+	s.db.Where("module_id = ?", id).Delete(&models.ConfigModuleVersion{})
+	return s.db.Delete(&module).Error
+}
+
+func (s *configService) ListModuleVersions(moduleID uint) ([]models.ConfigModuleVersion, error) {
+	var versions []models.ConfigModuleVersion
+	err := s.db.Where("module_id = ?", moduleID).
+		Preload("Creator").
+		Order("version DESC").
+		Find(&versions).Error
+	return versions, err
+}
+
+func (s *configService) CreateModuleVersion(moduleID, createdBy uint, content, variables, comment string) (*models.ConfigModuleVersion, error) {
+	var module models.ConfigModule
+	if err := s.db.First(&module, moduleID).Error; err != nil {
+		return nil, err
+	}
+
+	var maxVersion int
+	s.db.Model(&models.ConfigModuleVersion{}).
+		Where("module_id = ?", moduleID).
+		Select("COALESCE(MAX(version), 0)").Scan(&maxVersion)
+
+	version := models.ConfigModuleVersion{
+		ModuleID:  moduleID,
+		Version:   maxVersion + 1,
+		Content:   content,
+		Variables: variables,
+		Hash:      models.HashConfig(content + "\n" + variables),
+		Comment:   comment,
+		CreatedBy: createdBy,
+	}
+	if err := s.db.Create(&version).Error; err != nil {
+		return nil, err
+	}
+	return &version, nil
+}
+
+func (s *configService) PreviewRenderedConfig(input *RenderedConfigPreviewInput, createdBy uint) (*models.RenderedConfig, error) {
+	if input == nil {
+		return nil, fmt.Errorf("%w: render preview payload is required", ErrInvalidArgument)
+	}
+	fluentType := strings.TrimSpace(input.FluentType)
+	if !validRenderedConfigTypes[fluentType] {
+		return nil, fmt.Errorf("%w: unsupported fluent_type %q", ErrInvalidArgument, fluentType)
+	}
+	if len(input.Modules) == 0 {
+		return nil, fmt.Errorf("%w: at least one module is required", ErrInvalidArgument)
+	}
+
+	variables, err := parseRenderVariables(input.Variables)
+	if err != nil {
+		return nil, err
+	}
+
+	type renderPart struct {
+		module  models.ConfigModule
+		version *models.ConfigModuleVersion
+		content string
+	}
+
+	parts := make([]renderPart, 0, len(input.Modules))
+	sourceRefs := make([]map[string]interface{}, 0, len(input.Modules))
+
+	for _, ref := range input.Modules {
+		module, version, content, err := s.resolveRenderModule(ref, fluentType)
+		if err != nil {
+			return nil, err
+		}
+		parts = append(parts, renderPart{
+			module:  *module,
+			version: version,
+			content: content,
+		})
+
+		sourceRef := map[string]interface{}{
+			"module_id":   module.ID,
+			"module_name": module.Name,
+			"module_type": module.ModuleType,
+		}
+		if version != nil {
+			sourceRef["version_id"] = version.ID
+			sourceRef["version"] = version.Version
+		}
+		sourceRefs = append(sourceRefs, sourceRef)
+	}
+
+	sort.SliceStable(parts, func(i, j int) bool {
+		left := moduleTypeOrder[parts[i].module.ModuleType]
+		right := moduleTypeOrder[parts[j].module.ModuleType]
+		if left != right {
+			return left < right
+		}
+		return parts[i].module.Name < parts[j].module.Name
+	})
+
+	var sections []string
+	for _, part := range parts {
+		rendered, err := renderModuleTemplate(part.content, variables)
+		if err != nil {
+			return nil, fmt.Errorf("%w: render module %q failed: %v", ErrInvalidArgument, part.module.Name, err)
+		}
+		header := fmt.Sprintf("# module:%s name:%s runtime:%s", part.module.ModuleType, part.module.Name, fluentType)
+		sections = append(sections, header+"\n"+strings.TrimSpace(rendered))
+	}
+
+	sourcePayload, _ := json.Marshal(sourceRefs)
+	content := strings.Join(sections, "\n\n")
+	rendered := &models.RenderedConfig{
+		Name:           strings.TrimSpace(input.Name),
+		FluentType:     fluentType,
+		RuntimeVersion: strings.TrimSpace(input.RuntimeVersion),
+		SourceModules:  string(sourcePayload),
+		Variables:      normalizeJSONString(input.Variables),
+		Content:        content,
+		Hash:           models.HashConfig(content),
+		CreatedBy:      createdBy,
+	}
+	if err := s.db.Create(rendered).Error; err != nil {
+		return nil, err
+	}
+	return rendered, nil
+}
+
+func (s *configService) GetRenderedConfig(id uint) (*models.RenderedConfig, error) {
+	var rendered models.RenderedConfig
+	if err := s.db.Preload("Creator").First(&rendered, id).Error; err != nil {
+		return nil, err
+	}
+	return &rendered, nil
+}
+
+func (s *configService) resolveRenderModule(ref RenderModuleRef, fluentType string) (*models.ConfigModule, *models.ConfigModuleVersion, string, error) {
+	var module models.ConfigModule
+	if err := s.db.First(&module, ref.ModuleID).Error; err != nil {
+		return nil, nil, "", err
+	}
+	if module.FluentType != "shared" && module.FluentType != fluentType {
+		return nil, nil, "", fmt.Errorf("%w: module %q is for %s, not %s", ErrInvalidArgument, module.Name, module.FluentType, fluentType)
+	}
+
+	content := module.Content
+	var version *models.ConfigModuleVersion
+	if ref.VersionID != nil {
+		var explicit models.ConfigModuleVersion
+		if err := s.db.Where("module_id = ?", module.ID).First(&explicit, *ref.VersionID).Error; err != nil {
+			return nil, nil, "", err
+		}
+		version = &explicit
+		content = explicit.Content
+	}
+
+	return &module, version, content, nil
+}
+
+func validateConfigModuleInput(input *ConfigModuleInput) (*models.ConfigModule, error) {
+	if input == nil {
+		return nil, fmt.Errorf("%w: module payload is required", ErrInvalidArgument)
+	}
+
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrInvalidArgument)
+	}
+	moduleType := strings.TrimSpace(input.ModuleType)
+	if !validConfigModuleTypes[moduleType] {
+		return nil, fmt.Errorf("%w: unsupported module_type %q", ErrInvalidArgument, moduleType)
+	}
+	fluentType := strings.TrimSpace(input.FluentType)
+	if !validConfigFluentTypes[fluentType] {
+		return nil, fmt.Errorf("%w: unsupported fluent_type %q", ErrInvalidArgument, fluentType)
+	}
+	content := strings.TrimSpace(input.Content)
+	if content == "" {
+		return nil, fmt.Errorf("%w: content is required", ErrInvalidArgument)
+	}
+	if _, err := parseRenderVariables(input.Variables); err != nil {
+		return nil, err
+	}
+
+	return &models.ConfigModule{
+		Name:        name,
+		Description: strings.TrimSpace(input.Description),
+		ModuleType:  moduleType,
+		FluentType:  fluentType,
+		Content:     content,
+		Variables:   normalizeJSONString(input.Variables),
+		IsBuiltin:   input.IsBuiltin,
+	}, nil
+}
+
+func parseRenderVariables(raw string) (map[string]interface{}, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return map[string]interface{}{}, nil
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return nil, fmt.Errorf("%w: variables must be a JSON object", ErrInvalidArgument)
+	}
+	if parsed == nil {
+		return map[string]interface{}{}, nil
+	}
+	return parsed, nil
+}
+
+func normalizeJSONString(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "{}"
+	}
+	return raw
+}
+
+func renderModuleTemplate(content string, variables map[string]interface{}) (string, error) {
+	tpl, err := template.New("module").Option("missingkey=error").Parse(content)
+	if err != nil {
+		return "", err
+	}
+
+	var buf bytes.Buffer
+	if err := tpl.Execute(&buf, variables); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+func isConfigValidationError(err error) bool {
+	return errors.Is(err, ErrInvalidArgument)
 }

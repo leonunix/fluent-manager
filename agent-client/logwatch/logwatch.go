@@ -22,10 +22,11 @@ type Watcher struct {
 }
 
 func New(cfg *config.Config, client *transport.Client) *Watcher {
+	snapshot := cfg.Snapshot()
 	return &Watcher{
 		cfg:    cfg,
 		client: client,
-		buffer: make([]string, 0, cfg.LogBufferLines),
+		buffer: make([]string, 0, snapshot.LogBufferLines),
 		stopCh: make(chan struct{}),
 	}
 }
@@ -60,7 +61,8 @@ func (w *Watcher) tailLoop() {
 }
 
 func (w *Watcher) tailFile() error {
-	f, err := os.Open(w.cfg.FluentLogPath)
+	path := w.cfg.Snapshot().FluentLogPath
+	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
@@ -94,7 +96,12 @@ func (w *Watcher) tailFile() error {
 			}
 
 			// Check if file was rotated
-			newInfo, err := os.Stat(w.cfg.FluentLogPath)
+			currentPath := w.cfg.Snapshot().FluentLogPath
+			if currentPath != path {
+				log.Printf("[logwatch] log path changed from %s to %s, reopening", path, currentPath)
+				return nil
+			}
+			newInfo, err := os.Stat(path)
 			if err != nil {
 				return err
 			}
@@ -116,19 +123,24 @@ func (w *Watcher) appendLine(line string) {
 
 	w.buffer = append(w.buffer, line)
 	// Keep buffer bounded
-	if len(w.buffer) > w.cfg.LogBufferLines {
-		w.buffer = w.buffer[len(w.buffer)-w.cfg.LogBufferLines:]
+	maxLines := w.cfg.Snapshot().LogBufferLines
+	if maxLines <= 0 {
+		maxLines = 500
+	}
+	if len(w.buffer) > maxLines {
+		w.buffer = w.buffer[len(w.buffer)-maxLines:]
 	}
 }
 
 // uploadLoop periodically sends buffered log lines to the server.
 func (w *Watcher) uploadLoop() {
-	ticker := time.NewTicker(time.Duration(w.cfg.LogUploadInterval) * time.Second)
-	defer ticker.Stop()
-
 	for {
+		wait := time.Duration(w.cfg.Snapshot().LogUploadInterval) * time.Second
+		if wait <= 0 {
+			wait = 120 * time.Second
+		}
 		select {
-		case <-ticker.C:
+		case <-time.After(wait):
 			w.upload()
 		case <-w.stopCh:
 			return
@@ -147,8 +159,9 @@ func (w *Watcher) upload() {
 	w.buffer = w.buffer[:0]
 	w.mu.Unlock()
 
+	snapshot := w.cfg.Snapshot()
 	body := map[string]interface{}{
-		"node_uid": w.cfg.NodeUID,
+		"node_uid": snapshot.NodeUID,
 		"lines":    lines,
 	}
 	if _, err := w.client.APICall("POST", "/api/v1/agent/logs", body); err != nil {

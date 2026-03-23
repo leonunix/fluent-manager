@@ -1,9 +1,9 @@
 <template>
   <div>
     <div class="d-flex justify-content-between align-items-center mb-4">
-      <h4 class="mb-0">角色权限管理</h4>
+      <h4 class="mb-0">{{ t('roles_page.title') }}</h4>
       <button class="btn btn-primary" @click="openCreate">
-        <i class="bi bi-plus-lg me-1"></i>新建角色
+        <i class="bi bi-plus-lg me-1"></i>{{ t('roles_page.create') }}
       </button>
     </div>
 
@@ -38,20 +38,20 @@
       <div class="modal-dialog modal-lg">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">{{ form.id ? '编辑' : '新建' }}角色</h5>
+            <h5 class="modal-title">{{ form.id ? t('roles_page.edit_title') : t('roles_page.create_title') }}</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body">
             <div class="mb-3">
-              <label class="form-label">名称</label>
+              <label class="form-label">{{ t('common.name') }}</label>
               <input v-model="form.name" type="text" class="form-control" required>
             </div>
             <div class="mb-3">
-              <label class="form-label">描述</label>
+              <label class="form-label">{{ t('common.description') }}</label>
               <input v-model="form.description" type="text" class="form-control">
             </div>
             <div class="mb-3">
-              <label class="form-label">权限</label>
+              <label class="form-label">{{ t('roles_page.permissions') }}</label>
               <div class="row">
                 <div v-for="resource in permResources" :key="resource" class="col-md-4 mb-2">
                   <h6 class="text-capitalize">{{ resource }}</h6>
@@ -64,8 +64,8 @@
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-            <button type="button" class="btn btn-primary" @click="save">保存</button>
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('cancel') }}</button>
+            <button type="button" class="btn btn-primary" @click="save">{{ t('save') }}</button>
           </div>
         </div>
       </div>
@@ -76,11 +76,13 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { getRoles, createRole, updateRole, deleteRole, getPermissions } from '../api'
+import { useI18n } from '../i18n'
 
 const roles = ref([])
 const allPermissions = ref([])
 const form = reactive({ id: null, name: '', description: '', permission_ids: [] })
 let modal = null
+const { t } = useI18n()
 
 const permResources = computed(() => [...new Set(allPermissions.value.map(p => p.resource))])
 function permsByResource(r) { return allPermissions.value.filter(p => p.resource === r) }
@@ -119,7 +121,7 @@ async function save() {
 }
 
 async function handleDelete(role) {
-  if (confirm(`确认删除角色 ${role.name}?`)) {
+  if (confirm(t('roles_page.confirm_delete').replace('{name}', role.name))) {
     await deleteRole(role.id)
     loadRoles()
   }

@@ -35,7 +35,7 @@ func (e *Executor) CurrentConfigHash() string {
 	return fmt.Sprintf("%x", h)
 }
 
-// Apply writes a new config, validates it, restarts the service, and rolls back on failure.
+// Apply writes a new config, validates it, reloads or restarts the service, and rolls back on failure.
 // Returns (success, message).
 func (e *Executor) Apply(content string, configID uint) (bool, string) {
 	e.mu.Lock()
@@ -43,19 +43,16 @@ func (e *Executor) Apply(content string, configID uint) (bool, string) {
 
 	log.Printf("[executor] applying config (id=%d, size=%d bytes)", configID, len(content))
 
-	// Step 1: Create timestamped backup
 	backupPath, err := e.backup()
 	if err != nil {
 		log.Printf("[executor] backup warning: %v", err)
-		// Non-fatal, continue
 	}
 
-	// Step 2: Write new config
-	if err := os.WriteFile(e.cfg.FluentConfigPath, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(e.cfg.FluentConfigPath, []byte(content), 0o644); err != nil {
 		return false, fmt.Sprintf("write config failed: %v", err)
 	}
+	e.refreshRuntimeProfile()
 
-	// Step 3: Validate (dry-run) before restarting
 	if e.cfg.FluentDryRunCmd != "" {
 		if err := e.validate(); err != nil {
 			log.Printf("[executor] validation failed, rolling back: %v", err)
@@ -65,29 +62,31 @@ func (e *Executor) Apply(content string, configID uint) (bool, string) {
 		log.Printf("[executor] config validation passed")
 	}
 
-	// Step 4: Restart service
-	output, err := e.runShell(e.cfg.FluentRestartCmd)
+	action, output, err := e.reloadOrRestart()
 	if err != nil {
-		log.Printf("[executor] restart failed, rolling back: %v", err)
+		log.Printf("[executor] %s failed, rolling back: %v", action, err)
 		e.rollback(backupPath)
-		return false, fmt.Sprintf("restart failed: %v\noutput: %s", err, output)
+		return false, fmt.Sprintf("%s failed: %v\noutput: %s", action, err, output)
 	}
 
-	// Step 5: Brief health check — wait and verify process is running
 	time.Sleep(3 * time.Second)
 	if !e.isFluentRunning() {
-		log.Printf("[executor] fluent process not running after restart, rolling back")
+		log.Printf("[executor] fluent process not running after %s, rolling back", action)
 		e.rollback(backupPath)
-		return false, "fluent process died after restart, rolled back"
+		return false, fmt.Sprintf("fluent process died after %s, rolled back", action)
 	}
 
-	log.Printf("[executor] config applied successfully")
+	e.refreshRuntimeProfile()
 	e.pruneBackups()
-	return true, "config applied and service restarted successfully"
+	log.Printf("[executor] config applied successfully via %s", action)
+	return true, fmt.Sprintf("config applied successfully via %s", action)
 }
 
 // validate runs the dry-run command to check config syntax.
 func (e *Executor) validate() error {
+	if strings.TrimSpace(e.cfg.FluentDryRunCmd) == "" {
+		return nil
+	}
 	output, err := e.runShell(e.cfg.FluentDryRunCmd)
 	if err != nil {
 		return fmt.Errorf("%s\n%s", err, output)
@@ -102,12 +101,12 @@ func (e *Executor) backup() (string, error) {
 		return "", fmt.Errorf("read current config: %w", err)
 	}
 
-	_ = os.MkdirAll(e.cfg.BackupDir, 0755)
+	_ = os.MkdirAll(e.cfg.BackupDir, 0o755)
 	ts := time.Now().Format("20060102-150405")
 	name := fmt.Sprintf("config-%s.bak", ts)
 	backupPath := filepath.Join(e.cfg.BackupDir, name)
 
-	if err := os.WriteFile(backupPath, data, 0644); err != nil {
+	if err := os.WriteFile(backupPath, data, 0o644); err != nil {
 		return "", fmt.Errorf("write backup: %w", err)
 	}
 	log.Printf("[executor] backed up to %s", backupPath)
@@ -117,7 +116,6 @@ func (e *Executor) backup() (string, error) {
 // rollback restores config from backup and restarts.
 func (e *Executor) rollback(backupPath string) {
 	if backupPath == "" {
-		// Try to find the most recent backup
 		backupPath = e.latestBackup()
 		if backupPath == "" {
 			log.Printf("[executor] no backup found for rollback")
@@ -131,16 +129,20 @@ func (e *Executor) rollback(backupPath string) {
 		return
 	}
 
-	if err := os.WriteFile(e.cfg.FluentConfigPath, data, 0644); err != nil {
+	if err := os.WriteFile(e.cfg.FluentConfigPath, data, 0o644); err != nil {
 		log.Printf("[executor] rollback write failed: %v", err)
 		return
 	}
+	e.refreshRuntimeProfile()
 
-	if output, err := e.runShell(e.cfg.FluentRestartCmd); err != nil {
-		log.Printf("[executor] rollback restart failed: %v, output: %s", err, output)
-	} else {
-		log.Printf("[executor] rollback complete, reverted to %s", backupPath)
+	action, output, err := e.restartOnly()
+	if err != nil {
+		log.Printf("[executor] rollback %s failed: %v, output: %s", action, err, output)
+		return
 	}
+
+	e.refreshRuntimeProfile()
+	log.Printf("[executor] rollback complete, reverted to %s via %s", backupPath, action)
 }
 
 // latestBackup returns the path to the most recent backup file.
@@ -150,7 +152,7 @@ func (e *Executor) latestBackup() string {
 		return ""
 	}
 	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Name() > entries[j].Name() // descending
+		return entries[i].Name() > entries[j].Name()
 	})
 	return filepath.Join(e.cfg.BackupDir, entries[0].Name())
 }
@@ -165,7 +167,6 @@ func (e *Executor) pruneBackups() {
 		return
 	}
 
-	// Sort ascending by name (which contains timestamp)
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].Name() < entries[j].Name()
 	})
@@ -185,50 +186,70 @@ func (e *Executor) RunCommand(action, args string) (string, error) {
 
 	switch action {
 	case "restart":
-		return e.runShell(e.cfg.FluentRestartCmd)
-
+		_, output, err := e.restartOnly()
+		return output, err
 	case "reload":
-		if e.cfg.FluentReloadCmd != "" {
-			return e.runShell(e.cfg.FluentReloadCmd)
-		}
-		return e.runShell(e.cfg.FluentRestartCmd)
-
+		e.refreshRuntimeProfile()
+		_, output, err := e.reloadOrRestart()
+		e.refreshRuntimeProfile()
+		return output, err
 	case "stop":
-		return e.runShell("systemctl stop " + e.serviceUnit())
-
+		return e.runShell(e.systemctlCommand("stop"))
 	case "start":
-		return e.runShell("systemctl start " + e.serviceUnit())
-
+		return e.runShell(e.systemctlCommand("start"))
 	case "status":
-		return e.runShell("systemctl status " + e.serviceUnit())
-
+		return e.runShell(e.systemctlCommand("status"))
 	case "validate":
 		if err := e.validate(); err != nil {
 			return "", err
 		}
 		return "config is valid", nil
-
 	case "rollback":
 		e.rollback("")
 		return "rolled back to latest backup", nil
-
 	case "show_config":
 		data, err := os.ReadFile(e.cfg.FluentConfigPath)
 		if err != nil {
 			return "", err
 		}
 		return string(data), nil
-
 	default:
 		return "", fmt.Errorf("unknown command: %s", action)
 	}
 }
 
-func (e *Executor) serviceUnit() string {
-	if e.cfg.FluentType == "fluentbit" {
-		return "fluent-bit"
+func (e *Executor) reloadOrRestart() (string, string, error) {
+	if e.cfg.RuntimeProfile.SupportsHotReload && strings.TrimSpace(e.cfg.FluentReloadCmd) != "" {
+		output, err := e.runShell(e.cfg.FluentReloadCmd)
+		if err == nil {
+			return "reload", output, nil
+		}
+		log.Printf("[executor] reload failed, falling back to restart: %v", err)
 	}
-	return "fluentd"
+	return e.restartOnly()
+}
+
+func (e *Executor) restartOnly() (string, string, error) {
+	output, err := e.runShell(e.cfg.FluentRestartCmd)
+	return "restart", output, err
+}
+
+func (e *Executor) systemctlCommand(action string) string {
+	unit := e.serviceUnit()
+	if unit == "" {
+		return ""
+	}
+	return fmt.Sprintf("systemctl %s %s", action, unit)
+}
+
+func (e *Executor) serviceUnit() string {
+	if unit := strings.TrimSpace(e.cfg.FluentServiceUnit); unit != "" {
+		return unit
+	}
+	if e.cfg.FluentType == "fluentd" {
+		return "fluentd"
+	}
+	return "fluent-bit"
 }
 
 func (e *Executor) isFluentRunning() bool {
@@ -240,12 +261,19 @@ func (e *Executor) isFluentRunning() bool {
 	return err == nil
 }
 
+func (e *Executor) refreshRuntimeProfile() {
+	if err := e.cfg.RefreshRuntimeProfile(); err != nil {
+		log.Printf("[executor] refresh runtime profile warning: %v", err)
+	}
+}
+
 func (e *Executor) runShell(cmdStr string) (string, error) {
-	parts := strings.Fields(cmdStr)
-	if len(parts) == 0 {
+	cmdStr = strings.TrimSpace(cmdStr)
+	if cmdStr == "" {
 		return "", fmt.Errorf("empty command")
 	}
-	cmd := exec.Command(parts[0], parts[1:]...)
+
+	cmd := exec.Command("sh", "-lc", cmdStr)
 	output, err := cmd.CombinedOutput()
 	return strings.TrimSpace(string(output)), err
 }

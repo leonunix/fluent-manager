@@ -7,8 +7,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	agentcfg "github.com/fluent-manager/fluent-manager-agent/config"
 	"github.com/fluent-manager/fluent-manager-agent/collector"
+	agentcfg "github.com/fluent-manager/fluent-manager-agent/config"
 	"github.com/fluent-manager/fluent-manager-agent/executor"
 	"github.com/fluent-manager/fluent-manager-agent/health"
 	"github.com/fluent-manager/fluent-manager-agent/logwatch"
@@ -18,7 +18,10 @@ import (
 const Version = "2.0.0"
 
 func main() {
-	cfgPath := flag.String("config", "/etc/fluent-manager/agent.yaml", "agent config path")
+	cfgPath := flag.String("config", "/etc/fluent-manager/agent.yaml", "optional agent config path")
+	serverURL := flag.String("server-url", "", "Fluent Manager server URL")
+	apiKey := flag.String("api-key", "", "agent API key")
+	nodeUID := flag.String("node-uid", "", "optional stable node UID override")
 	showVersion := flag.Bool("version", false, "show agent version")
 	flag.Parse()
 
@@ -27,7 +30,11 @@ func main() {
 		os.Exit(0)
 	}
 
-	cfg, err := agentcfg.Load(*cfgPath)
+	cfg, err := agentcfg.Load(*cfgPath, agentcfg.Bootstrap{
+		ServerURL: *serverURL,
+		APIKey:    *apiKey,
+		NodeUID:   *nodeUID,
+	})
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
@@ -36,10 +43,16 @@ func main() {
 	client := transport.New(cfg)
 
 	// --- Register with server ---
-	if err := client.Register(Version); err != nil {
+	registerResp, err := client.Register(Version)
+	if err != nil {
 		log.Fatalf("Failed to register with server: %v", err)
 	}
-	log.Printf("Registered as node %s", cfg.NodeUID)
+	if registerResp != nil && registerResp.AgentSettings != nil {
+		if err := cfg.ApplyServerSettings(registerResp.AgentSettings); err != nil {
+			log.Fatalf("Failed to apply server-delivered agent settings: %v", err)
+		}
+	}
+	log.Printf("Registered as node %s", cfg.Snapshot().NodeUID)
 
 	// --- Metrics Collector: CPU/mem/disk/fluent process ---
 	mc := collector.New(cfg)
@@ -56,15 +69,17 @@ func main() {
 
 	// --- Local Health API ---
 	healthSrv := health.New(cfg, mc)
-	go healthSrv.Start()
+	healthSrv.Start()
+	defer healthSrv.Stop()
 
 	// --- Main heartbeat loop ---
 	hb := transport.NewHeartbeat(cfg, client, mc, exec)
 	hb.Start()
 	defer hb.Stop()
 
+	snapshot := cfg.Snapshot()
 	log.Printf("Agent fully started (heartbeat=%ds, metrics=%ds, health=:%d)",
-		cfg.HeartbeatInterval, cfg.MetricsInterval, cfg.HealthPort)
+		snapshot.HeartbeatInterval, snapshot.MetricsInterval, snapshot.HealthPort)
 
 	// Wait for shutdown signal
 	stopCh := make(chan os.Signal, 1)

@@ -1,9 +1,9 @@
 <template>
   <div>
     <div class="d-flex justify-content-between align-items-center mb-4">
-      <h4 class="mb-0">环境管理</h4>
+      <h4 class="mb-0">{{ t('environments_page.title') }}</h4>
       <button class="btn btn-primary" @click="openCreate">
-        <i class="bi bi-plus-lg me-1"></i>新建环境
+        <i class="bi bi-plus-lg me-1"></i>{{ t('environments_page.create') }}
       </button>
     </div>
 
@@ -14,13 +14,13 @@
             <table class="table table-hover mb-0">
               <thead>
                 <tr>
-                  <th>颜色</th>
-                  <th>标识</th>
-                  <th>别名</th>
-                  <th>排序</th>
-                  <th>描述</th>
-                  <th>关联集群</th>
-                  <th>操作</th>
+                  <th>{{ t('environments_page.color') }}</th>
+                  <th>{{ t('environments_page.identifier') }}</th>
+                  <th>{{ t('common.alias') }}</th>
+                  <th>{{ t('environments_page.sort_order') }}</th>
+                  <th>{{ t('common.description') }}</th>
+                  <th>{{ t('environments_page.related_clusters') }}</th>
+                  <th>{{ t('actions') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -33,7 +33,7 @@
                   <td>{{ env.sort_order }}</td>
                   <td class="text-muted small">{{ env.description || '-' }}</td>
                   <td>
-                    <span class="badge bg-secondary">{{ clusterCountByEnv[env.id] || 0 }} 集群</span>
+                    <span class="badge bg-secondary">{{ t('environments_page.cluster_count').replace('{count}', clusterCountByEnv[env.id] || 0) }}</span>
                   </td>
                   <td>
                     <button class="btn btn-sm btn-outline-primary me-1" @click="openEdit(env)"><i class="bi bi-pencil"></i></button>
@@ -41,7 +41,7 @@
                   </td>
                 </tr>
                 <tr v-if="!envs.length">
-                  <td colspan="7" class="text-center text-muted py-3">暂无环境</td>
+                  <td colspan="7" class="text-center text-muted py-3">{{ t('environments_page.no_envs') }}</td>
                 </tr>
               </tbody>
             </table>
@@ -51,15 +51,15 @@
 
       <div class="col-md-4">
         <div class="card border-0 shadow-sm">
-          <div class="card-header bg-white"><h6 class="mb-0">环境说明</h6></div>
+          <div class="card-header bg-white"><h6 class="mb-0">{{ t('environments_page.guide_title') }}</h6></div>
           <div class="card-body small text-muted">
-            <p>环境用于区分基础设施的用途阶段。每个集群可以关联一个环境，节点继承所在集群的环境。</p>
-            <p class="mb-1"><strong>典型环境：</strong></p>
+            <p>{{ t('environments_page.guide_intro') }}</p>
+            <p class="mb-1"><strong>{{ t('environments_page.typical_env') }}</strong></p>
             <ul class="mb-0">
-              <li><span class="badge" style="background-color:#dc3545">生产环境</span> - 线上正式服务</li>
-              <li><span class="badge" style="background-color:#ffc107;color:#333">预发布环境</span> - 发布前验证</li>
-              <li><span class="badge" style="background-color:#17a2b8">开发环境</span> - 日常开发调试</li>
-              <li><span class="badge" style="background-color:#6c757d">测试环境</span> - QA 测试</li>
+              <li><span class="badge" style="background-color:#dc3545">{{ t('environments_page.production') }}</span> - {{ t('environments_page.production_desc') }}</li>
+              <li><span class="badge" style="background-color:#ffc107;color:#333">{{ t('environments_page.preprod') }}</span> - {{ t('environments_page.preprod_desc') }}</li>
+              <li><span class="badge" style="background-color:#17a2b8">{{ t('environments_page.development') }}</span> - {{ t('environments_page.development_desc') }}</li>
+              <li><span class="badge" style="background-color:#6c757d">{{ t('environments_page.testing') }}</span> - {{ t('environments_page.testing_desc') }}</li>
             </ul>
           </div>
         </div>
@@ -71,38 +71,38 @@
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">{{ form.id ? '编辑' : '新建' }}环境</h5>
+            <h5 class="modal-title">{{ form.id ? t('environments_page.edit_title') : t('environments_page.create_title') }}</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body">
             <div class="mb-3">
-              <label class="form-label">标识名称 <small class="text-muted">(英文，唯一)</small></label>
-              <input v-model="form.name" type="text" class="form-control" placeholder="例: production" required>
+              <label class="form-label">{{ t('environments_page.identifier_help') }} <small class="text-muted">(English, unique)</small></label>
+              <input v-model="form.name" type="text" class="form-control" :placeholder="t('environments_page.example_production')" required>
             </div>
             <div class="mb-3">
-              <label class="form-label">显示别名</label>
-              <input v-model="form.alias" type="text" class="form-control" placeholder="例: 生产环境">
+              <label class="form-label">{{ t('environments_page.alias_help') }}</label>
+              <input v-model="form.alias" type="text" class="form-control" :placeholder="t('environments_page.example_alias')">
             </div>
             <div class="mb-3">
-              <label class="form-label">标识颜色</label>
+              <label class="form-label">{{ t('environments_page.color_label') }}</label>
               <div class="d-flex align-items-center gap-2">
                 <input v-model="form.color" type="color" class="form-control form-control-color">
                 <input v-model="form.color" type="text" class="form-control" style="width:120px" placeholder="#dc3545">
-                <span class="badge" :style="{ backgroundColor: form.color }">{{ form.alias || form.name || '预览' }}</span>
+                <span class="badge" :style="{ backgroundColor: form.color }">{{ form.alias || form.name || t('environments_page.preview') }}</span>
               </div>
             </div>
             <div class="mb-3">
-              <label class="form-label">排序 <small class="text-muted">(数字越小越靠前)</small></label>
+              <label class="form-label">{{ t('environments_page.sort_help') }}</label>
               <input v-model.number="form.sort_order" type="number" class="form-control" min="0">
             </div>
             <div class="mb-3">
-              <label class="form-label">描述</label>
+              <label class="form-label">{{ t('common.description') }}</label>
               <input v-model="form.description" type="text" class="form-control">
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-            <button type="button" class="btn btn-primary" @click="save">保存</button>
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('cancel') }}</button>
+            <button type="button" class="btn btn-primary" @click="save">{{ t('save') }}</button>
           </div>
         </div>
       </div>
@@ -113,11 +113,13 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { getEnvironments, createEnvironment, updateEnvironment, deleteEnvironment, getClusters } from '../api'
+import { useI18n } from '../i18n'
 
 const envs = ref([])
 const clusterCountByEnv = ref({})
 const form = reactive({ id: null, name: '', alias: '', color: '#0d6efd', sort_order: 0, description: '' })
 let modal = null
+const { t } = useI18n()
 
 function getModal() {
   if (!modal) modal = new window.bootstrap.Modal(document.getElementById('envModal'))
@@ -159,10 +161,12 @@ async function save() {
 
 async function handleDelete(env) {
   if (clusterCountByEnv.value[env.id]) {
-    alert(`${env.alias || env.name} 下还有 ${clusterCountByEnv.value[env.id]} 个集群，请先解绑`)
+    alert(t('environments_page.unbind_first')
+      .replace('{name}', env.alias || env.name)
+      .replace('{count}', clusterCountByEnv.value[env.id]))
     return
   }
-  if (confirm(`确认删除环境 ${env.alias || env.name}?`)) {
+  if (confirm(t('environments_page.confirm_delete').replace('{name}', env.alias || env.name))) {
     await deleteEnvironment(env.id)
     loadData()
   }

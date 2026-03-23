@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/fluent-manager/fluent-manager/internal/services"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type AgentHandler struct {
@@ -16,14 +18,15 @@ type AgentHandler struct {
 // --- Register ---
 
 type RegisterRequest struct {
-	NodeUID       string `json:"node_uid" binding:"required"`
-	Hostname      string `json:"hostname" binding:"required"`
-	IPAddress     string `json:"ip_address"`
-	OS            string `json:"os"`
-	AgentVersion  string `json:"agent_version"`
-	FluentType    string `json:"fluent_type"`
-	FluentVersion string `json:"fluent_version"`
-	Labels        string `json:"labels"`
+	NodeUID       string                             `json:"node_uid" binding:"required"`
+	Hostname      string                             `json:"hostname" binding:"required"`
+	IPAddress     string                             `json:"ip_address"`
+	OS            string                             `json:"os"`
+	AgentVersion  string                             `json:"agent_version"`
+	FluentType    string                             `json:"fluent_type"`
+	FluentVersion string                             `json:"fluent_version"`
+	Labels        string                             `json:"labels"`
+	FluentProfile *services.AgentFluentProfileReport `json:"fluent_profile"`
 }
 
 func (h *AgentHandler) Register(c *gin.Context) {
@@ -33,23 +36,30 @@ func (h *AgentHandler) Register(c *gin.Context) {
 		return
 	}
 
-	nodeID, err := h.Svc.Register(req.NodeUID, req.Hostname, req.IPAddress, req.OS, req.AgentVersion, req.FluentType, req.FluentVersion, req.Labels)
+	nodeID, err := h.Svc.Register(req.NodeUID, req.Hostname, req.IPAddress, req.OS, req.AgentVersion, req.FluentType, req.FluentVersion, req.Labels, req.FluentProfile)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	settings, err := h.Svc.GetSettingsForNodeID(nodeID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"node_id": nodeID,
-		"message": "registered",
+		"node_id":        nodeID,
+		"message":        "registered",
+		"agent_settings": settings,
 	})
 }
 
 // --- Heartbeat ---
 
 type HeartbeatRequest struct {
-	NodeUID    string                 `json:"node_uid" binding:"required"`
-	ConfigHash string                `json:"config_hash"`
-	Metrics    map[string]interface{} `json:"metrics"`
+	NodeUID       string                             `json:"node_uid" binding:"required"`
+	ConfigHash    string                             `json:"config_hash"`
+	Metrics       map[string]interface{}             `json:"metrics"`
+	FluentProfile *services.AgentFluentProfileReport `json:"fluent_profile"`
 }
 
 func (h *AgentHandler) Heartbeat(c *gin.Context) {
@@ -59,9 +69,13 @@ func (h *AgentHandler) Heartbeat(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.Svc.Heartbeat(req.NodeUID, req.ConfigHash, req.Metrics)
+	resp, err := h.Svc.Heartbeat(req.NodeUID, req.ConfigHash, req.Metrics, req.FluentProfile)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "node not registered"})
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "node not registered"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -73,6 +87,9 @@ func (h *AgentHandler) Heartbeat(c *gin.Context) {
 	}
 	if resp.Commands != nil {
 		result["commands"] = resp.Commands
+	}
+	if resp.AgentSettings != nil {
+		result["agent_settings"] = resp.AgentSettings
 	}
 	c.JSON(http.StatusOK, result)
 }
@@ -144,7 +161,10 @@ func (h *AgentHandler) UploadLogs(c *gin.Context) {
 // --- Get Node Metrics (for UI) ---
 
 func (h *AgentHandler) GetNodeMetrics(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
 
 	// Scope check
 	node, err := h.NodeSvc.Get(uint(id))
@@ -156,7 +176,7 @@ func (h *AgentHandler) GetNodeMetrics(c *gin.Context) {
 		return
 	}
 
-	m, err := h.Svc.GetNodeMetrics(c.Param("id"))
+	m, err := h.Svc.GetNodeMetrics(strconv.FormatUint(uint64(id), 10))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "no metrics for this node"})
 		return
@@ -167,7 +187,10 @@ func (h *AgentHandler) GetNodeMetrics(c *gin.Context) {
 // --- Get Node Logs (for UI) ---
 
 func (h *AgentHandler) GetNodeLogs(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
 
 	// Scope check
 	node, err := h.NodeSvc.Get(uint(id))
@@ -179,7 +202,7 @@ func (h *AgentHandler) GetNodeLogs(c *gin.Context) {
 		return
 	}
 
-	logs, err := h.Svc.GetNodeLogs(c.Param("id"))
+	logs, err := h.Svc.GetNodeLogs(strconv.FormatUint(uint64(id), 10))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -218,7 +241,10 @@ func (h *AgentHandler) SendCommand(c *gin.Context) {
 		return
 	}
 
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
 
 	// Scope check
 	node, err := h.NodeSvc.Get(uint(id))
@@ -231,7 +257,7 @@ func (h *AgentHandler) SendCommand(c *gin.Context) {
 	}
 
 	userID := c.GetUint("user_id")
-	cmd, err := h.Svc.SendCommand(c.Param("id"), userID, req.Action, req.Args)
+	cmd, err := h.Svc.SendCommand(strconv.FormatUint(uint64(id), 10), userID, req.Action, req.Args)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
 		return
@@ -242,7 +268,10 @@ func (h *AgentHandler) SendCommand(c *gin.Context) {
 // --- List Commands for a Node ---
 
 func (h *AgentHandler) ListNodeCommands(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
 
 	// Scope check
 	node, err := h.NodeSvc.Get(uint(id))
@@ -254,7 +283,7 @@ func (h *AgentHandler) ListNodeCommands(c *gin.Context) {
 		return
 	}
 
-	cmds, err := h.Svc.ListNodeCommands(c.Param("id"))
+	cmds, err := h.Svc.ListNodeCommands(strconv.FormatUint(uint64(id), 10))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

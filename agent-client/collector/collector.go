@@ -2,10 +2,14 @@ package collector
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -15,6 +19,8 @@ import (
 
 	"github.com/fluent-manager/fluent-manager-agent/config"
 )
+
+var prometheusMetricLine = regexp.MustCompile(`^([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{[^}]*\})?\s+([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)$`)
 
 // Metrics holds a snapshot of system and fluent process metrics.
 type Metrics struct {
@@ -38,21 +44,32 @@ type Metrics struct {
 	FluentMemMB      float64 `json:"fluent_mem_mb"`
 	FluentOpenFDs    int     `json:"fluent_open_fds"`
 
+	// Runtime signals
+	QueueDepth     int    `json:"queue_depth"`
+	RetryCount     int    `json:"retry_count"`
+	FlushLatencyMS int    `json:"flush_latency_ms"`
+	InputStatus    string `json:"input_status"`
+	OutputStatus   string `json:"output_status"`
+
 	// Metadata
 	CollectedAt time.Time `json:"collected_at"`
 }
 
 // Collector periodically collects system and fluent metrics.
 type Collector struct {
-	cfg    *config.Config
-	mu     sync.RWMutex
-	latest Metrics
-	stopCh chan struct{}
+	cfg        *config.Config
+	httpClient *http.Client
+	mu         sync.RWMutex
+	latest     Metrics
+	stopCh     chan struct{}
 }
 
 func New(cfg *config.Config) *Collector {
 	return &Collector{
-		cfg:    cfg,
+		cfg: cfg,
+		httpClient: &http.Client{
+			Timeout: 3 * time.Second,
+		},
 		stopCh: make(chan struct{}),
 	}
 }
@@ -62,11 +79,13 @@ func (c *Collector) Start() {
 	c.collect()
 
 	go func() {
-		ticker := time.NewTicker(time.Duration(c.cfg.MetricsInterval) * time.Second)
-		defer ticker.Stop()
 		for {
+			wait := time.Duration(c.cfg.Snapshot().MetricsInterval) * time.Second
+			if wait <= 0 {
+				wait = 60 * time.Second
+			}
 			select {
-			case <-ticker.C:
+			case <-time.After(wait):
 				c.collect()
 			case <-c.stopCh:
 				return
@@ -87,16 +106,20 @@ func (c *Collector) Snapshot() Metrics {
 }
 
 func (c *Collector) collect() {
+	cfg := c.cfg.Snapshot()
 	m := Metrics{
-		CollectedAt: time.Now(),
-		NumCPUs:     runtime.NumCPU(),
+		CollectedAt:  time.Now(),
+		NumCPUs:      runtime.NumCPU(),
+		InputStatus:  "unknown",
+		OutputStatus: "unknown",
 	}
 
 	c.collectCPU(&m)
 	c.collectMemory(&m)
 	c.collectDisk(&m)
 	c.collectLoadAvg(&m)
-	c.collectFluentProcess(&m)
+	c.collectFluentProcess(cfg, &m)
+	c.collectRuntimeSignals(cfg, &m)
 
 	c.mu.Lock()
 	c.latest = m
@@ -131,7 +154,7 @@ func (c *Collector) collectCPU(m *Metrics) {
 			total += v
 		}
 		if len(values) >= 4 {
-			idle = values[3] // idle is the 4th field
+			idle = values[3]
 		}
 		return
 	}
@@ -211,17 +234,15 @@ func (c *Collector) collectLoadAvg(m *Metrics) {
 }
 
 // collectFluentProcess finds the fluent process and reads its resource usage.
-func (c *Collector) collectFluentProcess(m *Metrics) {
-	// Find PID via pgrep
+func (c *Collector) collectFluentProcess(cfg config.Snapshot, m *Metrics) {
 	procName := "fluent-bit"
-	if c.cfg.FluentType == "fluentd" {
+	if cfg.FluentType == "fluentd" {
 		procName = "fluentd"
 	}
 
 	out, err := exec.Command("pgrep", "-x", procName).Output()
 	if err != nil {
-		// Also try with the full binary name
-		out, err = exec.Command("pgrep", "-f", c.cfg.FluentBinary).Output()
+		out, err = exec.Command("pgrep", "-f", cfg.FluentBinary).Output()
 		if err != nil {
 			m.FluentRunning = false
 			return
@@ -238,13 +259,282 @@ func (c *Collector) collectFluentProcess(m *Metrics) {
 	m.FluentPID, _ = strconv.Atoi(pids[0])
 
 	if m.FluentPID > 0 && runtime.GOOS == "linux" {
-		// Read /proc/PID/stat for CPU
 		c.readProcStat(m.FluentPID, m)
-		// Read /proc/PID/status for memory
 		c.readProcStatus(m.FluentPID, m)
-		// Count open file descriptors
 		c.countFDs(m.FluentPID, m)
 	}
+}
+
+func (c *Collector) collectRuntimeSignals(cfg config.Snapshot, m *Metrics) {
+	if !m.FluentRunning {
+		m.InputStatus = "unhealthy"
+		m.OutputStatus = "unhealthy"
+		return
+	}
+
+	m.InputStatus = "healthy"
+	m.OutputStatus = "healthy"
+
+	if !cfg.RuntimeProfile.SupportsMetricsAPI || strings.TrimSpace(cfg.FluentMetricsURL) == "" {
+		return
+	}
+
+	payload, err := c.fetchRuntimeMetrics(cfg)
+	if err != nil {
+		log.Printf("[collector] runtime metrics scrape failed: %v", err)
+		return
+	}
+
+	switch normalizeMetricsFormat(cfg.FluentMetricsFormat, cfg.FluentType) {
+	case "fluentd_monitor_agent":
+		c.populateFromFluentdMonitorAgent(payload, m)
+	default:
+		c.populateFromPrometheus(payload, m)
+	}
+}
+
+func (c *Collector) fetchRuntimeMetrics(cfg config.Snapshot) ([]byte, error) {
+	resp, err := c.httpClient.Get(cfg.FluentMetricsURL)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= http.StatusBadRequest {
+		return nil, fmt.Errorf("metrics endpoint returned %d", resp.StatusCode)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+func (c *Collector) populateFromPrometheus(payload []byte, m *Metrics) {
+	sums := map[string]float64{}
+	scanner := bufio.NewScanner(strings.NewReader(string(payload)))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		match := prometheusMetricLine.FindStringSubmatch(line)
+		if len(match) != 3 {
+			continue
+		}
+		value, err := strconv.ParseFloat(match[2], 64)
+		if err != nil {
+			continue
+		}
+		sums[match[1]] += value
+	}
+
+	m.QueueDepth = int(firstMetricValue(sums,
+		"fluentbit_storage_backlog_chunks",
+		"fluentbit_output_queue_chunks",
+		"fluentbit_output_queue_records",
+		"fluentbit_output_queue_bytes",
+	))
+	m.RetryCount = int(firstMetricValue(sums,
+		"fluentbit_output_retries_total",
+		"fluentbit_output_retried_records_total",
+		"fluentbit_output_retries",
+	))
+
+	latencyMS := firstMetricValue(sums,
+		"fluentbit_output_latency_ms",
+		"fluentbit_output_proc_latency_ms",
+	)
+	if latencyMS == 0 {
+		latencySeconds := firstMetricValue(sums,
+			"fluentbit_output_latency_seconds",
+			"fluentbit_output_proc_latency_seconds",
+		)
+		latencyMS = latencySeconds * 1000
+	}
+	m.FlushLatencyMS = int(latencyMS)
+
+	inputHardErrors := metricSum(sums,
+		"fluentbit_input_errors_total",
+		"fluentbit_input_dropped_records_total",
+	)
+	outputHardErrors := metricSum(sums,
+		"fluentbit_output_errors_total",
+		"fluentbit_output_retries_failed_total",
+		"fluentbit_output_dropped_records_total",
+	)
+
+	m.InputStatus = deriveStatus(m.FluentRunning, inputHardErrors, 0, 0)
+	m.OutputStatus = deriveStatus(m.FluentRunning, outputHardErrors, float64(m.RetryCount), float64(m.QueueDepth))
+}
+
+func (c *Collector) populateFromFluentdMonitorAgent(payload []byte, m *Metrics) {
+	plugins, err := decodeMonitorAgentPlugins(payload)
+	if err != nil {
+		log.Printf("[collector] fluentd monitor_agent decode failed: %v", err)
+		return
+	}
+
+	var (
+		totalQueue    float64
+		totalRetries  float64
+		totalFlushMS  float64
+		inputErrors   float64
+		outputErrors  float64
+		outputSignals float64
+	)
+
+	for _, plugin := range plugins {
+		category := strings.ToLower(stringField(plugin, "plugin_category"))
+		if category == "" {
+			category = strings.ToLower(stringField(plugin, "type"))
+		}
+		queueLen := numberField(plugin, "buffer_queue_length")
+		retries := numberField(plugin, "retry_count")
+		errors := numberField(plugin, "num_errors")
+		slowFlushes := numberField(plugin, "slow_flush_count")
+		flushTimeCount := numberField(plugin, "flush_time_count")
+
+		totalQueue += queueLen
+		totalRetries += retries
+		totalFlushMS += slowFlushes*1000 + flushTimeCount*1000
+
+		if category == "input" || strings.EqualFold(stringField(plugin, "plugin_type"), "input") {
+			inputErrors += errors
+			continue
+		}
+
+		if category == "output" || boolField(plugin, "output_plugin") {
+			outputErrors += errors
+			outputSignals += queueLen + retries
+		}
+	}
+
+	m.QueueDepth = int(totalQueue)
+	m.RetryCount = int(totalRetries)
+	m.FlushLatencyMS = int(totalFlushMS)
+	m.InputStatus = deriveStatus(m.FluentRunning, inputErrors, 0, 0)
+	m.OutputStatus = deriveStatus(m.FluentRunning, outputErrors, totalRetries, outputSignals)
+}
+
+func decodeMonitorAgentPlugins(payload []byte) ([]map[string]interface{}, error) {
+	var list []map[string]interface{}
+	if err := json.Unmarshal(payload, &list); err == nil {
+		return list, nil
+	}
+
+	var wrapped struct {
+		Plugins []map[string]interface{} `json:"plugins"`
+	}
+	if err := json.Unmarshal(payload, &wrapped); err != nil {
+		return nil, err
+	}
+	return wrapped.Plugins, nil
+}
+
+func normalizeMetricsFormat(format, runtimeType string) string {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "", "prometheus":
+		if runtimeType == "fluentd" {
+			return "fluentd_monitor_agent"
+		}
+		return "prometheus"
+	case "fluentd", "monitor_agent", "fluentd_monitor_agent":
+		return "fluentd_monitor_agent"
+	default:
+		return strings.ToLower(strings.TrimSpace(format))
+	}
+}
+
+func metricSum(sums map[string]float64, names ...string) float64 {
+	var total float64
+	for _, name := range names {
+		total += sums[name]
+	}
+	return total
+}
+
+func firstMetricValue(sums map[string]float64, names ...string) float64 {
+	for _, name := range names {
+		if value := sums[name]; value > 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func deriveStatus(running bool, hardErrors, retries, queue float64) string {
+	if !running {
+		return "unhealthy"
+	}
+	if hardErrors > 0 {
+		return "degraded"
+	}
+	if retries > 0 || queue > 0 {
+		return "degraded"
+	}
+	return "healthy"
+}
+
+func stringField(values map[string]interface{}, key string) string {
+	raw, ok := values[key]
+	if !ok || raw == nil {
+		return ""
+	}
+	if str, ok := raw.(string); ok {
+		return str
+	}
+	return fmt.Sprintf("%v", raw)
+}
+
+func numberField(values map[string]interface{}, key string) float64 {
+	raw, ok := values[key]
+	if !ok || raw == nil {
+		return 0
+	}
+
+	switch value := raw.(type) {
+	case float64:
+		return value
+	case float32:
+		return float64(value)
+	case int:
+		return float64(value)
+	case int32:
+		return float64(value)
+	case int64:
+		return float64(value)
+	case uint:
+		return float64(value)
+	case uint32:
+		return float64(value)
+	case uint64:
+		return float64(value)
+	case json.Number:
+		parsed, _ := value.Float64()
+		return parsed
+	case string:
+		parsed, _ := strconv.ParseFloat(strings.TrimSpace(value), 64)
+		return parsed
+	default:
+		return 0
+	}
+}
+
+func boolField(values map[string]interface{}, key string) bool {
+	raw, ok := values[key]
+	if !ok || raw == nil {
+		return false
+	}
+	if value, ok := raw.(bool); ok {
+		return value
+	}
+	if value, ok := raw.(string); ok {
+		parsed, _ := strconv.ParseBool(strings.TrimSpace(value))
+		return parsed
+	}
+	return false
 }
 
 func (c *Collector) readProcStat(pid int, m *Metrics) {
@@ -253,7 +543,6 @@ func (c *Collector) readProcStat(pid int, m *Metrics) {
 	if err != nil {
 		return
 	}
-	// Fields after the last ")" are space-separated; fields 14 and 15 are utime and stime
 	closeParen := strings.LastIndex(string(data), ")")
 	if closeParen < 0 {
 		return
@@ -266,7 +555,6 @@ func (c *Collector) readProcStat(pid int, m *Metrics) {
 	stime, _ := strconv.ParseFloat(fields[12], 64)
 	total := utime + stime
 
-	// Read uptime to calculate CPU percent
 	uptimeData, err := os.ReadFile("/proc/uptime")
 	if err != nil {
 		return
@@ -277,10 +565,8 @@ func (c *Collector) readProcStat(pid int, m *Metrics) {
 	}
 	systemUptime, _ := strconv.ParseFloat(uptimeFields[0], 64)
 
-	// starttime is field 19 (index 19 from the post-) section)
 	if len(fields) > 19 {
 		starttime, _ := strconv.ParseFloat(fields[19], 64)
-		// All times are in clock ticks (usually 100 per second)
 		hertz := 100.0
 		elapsed := systemUptime - (starttime / hertz)
 		if elapsed > 0 {

@@ -37,5 +37,4 @@ FROM alpine:3.20 AS runtime-agent
 RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
 COPY --from=agent /app/fluent-manager-agent .
-COPY agent.yaml.example agent.yaml
-CMD ["./fluent-manager-agent", "-config", "agent.yaml"]
+ENTRYPOINT ["./fluent-manager-agent"]

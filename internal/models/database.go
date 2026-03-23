@@ -45,20 +45,66 @@ func InitDB(cfg *config.DatabaseConfig) error {
 		&Region{},
 		&Cluster{},
 		&ClusterMatchRule{},
+		&AggregationGroup{},
 		&Node{},
+		&NodeFluentProfile{},
+		&AgentPolicy{},
 		&NodeMetrics{},
 		&RemoteCommand{},
 		&NodeLog{},
 		&ConfigTemplate{},
 		&ConfigVersion{},
+		&ConfigModule{},
+		&ConfigModuleVersion{},
+		&RenderedConfig{},
+		&LogPipeline{},
+		&ConfigAnalysisResult{},
+		&ConfigAnalysisFinding{},
+		&NodeRuntimeState{},
 		&DeployTask{},
 		&DeployRecord{},
 		&AuditLog{},
 	); err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)
 	}
+	if err := MigrateSoftDeleteUniqueIndexes(DB); err != nil {
+		return fmt.Errorf("failed to migrate soft delete unique indexes: %w", err)
+	}
 
 	seedDefaults()
+	return nil
+}
+
+func MigrateSoftDeleteUniqueIndexes(db *gorm.DB) error {
+	indexes := []struct {
+		model  interface{}
+		legacy string
+		target string
+	}{
+		{
+			model:  &AggregationGroup{},
+			legacy: "idx_aggregation_groups_name",
+			target: "idx_aggregation_group_name_active",
+		},
+		{
+			model:  &LogPipeline{},
+			legacy: "idx_log_pipelines_name",
+			target: "idx_log_pipeline_name_active",
+		},
+	}
+
+	for _, item := range indexes {
+		if db.Migrator().HasIndex(item.model, item.legacy) {
+			if err := db.Migrator().DropIndex(item.model, item.legacy); err != nil {
+				return err
+			}
+		}
+		if !db.Migrator().HasIndex(item.model, item.target) {
+			if err := db.Migrator().CreateIndex(item.model, item.target); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 

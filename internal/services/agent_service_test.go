@@ -11,7 +11,16 @@ import (
 func setupAgentTest(t *testing.T) (*gorm.DB, AgentService) {
 	t.Helper()
 	db := testutil.NewTestDB()
-	svc := NewAgentService(db)
+	policySvc := NewAgentPolicyService(db, AgentSettings{})
+	svc := NewAgentService(db, policySvc)
+	return db, svc
+}
+
+func setupAgentTestWithSettings(t *testing.T, settings AgentSettings) (*gorm.DB, AgentService) {
+	t.Helper()
+	db := testutil.NewTestDB()
+	policySvc := NewAgentPolicyService(db, settings)
+	svc := NewAgentService(db, policySvc)
 	return db, svc
 }
 
@@ -26,7 +35,7 @@ func TestRegister_NewNode(t *testing.T) {
 	c := models.Cluster{Name: "default", RegionID: r.ID, IsDefault: true}
 	db.Create(&c)
 
-	nodeID, err := svc.Register("uid-001", "web-01", "10.0.0.1", "linux", "1.0.0", "fluentbit", "2.0.0", `{"env":"prod"}`)
+	nodeID, err := svc.Register("uid-001", "web-01", "10.0.0.1", "linux", "1.0.0", "fluentbit", "2.0.0", `{"env":"prod"}`, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -49,7 +58,7 @@ func TestRegister_ExistingNode(t *testing.T) {
 
 	db.Create(&models.Node{NodeUID: "uid-001", Hostname: "old-host", Status: "offline"})
 
-	nodeID, err := svc.Register("uid-001", "new-host", "10.0.0.2", "linux", "2.0.0", "fluentbit", "3.0.0", "")
+	nodeID, err := svc.Register("uid-001", "new-host", "10.0.0.2", "linux", "2.0.0", "fluentbit", "3.0.0", "", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -58,6 +67,70 @@ func TestRegister_ExistingNode(t *testing.T) {
 	db.First(&node, nodeID)
 	if node.Hostname != "new-host" || node.Status != "online" {
 		t.Errorf("existing node not updated: hostname=%s status=%s", node.Hostname, node.Status)
+	}
+}
+
+func TestRegister_PersistsFluentProfile(t *testing.T) {
+	db, svc := setupAgentTest(t)
+
+	dc := models.DataCenter{Name: "dc-profile"}
+	db.Create(&dc)
+	r := models.Region{Name: "r-profile", DataCenterID: dc.ID}
+	db.Create(&r)
+	c := models.Cluster{Name: "default-profile", RegionID: r.ID, IsDefault: true}
+	db.Create(&c)
+
+	profile := &AgentFluentProfileReport{
+		LoadedPlugins:        "forward,tls",
+		SupportsHotReload:    true,
+		SupportsMultiline:    true,
+		SupportsStorageLayer: true,
+		SupportsForwardTLS:   true,
+		SupportsMetricsAPI:   true,
+		Metadata:             `{"runtime_type":"fluentbit"}`,
+	}
+
+	nodeID, err := svc.Register("uid-profile", "profile-node", "10.0.0.10", "linux", "1.0.0", "fluentbit", "3.0.0", "", profile)
+	if err != nil {
+		t.Fatalf("register with profile: %v", err)
+	}
+
+	var stored models.NodeFluentProfile
+	if err := db.Where("node_id = ?", nodeID).First(&stored).Error; err != nil {
+		t.Fatalf("load fluent profile: %v", err)
+	}
+	if stored.LoadedPlugins != "forward,tls" {
+		t.Fatalf("expected loaded plugins to be persisted, got %q", stored.LoadedPlugins)
+	}
+	if !stored.SupportsMetricsAPI || !stored.SupportsForwardTLS {
+		t.Fatalf("expected profile capabilities to be persisted: %#v", stored)
+	}
+	if stored.LastReportedAt == nil {
+		t.Fatal("expected profile report timestamp to be set")
+	}
+}
+
+func TestGetSettingsForNodeReturnsConfiguredPolicy(t *testing.T) {
+	db, svc := setupAgentTestWithSettings(t, AgentSettings{
+		HeartbeatInterval: 45,
+		MetricsInterval:   90,
+		FluentType:        "fluentd",
+		FluentConfigPath:  "/etc/fluent/fluentd.conf",
+	})
+
+	node := models.Node{NodeUID: "uid-settings", Hostname: "settings-node"}
+	if err := db.Create(&node).Error; err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	settings, err := svc.GetSettingsForNodeID(node.ID)
+	if err != nil {
+		t.Fatalf("get settings: %v", err)
+	}
+	if settings.HeartbeatInterval != 45 || settings.MetricsInterval != 90 {
+		t.Fatalf("unexpected interval settings: %#v", settings)
+	}
+	if settings.FluentType != "fluentd" || settings.FluentConfigPath != "/etc/fluent/fluentd.conf" {
+		t.Fatalf("unexpected fluent settings: %#v", settings)
 	}
 }
 
@@ -79,7 +152,7 @@ func TestRegister_AutoAssignByMatchRule(t *testing.T) {
 		IsActive:        true,
 	})
 
-	nodeID, _ := svc.Register("uid-002", "web-01", "10.0.0.1", "linux", "1.0.0", "fluentbit", "2.0.0", "")
+	nodeID, _ := svc.Register("uid-002", "web-01", "10.0.0.1", "linux", "1.0.0", "fluentbit", "2.0.0", "", nil)
 
 	var node models.Node
 	db.First(&node, nodeID)
@@ -94,7 +167,7 @@ func TestHeartbeat_UpdatesStatus(t *testing.T) {
 	node := models.Node{NodeUID: "uid-001", Hostname: "h1", Status: "offline"}
 	db.Create(&node)
 
-	resp, err := svc.Heartbeat("uid-001", "", nil)
+	resp, err := svc.Heartbeat("uid-001", "", nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -121,7 +194,7 @@ func TestHeartbeat_ConfigUpdate(t *testing.T) {
 	node := models.Node{NodeUID: "uid-001", Hostname: "h1", ConfigID: &cv.ID}
 	db.Create(&node)
 
-	resp, _ := svc.Heartbeat("uid-001", "old-hash", nil)
+	resp, _ := svc.Heartbeat("uid-001", "old-hash", nil, nil)
 	if resp.Status != "update_config" {
 		t.Errorf("expected update_config, got %s", resp.Status)
 	}
@@ -143,7 +216,7 @@ func TestHeartbeat_ConfigUpToDate(t *testing.T) {
 	node := models.Node{NodeUID: "uid-001", Hostname: "h1", ConfigID: &cv.ID}
 	db.Create(&node)
 
-	resp, _ := svc.Heartbeat("uid-001", models.HashConfig(content), nil)
+	resp, _ := svc.Heartbeat("uid-001", models.HashConfig(content), nil, nil)
 	if resp.Status != "ok" {
 		t.Errorf("expected ok (config up to date), got %s", resp.Status)
 	}
@@ -168,7 +241,7 @@ func TestHeartbeat_ClusterConfigInheritance(t *testing.T) {
 	node := models.Node{NodeUID: "uid-001", Hostname: "h1", ClusterID: &cluster.ID}
 	db.Create(&node)
 
-	resp, _ := svc.Heartbeat("uid-001", "old-hash", nil)
+	resp, _ := svc.Heartbeat("uid-001", "old-hash", nil, nil)
 	if resp.Status != "update_config" {
 		t.Errorf("expected update_config from cluster inheritance, got %s", resp.Status)
 	}
@@ -183,7 +256,7 @@ func TestHeartbeat_PendingCommands(t *testing.T) {
 	db.Create(&models.RemoteCommand{NodeID: node.ID, Action: "restart", Status: "pending"})
 	db.Create(&models.RemoteCommand{NodeID: node.ID, Action: "status", Status: "pending"})
 
-	resp, _ := svc.Heartbeat("uid-001", "", nil)
+	resp, _ := svc.Heartbeat("uid-001", "", nil, nil)
 	if len(resp.Commands) != 2 {
 		t.Fatalf("expected 2 pending commands, got %d", len(resp.Commands))
 	}
@@ -212,7 +285,7 @@ func TestHeartbeat_StoresMetrics(t *testing.T) {
 	}
 
 	// Test storeMetrics directly via Heartbeat
-	_, err := svc.Heartbeat("uid-001", "", metrics)
+	_, err := svc.Heartbeat("uid-001", "", metrics, nil)
 	if err != nil {
 		t.Fatalf("heartbeat error: %v", err)
 	}
@@ -229,6 +302,132 @@ func TestHeartbeat_StoresMetrics(t *testing.T) {
 	}
 	if !fluentVal {
 		t.Error("expected fluent_running = true")
+	}
+}
+
+func TestHeartbeat_UpdatesRuntimeStateHashes(t *testing.T) {
+	db, svc := setupAgentTest(t)
+
+	cv := models.ConfigVersion{
+		TemplateID: 0,
+		Version:    1,
+		Content:    "desired config",
+		Hash:       "desired-hash",
+	}
+	db.Create(&cv)
+
+	dc := models.DataCenter{Name: "dc-hash"}
+	db.Create(&dc)
+	region := models.Region{Name: "region-hash", DataCenterID: dc.ID}
+	db.Create(&region)
+	cluster := models.Cluster{Name: "cluster-hash", RegionID: region.ID, ConfigID: &cv.ID}
+	db.Create(&cluster)
+
+	node := models.Node{NodeUID: "uid-runtime", Hostname: "runtime-node", ClusterID: &cluster.ID}
+	db.Create(&node)
+
+	_, err := svc.Heartbeat("uid-runtime", "effective-hash", map[string]interface{}{
+		"queue_depth":      float64(25),
+		"retry_count":      float64(3),
+		"flush_latency_ms": float64(120),
+		"input_status":     "healthy",
+		"output_status":    "healthy",
+	}, nil)
+	if err != nil {
+		t.Fatalf("heartbeat error: %v", err)
+	}
+
+	var state models.NodeRuntimeState
+	if err := db.Where("node_id = ?", node.ID).First(&state).Error; err != nil {
+		t.Fatalf("load runtime state: %v", err)
+	}
+	if state.DesiredConfigHash != "desired-hash" {
+		t.Fatalf("expected desired hash desired-hash, got %s", state.DesiredConfigHash)
+	}
+	if state.EffectiveConfigHash != "effective-hash" {
+		t.Fatalf("expected effective hash effective-hash, got %s", state.EffectiveConfigHash)
+	}
+	if state.QueueDepth != 25 || state.RetryCount != 3 || state.FlushLatencyMS != 120 {
+		t.Fatalf("unexpected runtime metrics: %#v", state)
+	}
+	if state.LastSyncAt == nil {
+		t.Fatal("expected last sync timestamp to be set")
+	}
+}
+
+func TestHeartbeat_UpdatesFluentProfile(t *testing.T) {
+	db, svc := setupAgentTest(t)
+
+	node := models.Node{NodeUID: "uid-heartbeat-profile", Hostname: "profile-heartbeat"}
+	db.Create(&node)
+
+	initial := models.NodeFluentProfile{
+		NodeID:             node.ID,
+		LoadedPlugins:      "old",
+		SupportsHotReload:  false,
+		SupportsMetricsAPI: false,
+	}
+	if err := db.Create(&initial).Error; err != nil {
+		t.Fatalf("create initial profile: %v", err)
+	}
+
+	profile := &AgentFluentProfileReport{
+		LoadedPlugins:        "tail,forward",
+		SupportsHotReload:    true,
+		SupportsMultiline:    true,
+		SupportsStorageLayer: true,
+		SupportsForwardTLS:   true,
+		SupportsMetricsAPI:   true,
+		Metadata:             `{"runtime_type":"fluentd"}`,
+	}
+	if _, err := svc.Heartbeat("uid-heartbeat-profile", "hash-1", map[string]interface{}{
+		"queue_depth":   float64(2),
+		"input_status":  "healthy",
+		"output_status": "degraded",
+	}, profile); err != nil {
+		t.Fatalf("heartbeat with profile: %v", err)
+	}
+
+	var stored models.NodeFluentProfile
+	if err := db.Where("node_id = ?", node.ID).First(&stored).Error; err != nil {
+		t.Fatalf("load updated profile: %v", err)
+	}
+	if stored.LoadedPlugins != "tail,forward" {
+		t.Fatalf("expected loaded plugins to update, got %q", stored.LoadedPlugins)
+	}
+	if !stored.SupportsHotReload || !stored.SupportsMetricsAPI {
+		t.Fatalf("expected updated fluent profile capabilities, got %#v", stored)
+	}
+	if stored.Metadata != `{"runtime_type":"fluentd"}` {
+		t.Fatalf("expected metadata to update, got %q", stored.Metadata)
+	}
+	if stored.LastReportedAt == nil {
+		t.Fatal("expected heartbeat profile timestamp to be set")
+	}
+}
+
+func TestHeartbeat_IncludesAgentSettings(t *testing.T) {
+	db, svc := setupAgentTestWithSettings(t, AgentSettings{
+		HeartbeatInterval: 15,
+		LogUploadInterval: 180,
+		FluentLogPath:     "/var/log/custom.log",
+	})
+
+	node := models.Node{NodeUID: "uid-heartbeat-settings", Hostname: "settings-node"}
+	db.Create(&node)
+
+	resp, err := svc.Heartbeat("uid-heartbeat-settings", "", nil, nil)
+	if err != nil {
+		t.Fatalf("heartbeat error: %v", err)
+	}
+	if resp.AgentSettings == nil {
+		t.Fatal("expected heartbeat to include agent settings")
+	}
+	if resp.AgentSettings.HeartbeatInterval != 15 || resp.AgentSettings.LogUploadInterval != 180 {
+		t.Fatalf("unexpected heartbeat settings: %#v", resp.AgentSettings)
+	}
+	if resp.AgentSettings.FluentLogPath != "/var/log/custom.log" {
+		t.Fatalf("expected fluent log path in settings, got %#v", resp.AgentSettings)
 	}
 }
 
@@ -249,6 +448,49 @@ func TestReportCommandResult(t *testing.T) {
 	db.First(&updated, cmd.ID)
 	if updated.Status != "completed" || updated.Output != "service restarted" {
 		t.Error("command result not stored correctly")
+	}
+}
+
+func TestReportStatusUpdatesRuntimeState(t *testing.T) {
+	db, svc := setupAgentTest(t)
+
+	version := models.ConfigVersion{
+		TemplateID: 0,
+		Version:    1,
+		Content:    "deploy config",
+		Hash:       "deploy-hash",
+	}
+	db.Create(&version)
+
+	node := models.Node{NodeUID: "uid-report", Hostname: "report-node", Status: "online"}
+	db.Create(&node)
+
+	if err := svc.ReportStatus("uid-report", version.ID, false, "syntax error"); err != nil {
+		t.Fatalf("report status failure path: %v", err)
+	}
+
+	var state models.NodeRuntimeState
+	if err := db.Where("node_id = ?", node.ID).First(&state).Error; err != nil {
+		t.Fatalf("load runtime state after failure: %v", err)
+	}
+	if state.DesiredConfigHash != "deploy-hash" {
+		t.Fatalf("expected desired hash deploy-hash, got %s", state.DesiredConfigHash)
+	}
+	if state.LastError != "syntax error" {
+		t.Fatalf("expected last error syntax error, got %s", state.LastError)
+	}
+	if state.LastReloadAt == nil {
+		t.Fatal("expected last reload time to be set after failure")
+	}
+
+	if err := svc.ReportStatus("uid-report", version.ID, true, "ok"); err != nil {
+		t.Fatalf("report status success path: %v", err)
+	}
+	if err := db.Where("node_id = ?", node.ID).First(&state).Error; err != nil {
+		t.Fatalf("reload runtime state after success: %v", err)
+	}
+	if state.LastError != "" {
+		t.Fatalf("expected last error to be cleared after success, got %s", state.LastError)
 	}
 }
 

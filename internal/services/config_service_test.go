@@ -1,6 +1,8 @@
 package services
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/fluent-manager/fluent-manager/internal/models"
@@ -183,5 +185,145 @@ func TestCreateVersion_HashConsistency(t *testing.T) {
 	}
 	if v1.Hash == v3.Hash {
 		t.Error("different content should produce different hash")
+	}
+}
+
+func TestCreateModuleAndListModules(t *testing.T) {
+	_, svc := setupConfigTest(t)
+
+	module, err := svc.CreateModule(&ConfigModuleInput{
+		Name:       "tail-input",
+		ModuleType: "input",
+		FluentType: "fluentbit",
+		Content:    "[INPUT]\n  Name tail",
+		Variables:  `{"path":"/var/log/*.log"}`,
+	}, 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if module.Name != "tail-input" || module.ModuleType != "input" {
+		t.Fatalf("module not created correctly: %+v", module)
+	}
+
+	modules, total, err := svc.ListModules("fluentbit", "input", "", 1, 10)
+	if err != nil {
+		t.Fatalf("list modules: %v", err)
+	}
+	if total != 1 || len(modules) != 1 {
+		t.Fatalf("expected 1 module, got total=%d len=%d", total, len(modules))
+	}
+}
+
+func TestCreateModuleRejectsInvalidVariables(t *testing.T) {
+	_, svc := setupConfigTest(t)
+
+	_, err := svc.CreateModule(&ConfigModuleInput{
+		Name:       "bad-module",
+		ModuleType: "filter",
+		FluentType: "shared",
+		Content:    "<filter **>",
+		Variables:  `not-json`,
+	}, 1)
+	if !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("expected ErrInvalidArgument, got %v", err)
+	}
+}
+
+func TestCreateModuleVersion(t *testing.T) {
+	_, svc := setupConfigTest(t)
+
+	module, err := svc.CreateModule(&ConfigModuleInput{
+		Name:       "shared-parser",
+		ModuleType: "parser",
+		FluentType: "shared",
+		Content:    "<parse>@type json</parse>",
+	}, 1)
+	if err != nil {
+		t.Fatalf("create module: %v", err)
+	}
+
+	v1, err := svc.CreateModuleVersion(module.ID, 1, "<parse>@type json</parse>", `{"keep_time_key":true}`, "initial")
+	if err != nil {
+		t.Fatalf("create module version: %v", err)
+	}
+	v2, err := svc.CreateModuleVersion(module.ID, 1, "<parse>@type regexp</parse>", `{"expression":"^foo$"}`, "regexp")
+	if err != nil {
+		t.Fatalf("create module version 2: %v", err)
+	}
+	if v1.Version != 1 || v2.Version != 2 {
+		t.Fatalf("expected versions 1 and 2, got %d and %d", v1.Version, v2.Version)
+	}
+}
+
+func TestPreviewRenderedConfig(t *testing.T) {
+	_, svc := setupConfigTest(t)
+
+	inputModule, err := svc.CreateModule(&ConfigModuleInput{
+		Name:       "tail-input",
+		ModuleType: "input",
+		FluentType: "fluentbit",
+		Content:    "[INPUT]\n  Name tail\n  Path {{.path}}",
+	}, 1)
+	if err != nil {
+		t.Fatalf("create input module: %v", err)
+	}
+
+	outputModule, err := svc.CreateModule(&ConfigModuleInput{
+		Name:       "stdout-output",
+		ModuleType: "output",
+		FluentType: "shared",
+		Content:    "[OUTPUT]\n  Name stdout\n  Match {{.match}}",
+	}, 1)
+	if err != nil {
+		t.Fatalf("create output module: %v", err)
+	}
+
+	rendered, err := svc.PreviewRenderedConfig(&RenderedConfigPreviewInput{
+		Name:       "preview-1",
+		FluentType: "fluentbit",
+		Modules: []RenderModuleRef{
+			{ModuleID: outputModule.ID},
+			{ModuleID: inputModule.ID},
+		},
+		Variables: `{"path":"/var/log/app.log","match":"*"}`,
+	}, 1)
+	if err != nil {
+		t.Fatalf("preview render: %v", err)
+	}
+	if rendered.Hash == "" {
+		t.Fatal("expected rendered config hash")
+	}
+	if !strings.Contains(rendered.Content, "Path /var/log/app.log") {
+		t.Fatalf("expected rendered input content, got %s", rendered.Content)
+	}
+	if !strings.Contains(rendered.Content, "Match *") {
+		t.Fatalf("expected rendered output content, got %s", rendered.Content)
+	}
+	if strings.Index(rendered.Content, "module:input") > strings.Index(rendered.Content, "module:output") {
+		t.Fatalf("expected input module to render before output module, got %s", rendered.Content)
+	}
+}
+
+func TestPreviewRenderedConfigRejectsRuntimeMismatch(t *testing.T) {
+	_, svc := setupConfigTest(t)
+
+	module, err := svc.CreateModule(&ConfigModuleInput{
+		Name:       "fd-service",
+		ModuleType: "service",
+		FluentType: "fluentd",
+		Content:    "<system></system>",
+	}, 1)
+	if err != nil {
+		t.Fatalf("create module: %v", err)
+	}
+
+	_, err = svc.PreviewRenderedConfig(&RenderedConfigPreviewInput{
+		FluentType: "fluentbit",
+		Modules: []RenderModuleRef{
+			{ModuleID: module.ID},
+		},
+	}, 1)
+	if !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("expected ErrInvalidArgument, got %v", err)
 	}
 }

@@ -1,21 +1,21 @@
 <template>
   <div>
     <div class="d-flex justify-content-between align-items-center mb-4">
-      <h4 class="mb-0">节点管理</h4>
+      <h4 class="mb-0">{{ t('nodes_page.title') }}</h4>
       <div class="d-flex gap-2">
-        <input v-model="search" type="text" class="form-control" placeholder="搜索主机名/IP..." style="width: 200px;" @input="loadNodes">
+        <input v-model="search" type="text" class="form-control" :placeholder="t('nodes_page.search_placeholder')" style="width: 200px;" @input="loadNodes">
         <select v-model="statusFilter" class="form-select" style="width: 110px;" @change="loadNodes">
-          <option value="">全部状态</option>
-          <option value="online">在线</option>
-          <option value="offline">离线</option>
-          <option value="error">异常</option>
+          <option value="">{{ t('common.all_status') }}</option>
+          <option value="online">{{ t('nodes_page.online') }}</option>
+          <option value="offline">{{ t('nodes_page.offline') }}</option>
+          <option value="error">{{ t('nodes_page.error') }}</option>
         </select>
         <select v-model="clusterFilter" class="form-select" style="width: 160px;" @change="loadNodes">
-          <option value="">全部集群</option>
+          <option value="">{{ t('common.all_clusters') }}</option>
           <option v-for="cl in clusters" :key="cl.id" :value="cl.id">{{ cl.alias || cl.name }}</option>
         </select>
         <select v-model="envFilter" class="form-select" style="width: 130px;" @change="loadNodes">
-          <option value="">全部环境</option>
+          <option value="">{{ t('common.all_environments') }}</option>
           <option v-for="e in envs" :key="e.id" :value="e.id">{{ e.alias || e.name }}</option>
         </select>
       </div>
@@ -26,15 +26,15 @@
         <table class="table table-hover mb-0">
           <thead>
             <tr>
-              <th>主机名</th>
+              <th>{{ t('nodes_page.hostname') }}</th>
               <th>IP</th>
-              <th>类型</th>
-              <th>状态</th>
-              <th>环境</th>
-              <th>集群</th>
-              <th>当前配置</th>
-              <th>最后心跳</th>
-              <th>操作</th>
+              <th>{{ t('common.type') }}</th>
+              <th>{{ t('status') }}</th>
+              <th>{{ t('nodes_page.environment') }}</th>
+              <th>{{ t('common.cluster') }}</th>
+              <th>{{ t('nodes_page.current_config') }}</th>
+              <th>{{ t('nodes_page.last_heartbeat') }}</th>
+              <th>{{ t('actions') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -65,7 +65,7 @@
                   {{ node.cluster.region?.alias || node.cluster.region?.name }} /
                   {{ node.cluster.alias || node.cluster.name }}
                 </span>
-                <span v-else class="text-muted">未分配</span>
+                <span v-else class="text-muted">{{ t('nodes_page.unassigned') }}</span>
               </td>
               <td>{{ node.config ? `v${node.config.version}` : '-' }}</td>
               <td>{{ formatTime(node.last_heartbeat) }}</td>
@@ -86,13 +86,13 @@
     <nav v-if="total > pageSize" class="mt-3">
       <ul class="pagination justify-content-center">
         <li class="page-item" :class="{ disabled: page <= 1 }">
-          <a class="page-link" href="#" @click.prevent="page--; loadNodes()">上一页</a>
+          <a class="page-link" href="#" @click.prevent="page--; loadNodes()">{{ t('common.previous') }}</a>
         </li>
         <li class="page-item disabled">
           <span class="page-link">{{ page }} / {{ Math.ceil(total / pageSize) }}</span>
         </li>
         <li class="page-item" :class="{ disabled: page >= Math.ceil(total / pageSize) }">
-          <a class="page-link" href="#" @click.prevent="page++; loadNodes()">下一页</a>
+          <a class="page-link" href="#" @click.prevent="page++; loadNodes()">{{ t('common.next') }}</a>
         </li>
       </ul>
     </nav>
@@ -103,6 +103,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { getNodes, deleteNode, getClusters, getEnvironments } from '../api'
+import { useI18n } from '../i18n'
 
 const route = useRoute()
 const nodes = ref([])
@@ -115,15 +116,20 @@ const search = ref('')
 const statusFilter = ref('')
 const clusterFilter = ref(route.query.cluster_id || '')
 const envFilter = ref('')
+const { t, dateLocale } = useI18n()
 
 function statusClass(s) {
   return { 'bg-success': s === 'online', 'bg-warning': s === 'offline', 'bg-danger': s === 'error' }
 }
 function statusText(s) {
-  return { online: '在线', offline: '离线', error: '异常' }[s] || s
+  return {
+    online: t('nodes_page.online'),
+    offline: t('nodes_page.offline'),
+    error: t('nodes_page.error'),
+  }[s] || s
 }
 function formatTime(t) {
-  return t ? new Date(t).toLocaleString('zh-CN') : '-'
+  return t ? new Date(t).toLocaleString(dateLocale.value) : '-'
 }
 
 async function loadNodes() {
@@ -138,7 +144,7 @@ async function loadNodes() {
 }
 
 async function handleDelete(node) {
-  if (confirm(`确认删除节点 ${node.hostname}?`)) {
+  if (confirm(t('nodes_page.confirm_delete').replace('{name}', node.hostname))) {
     await deleteNode(node.id)
     loadNodes()
   }

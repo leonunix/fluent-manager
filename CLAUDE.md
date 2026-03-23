@@ -45,8 +45,10 @@ internal/
   handlers/                   # REST API handlers (HTTP parsing + response only)
     agent_handler.go          # Agent register, heartbeat, commands
     auth_handler.go           # Login, profile, password
-    config_handler.go         # Config templates + versions
+    config_handler.go         # Config templates + modules + rendered previews
     deploy_handler.go         # Deployment tasks
+    fluent_handler.go         # Aggregation groups + node fluent profiles
+    fluent_ops_handler.go     # Pipelines, analysis, runtime drift/recommendations
     metrics_handler.go        # Aggregated metrics endpoints
     node_handler.go           # Node CRUD (scope-filtered)
     topology_handler.go       # DC/Region/Cluster/Environment + match rules + user scopes
@@ -59,7 +61,9 @@ internal/
     role_service.go           # RoleService: CRUD + permissions
     topology_service.go       # TopologyService: DC/Region/Cluster/Env/MatchRule/Scope/Tree
     node_service.go           # NodeService: CRUD + scope filter + stats
-    config_service.go         # ConfigService: templates + versions
+    fluent_service.go         # FluentService: aggregation groups + node fluent profiles
+    fluent_ops_service.go     # FluentOpsService: pipelines + analysis + runtime views
+    config_service.go         # ConfigService: templates + modules + rendered previews
     deploy_service.go         # DeployService: deploy tasks + audit logs
     agent_service.go          # AgentService: register/heartbeat/command/log
     metrics_service.go        # MetricsService: aggregation + cache
@@ -70,7 +74,9 @@ internal/
     auth.go                   # User, Role, Permission, UserScope
     topology.go               # DataCenter, Region, Cluster, Environment, ClusterMatchRule
     node.go                   # Node, NodeMetrics, RemoteCommand, NodeLog
-    config.go                 # ConfigTemplate, ConfigVersion
+    fluent.go                 # AggregationGroup, NodeFluentProfile, node roles
+    fluent_ops.go             # LogPipeline, ConfigAnalysisResult, NodeRuntimeState
+    config.go                 # ConfigTemplate, ConfigVersion, ConfigModule, RenderedConfig
     deploy.go                 # DeployTask, DeployRecord
     audit.go                  # AuditLog
     database.go               # DB init, migrations, seed data
@@ -85,13 +91,15 @@ web/frontend/                 # Vue 3 SPA (TypeScript)
     users.ts, roles.ts        # User/Role API
     topology.ts               # DC/Region/Cluster/Env/MatchRule/Scope API
     nodes.ts                  # Node API
+    fluent.ts                 # Aggregation groups + node fluent profiles API
+    fluent_ops.ts             # Pipelines + analysis + runtime API
     configs.ts                # Config template/version API
     deploys.ts, metrics.ts    # Deploy/Metrics API
     audit.ts                  # Audit log API
     index.ts                  # Barrel re-export (backward compatible)
   src/router/index.ts         # Vue Router config
   src/views/                  # Page components (.vue, not yet lang="ts")
-  src/components/             # Reusable components (TopologyGraph)
+  src/components/             # Reusable components (TopologyGraph, FluentFlowGraph)
   src/store/auth.ts           # Pinia auth store
   src/i18n/                   # i18n (index.ts + zh/en/ja.js)
 ```
@@ -111,6 +119,10 @@ DataCenter  →  Region  →  Cluster  →  Node
 - **Node**: Fluent Bit/Fluentd agent, belongs to a cluster
 - **ClusterMatchRule**: Auto-assigns new nodes by hostname glob, IP CIDR, labels, fluent_type, OS
 - **Cluster.IsDefault**: Fallback for unmatched nodes
+- **AggregationGroup**: Logical Fluentd / Fluent Bit fan-in target, optionally bound to a cluster
+- **LogPipeline**: Explicit forwarding link from cluster/group/selector to aggregator or terminal output
+- **NodeFluentProfile**: Runtime capability snapshot reported or edited per node
+- **NodeRuntimeState**: Desired/effective hash, queue/retry/flush state for drift and health views
 
 Config inheritance: Node config > Cluster config (EffectiveConfigID)
 
@@ -154,7 +166,7 @@ make frontend                  # npm install + build
 - Server: `config.yaml` (see `config.yaml.example`)
 - Agent: `agent.yaml` (see `agent.yaml.example`)
 
-Key server config sections: `server`, `database`, `auth` (jwt/ldap/saml), `agent` (heartbeat/api_key), `cache` (redis, optional), `log`
+Key server config sections: `server`, `database`, `auth` (jwt/ldap/saml), `agent` (heartbeat/api_key), `fluent` (shared key encryption), `cache` (redis, optional), `log`
 
 ## API Routes
 
@@ -168,8 +180,12 @@ All under `/api/v1`:
 | Match Rules | CRUD `/clusters/:id/rules` | JWT + topology perm |
 | User Scopes | `GET\|PUT /users/:id/scopes` | JWT + users perm |
 | Nodes | `GET /nodes`, `GET /nodes/stats`, CRUD `/nodes/:id`, `POST /nodes/batch-move` | JWT + nodes perm + scope |
-| Configs | CRUD `/configs/templates`, `/configs/templates/:id/versions` | JWT + configs perm |
+| Fluent | CRUD `/aggregation-groups`, `GET /aggregation-groups/deleted`, `POST /aggregation-groups/:id/restore`, `GET /aggregation-groups/:id/metrics`, `GET/PUT /nodes/:id/fluent-profile` | JWT + topology/nodes perm |
+| Pipelines | CRUD `/log-pipelines`, `GET /log-pipelines/graph` | JWT + topology perm |
+| Configs | CRUD `/configs/templates`, `/configs/templates/:id/versions`, `/configs/modules`, `/configs/modules/:id/versions`, `POST /configs/rendered-configs/preview`, `GET /configs/rendered-configs/:id` | JWT + configs perm |
+| Config Analysis | `POST /config-analysis/lint`, `POST /config-analysis/replay`, `POST /config-analysis/diff`, `POST /config-analysis/compatibility`, `GET /config-analysis/:id` | JWT + configs perm |
 | Deploys | `GET\|POST /deploys` (supports scope: node/cluster/region/datacenter) | JWT + configs perm |
+| Runtime | `GET /runtime/drift`, `GET /runtime/health/graph`, `GET /runtime/recommendations` | JWT + nodes perm |
 | Users/Roles | CRUD `/users`, `/roles`, `GET /permissions` | JWT + users/roles perm |
 | Audit | `GET /audit-logs` | JWT + audit perm |
 
@@ -181,10 +197,13 @@ All under `/api/v1`:
 | Topology | `/topology` | ECharts tree graph view + management tree view, match rules editor |
 | Environments | `/environments` | Environment CRUD with color picker, cluster association counts |
 | Nodes | `/nodes` | Filterable node list (status, cluster, env, DC, search), pagination |
-| Node Detail | `/nodes/:id` | Metrics, commands, logs |
-| Configs | `/configs` | Template CRUD |
+| Node Detail | `/nodes/:id` | Metrics, commands, logs, fluent role/profile |
+| Aggregation Groups | `/aggregation-groups` | Fluent fan-in group CRUD, deleted list restore, runtime metrics |
+| Pipelines | `/pipelines` | Explicit forwarding topology graph and pipeline CRUD |
+| Configs | `/configs` | Template CRUD, module workspace, render preview, lint/replay/compatibility |
 | Config Detail | `/configs/:id` | Versions, topology-scoped deployment |
 | Deploys | `/deploys` | Deployment task list and detail |
+| Runtime | `/runtime` | Drift table, runtime health graph, optimization recommendations |
 | Users | `/users` | User CRUD with role assignment and scope editor |
 | Roles | `/roles` | Role + permission management |
 | Audit Logs | `/audit` | Paginated audit trail |
@@ -198,7 +217,10 @@ Handler (HTTP) → Service (business logic, interface) → Model (GORM/DB)
 - **Handlers** only parse requests, extract auth context, call service, return HTTP response
 - **Services** contain all business logic; each has an interface for testability
 - **Models** are pure GORM structs split by domain; `database.go` handles init/seed, `scope.go` handles RBAC scope resolution
-- Services are initialized via `services.NewRegistry(db)` in `main.go` and injected into handlers
+- Services are initialized via `services.NewRegistry(db, fluentSharedKeySecret)` in `main.go` and injected into handlers
+- Fluent-specific logic is split into:
+  - `FluentService` for aggregation groups and per-node runtime capability metadata
+  - `FluentOpsService` for pipelines, analysis, drift, metrics, and recommendations
 - `scope.go` functions (`AllowedClusterIDs`, `AutoAssignCluster`) still use global `models.DB` (to be refactored later)
 
 ## Development Notes
@@ -212,3 +234,5 @@ Handler (HTTP) → Service (business logic, interface) → Model (GORM/DB)
 - Match rules are evaluated by priority (lower number = higher priority) on agent registration
 - Scope filtering is applied via `ScopeFilter` middleware; handlers use `middleware.GetAllowedClusters(c)`
 - Redis cache is optional; metrics service falls back to direct DB queries if cache is disabled
+- Aggregation group shared keys are encrypted at rest via `fluent.shared_key_secret` (falls back to JWT secret if unset)
+- Semantic replay / diff / compatibility are baseline heuristics today, designed to be upgraded into deeper parser-grade engines later

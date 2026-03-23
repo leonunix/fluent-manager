@@ -1,9 +1,9 @@
 <template>
   <div>
     <div class="d-flex justify-content-between align-items-center mb-4">
-      <h4 class="mb-0">用户管理</h4>
+      <h4 class="mb-0">{{ t('users_page.title') }}</h4>
       <button class="btn btn-primary" @click="openCreate">
-        <i class="bi bi-plus-lg me-1"></i>新建用户
+        <i class="bi bi-plus-lg me-1"></i>{{ t('users_page.create') }}
       </button>
     </div>
 
@@ -12,15 +12,15 @@
         <table class="table table-hover mb-0">
           <thead>
             <tr>
-              <th>用户名</th>
-              <th>显示名</th>
-              <th>邮箱</th>
-              <th>认证来源</th>
-              <th>角色</th>
-              <th>资源范围</th>
-              <th>状态</th>
-              <th>最后登录</th>
-              <th>操作</th>
+              <th>{{ t('users_page.username') }}</th>
+              <th>{{ t('users_page.display_name') }}</th>
+              <th>{{ t('users_page.email') }}</th>
+              <th>{{ t('users_page.auth_source') }}</th>
+              <th>{{ t('users_page.roles') }}</th>
+              <th>{{ t('users_page.scopes') }}</th>
+              <th>{{ t('status') }}</th>
+              <th>{{ t('users_page.last_login') }}</th>
+              <th>{{ t('actions') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -33,14 +33,14 @@
                 <span v-for="r in u.roles" :key="r.id" class="badge bg-primary me-1">{{ r.name }}</span>
               </td>
               <td>
-                <span v-if="!userScopesMap[u.id] || userScopesMap[u.id].length === 0" class="badge bg-dark">全局</span>
+                <span v-if="!userScopesMap[u.id] || userScopesMap[u.id].length === 0" class="badge bg-dark">{{ t('users_page.global') }}</span>
                 <span v-for="s in (userScopesMap[u.id] || [])" :key="s.id" class="badge bg-info me-1">
                   {{ scopeIcon(s.scope_type) }} {{ s.scope_name || s.scope_type + ':' + s.scope_id }}
                 </span>
               </td>
               <td>
                 <span :class="u.is_active ? 'bg-success' : 'bg-danger'" class="badge">
-                  {{ u.is_active ? '启用' : '禁用' }}
+                  {{ u.is_active ? t('users_page.active') : t('users_page.inactive') }}
                 </span>
               </td>
               <td>{{ formatTime(u.last_login_at) }}</td>
@@ -48,7 +48,7 @@
                 <button class="btn btn-sm btn-outline-primary me-1" @click="openEdit(u)">
                   <i class="bi bi-pencil"></i>
                 </button>
-                <button class="btn btn-sm btn-outline-info me-1" @click="openScopeEdit(u)" title="资源范围">
+                <button class="btn btn-sm btn-outline-info me-1" @click="openScopeEdit(u)" :title="t('users_page.scope_manage_title')">
                   <i class="bi bi-shield-lock"></i>
                 </button>
                 <button v-if="u.username !== 'admin'" class="btn btn-sm btn-outline-danger" @click="handleDelete(u)">
@@ -66,28 +66,28 @@
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">{{ form.id ? '编辑' : '新建' }}用户</h5>
+            <h5 class="modal-title">{{ form.id ? t('users_page.edit_user') : t('users_page.create_user') }}</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body">
             <div class="mb-3">
-              <label class="form-label">用户名</label>
+              <label class="form-label">{{ t('users_page.username') }}</label>
               <input v-model="form.username" type="text" class="form-control" :disabled="!!form.id" required>
             </div>
             <div class="mb-3">
-              <label class="form-label">显示名</label>
+              <label class="form-label">{{ t('users_page.display_name') }}</label>
               <input v-model="form.display_name" type="text" class="form-control">
             </div>
             <div class="mb-3">
-              <label class="form-label">邮箱</label>
+              <label class="form-label">{{ t('users_page.email') }}</label>
               <input v-model="form.email" type="email" class="form-control">
             </div>
             <div class="mb-3">
-              <label class="form-label">密码{{ form.id ? ' (留空不修改)' : '' }}</label>
+              <label class="form-label">Password{{ form.id ? t('users_page.password_keep') : '' }}</label>
               <input v-model="form.password" type="password" class="form-control" :required="!form.id">
             </div>
             <div class="mb-3">
-              <label class="form-label">角色</label>
+              <label class="form-label">{{ t('users_page.roles') }}</label>
               <div v-for="r in allRoles" :key="r.id" class="form-check">
                 <input type="checkbox" :value="r.id" v-model="form.role_ids" class="form-check-input" :id="'role-'+r.id">
                 <label class="form-check-label" :for="'role-'+r.id">{{ r.name }} - {{ r.description }}</label>
@@ -95,8 +95,8 @@
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-            <button type="button" class="btn btn-primary" @click="save">保存</button>
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('cancel') }}</button>
+            <button type="button" class="btn btn-primary" @click="save">{{ t('save') }}</button>
           </div>
         </div>
       </div>
@@ -107,31 +107,31 @@
       <div class="modal-dialog modal-lg">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title"><i class="bi bi-shield-lock me-2"></i>资源范围 - {{ scopeUser?.display_name || scopeUser?.username }}</h5>
+            <h5 class="modal-title"><i class="bi bi-shield-lock me-2"></i>{{ t('users_page.scope_title').replace('{name}', scopeUser?.display_name || scopeUser?.username || '') }}</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body">
             <div class="alert alert-info small mb-3">
               <i class="bi bi-info-circle me-1"></i>
-              不设置任何范围 = <b>全局访问</b>（管理员）。设置后，该用户只能看到和操作所选范围内的数据中心、区域、集群和节点。
+              {{ t('users_page.scope_help') }}
             </div>
 
             <div class="mb-3">
-              <button class="btn btn-sm btn-outline-primary me-2" @click="addScopeRow('datacenter')">+ 数据中心</button>
-              <button class="btn btn-sm btn-outline-info me-2" @click="addScopeRow('region')">+ 区域</button>
-              <button class="btn btn-sm btn-outline-success" @click="addScopeRow('cluster')">+ 集群</button>
+              <button class="btn btn-sm btn-outline-primary me-2" @click="addScopeRow('datacenter')">{{ t('users_page.add_datacenter') }}</button>
+              <button class="btn btn-sm btn-outline-info me-2" @click="addScopeRow('region')">{{ t('users_page.add_region') }}</button>
+              <button class="btn btn-sm btn-outline-success" @click="addScopeRow('cluster')">{{ t('users_page.add_cluster') }}</button>
             </div>
 
             <div v-if="!scopeRows.length" class="text-center text-muted py-3">
-              无范围限制（全局访问）
+              {{ t('users_page.no_scope_limit') }}
             </div>
             <table v-else class="table table-sm">
-              <thead><tr><th>范围类型</th><th>目标</th><th></th></tr></thead>
+              <thead><tr><th>{{ t('users_page.scope_type') }}</th><th>{{ t('users_page.target') }}</th><th></th></tr></thead>
               <tbody>
                 <tr v-for="(row, idx) in scopeRows" :key="idx">
                   <td>
                     <span class="badge" :class="{'bg-primary': row.scope_type === 'datacenter', 'bg-info': row.scope_type === 'region', 'bg-success': row.scope_type === 'cluster'}">
-                      {{ { datacenter: '数据中心', region: '区域', cluster: '集群' }[row.scope_type] }}
+                      {{ { datacenter: t('topology_page.dc_label'), region: t('topology_page.region_label'), cluster: t('topology_page.cluster_label') }[row.scope_type] }}
                     </span>
                   </td>
                   <td>
@@ -151,8 +151,8 @@
             </table>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-            <button type="button" class="btn btn-primary" @click="saveScopes">保存范围</button>
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('cancel') }}</button>
+            <button type="button" class="btn btn-primary" @click="saveScopes">{{ t('users_page.save_scopes') }}</button>
           </div>
         </div>
       </div>
@@ -163,6 +163,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { getUsers, createUser, updateUser, deleteUser, getRoles, getUserScopes, setUserScopes, getDataCenters, getRegions, getClusters } from '../api'
+import { useI18n } from '../i18n'
 
 const users = ref([])
 const allRoles = ref([])
@@ -175,8 +176,9 @@ const scopeUser = ref(null)
 const scopeRows = ref([])
 let userModal = null
 let scopeModal = null
+const { t, dateLocale } = useI18n()
 
-function formatTime(t) { return t ? new Date(t).toLocaleString('zh-CN') : '-' }
+function formatTime(t) { return t ? new Date(t).toLocaleString(dateLocale.value) : '-' }
 function scopeIcon(type) { return { datacenter: '🏢', region: '🌐', cluster: '⚙️' }[type] || '' }
 function getUserModal() {
   if (!userModal) userModal = new window.bootstrap.Modal(document.getElementById('userModal'))
@@ -221,7 +223,7 @@ async function save() {
 }
 
 async function handleDelete(u) {
-  if (confirm(`确认删除用户 ${u.username}?`)) {
+  if (confirm(t('users_page.confirm_delete').replace('{name}', u.username))) {
     await deleteUser(u.id)
     loadUsers()
   }

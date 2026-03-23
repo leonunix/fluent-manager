@@ -5,6 +5,11 @@ import ja from './ja'
 
 const messages: Record<string, any> = { zh, en, ja }
 const supportedLocales = ['zh', 'en', 'ja']
+const dateLocaleMap: Record<string, string> = {
+  zh: 'zh-CN',
+  en: 'en-US',
+  ja: 'ja-JP',
+}
 
 function detectLocale(): string {
   const saved = localStorage.getItem('fm_locale')
@@ -29,8 +34,8 @@ export function useI18n() {
       val = val?.[k]
     }
     if (val !== undefined) return val
-    // Fallback to zh
-    val = messages.zh
+    // Fallback to en
+    val = messages.en
     for (const k of keys) {
       val = val?.[k]
     }
@@ -48,5 +53,6 @@ export function useI18n() {
     setLocale,
     availableLocales: supportedLocales,
     localeNames: { zh: '中文', en: 'English', ja: '日本語' } as Record<string, string>,
+    dateLocale: computed(() => dateLocaleMap[locale.value] || 'en-US'),
   }
 }

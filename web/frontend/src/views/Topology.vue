@@ -2,25 +2,25 @@
   <div>
     <div class="d-flex justify-content-between align-items-center mb-4">
       <div class="d-flex align-items-center gap-3">
-        <h4 class="mb-0">基础设施拓扑</h4>
+        <h4 class="mb-0">{{ t('topology_page.title') }}</h4>
         <div class="btn-group btn-group-sm">
           <button class="btn" :class="viewMode === 'graph' ? 'btn-primary' : 'btn-outline-primary'" @click="viewMode = 'graph'">
-            <i class="bi bi-diagram-3"></i> 拓扑图
+            <i class="bi bi-diagram-3"></i> {{ t('topology_page.graph_view') }}
           </button>
           <button class="btn" :class="viewMode === 'tree' ? 'btn-primary' : 'btn-outline-primary'" @click="viewMode = 'tree'">
-            <i class="bi bi-list-nested"></i> 管理视图
+            <i class="bi bi-list-nested"></i> {{ t('topology_page.management_view') }}
           </button>
         </div>
       </div>
       <div class="btn-group" v-if="viewMode === 'tree'">
         <button class="btn btn-outline-primary btn-sm" @click="openCreate('dc')">
-          <i class="bi bi-building"></i> 新建数据中心
+          <i class="bi bi-building"></i> {{ t('topology_page.create_datacenter') }}
         </button>
         <button class="btn btn-outline-primary btn-sm" @click="openCreate('region')">
-          <i class="bi bi-globe2"></i> 新建区域
+          <i class="bi bi-globe2"></i> {{ t('topology_page.create_region') }}
         </button>
         <button class="btn btn-outline-primary btn-sm" @click="openCreate('cluster')">
-          <i class="bi bi-diagram-3"></i> 新建集群
+          <i class="bi bi-diagram-3"></i> {{ t('topology_page.create_cluster') }}
         </button>
       </div>
     </div>
@@ -37,7 +37,7 @@
               <strong>{{ selected.data.alias || selected.data.name }}</strong>
               <span class="badge bg-secondary ms-2">{{ selected.data.provider }}</span>
             </div>
-            <button class="btn btn-sm btn-outline-primary" @click="viewMode = 'tree'; selectDC(selected.data)">详细管理</button>
+            <button class="btn btn-sm btn-outline-primary" @click="viewMode = 'tree'; selectDC(selected.data)">{{ t('topology_page.manage_detail') }}</button>
           </div>
           <div v-if="selected.type === 'region'" class="d-flex justify-content-between align-items-center">
             <div>
@@ -45,21 +45,21 @@
               <strong>{{ selected.data.alias || selected.data.name }}</strong>
               <span class="text-muted ms-2">{{ selected.dc?.alias || selected.dc?.name }}</span>
             </div>
-            <button class="btn btn-sm btn-outline-primary" @click="viewMode = 'tree'">详细管理</button>
+            <button class="btn btn-sm btn-outline-primary" @click="viewMode = 'tree'">{{ t('topology_page.manage_detail') }}</button>
           </div>
           <div v-if="selected.type === 'cluster'" class="d-flex justify-content-between align-items-center">
             <div>
               <i class="bi bi-diagram-3 text-success me-2"></i>
               <strong>{{ selected.data.alias || selected.data.name }}</strong>
               <span v-if="selected.data.environment" class="badge ms-2" :style="{backgroundColor: selected.data.env_color}">{{ selected.data.environment }}</span>
-              <span v-if="selected.data.is_default" class="badge bg-purple ms-1" style="background-color:#6f42c1">默认</span>
-              <span class="text-muted ms-2">{{ selected.data.online_count }}/{{ selected.data.node_count }} 节点在线</span>
+              <span v-if="selected.data.is_default" class="badge bg-purple ms-1" style="background-color:#6f42c1">{{ t('topology_page.default') }}</span>
+              <span class="text-muted ms-2">{{ t('topology_page.nodes_online').replace('{online}', selected.data.online_count).replace('{total}', selected.data.node_count) }}</span>
             </div>
             <div>
               <router-link :to="`/nodes?cluster_id=${selected.data.id}`" class="btn btn-sm btn-outline-success me-1">
-                <i class="bi bi-hdd-network"></i> 查看节点
+                <i class="bi bi-hdd-network"></i> {{ t('topology_page.view_nodes') }}
               </router-link>
-              <button class="btn btn-sm btn-outline-primary" @click="viewMode = 'tree'">详细管理</button>
+              <button class="btn btn-sm btn-outline-primary" @click="viewMode = 'tree'">{{ t('topology_page.manage_detail') }}</button>
             </div>
           </div>
         </div>
@@ -70,9 +70,9 @@
     <div v-if="viewMode === 'tree'" class="row g-4">
       <div class="col-md-4">
         <div class="card border-0 shadow-sm">
-          <div class="card-header bg-white"><h6 class="mb-0">拓扑树</h6></div>
+          <div class="card-header bg-white"><h6 class="mb-0">{{ t('topology_page.tree_title') }}</h6></div>
           <div class="card-body p-0">
-            <div v-if="!tree.length" class="p-3 text-center text-muted">暂无数据中心，请先创建</div>
+            <div v-if="!tree.length" class="p-3 text-center text-muted">{{ t('topology_page.no_datacenter') }}</div>
             <div v-for="dc in tree" :key="'dc-'+dc.id" class="border-bottom">
               <div class="d-flex align-items-center px-3 py-2 bg-light cursor-pointer"
                    @click="selectDC(dc)" :class="{ 'border-start border-primary border-3': selected.type === 'dc' && selected.id === dc.id }">
@@ -91,7 +91,7 @@
                        @click="selectCluster(cl, r, dc)" :class="{ 'border-start border-success border-3': selected.type === 'cluster' && selected.id === cl.id }">
                     <i class="bi bi-diagram-3 me-2 text-success"></i>
                     {{ cl.alias || cl.name }}
-                    <span v-if="cl.is_default" class="badge ms-1" style="background-color:#6f42c1">默认</span>
+                    <span v-if="cl.is_default" class="badge ms-1" style="background-color:#6f42c1">{{ t('topology_page.default') }}</span>
                     <span v-if="cl.environment" class="badge ms-1" :style="{ backgroundColor: cl.env_color }">
                       {{ cl.environment }}
                     </span>
@@ -117,11 +117,11 @@
           </div>
           <div class="card-body">
             <table class="table table-sm">
-              <tr><td class="text-muted w-25">名称</td><td>{{ selected.data.name }}</td></tr>
-              <tr><td class="text-muted">别名</td><td>{{ selected.data.alias || '-' }}</td></tr>
-              <tr><td class="text-muted">供应商</td><td>{{ selected.data.provider || '-' }}</td></tr>
-              <tr><td class="text-muted">位置</td><td>{{ selected.data.location || '-' }}</td></tr>
-              <tr><td class="text-muted">区域数</td><td>{{ selected.data.regions?.length || 0 }}</td></tr>
+              <tr><td class="text-muted w-25">{{ t('common.name') }}</td><td>{{ selected.data.name }}</td></tr>
+              <tr><td class="text-muted">{{ t('common.alias') }}</td><td>{{ selected.data.alias || '-' }}</td></tr>
+              <tr><td class="text-muted">{{ t('topology_page.provider') }}</td><td>{{ selected.data.provider || '-' }}</td></tr>
+              <tr><td class="text-muted">{{ t('topology_page.location') }}</td><td>{{ selected.data.location || '-' }}</td></tr>
+              <tr><td class="text-muted">{{ t('topology_page.datacenter_count') }}</td><td>{{ selected.data.regions?.length || 0 }}</td></tr>
             </table>
           </div>
         </div>
@@ -137,10 +137,10 @@
           </div>
           <div class="card-body">
             <table class="table table-sm">
-              <tr><td class="text-muted w-25">名称</td><td>{{ selected.data.name }}</td></tr>
-              <tr><td class="text-muted">别名</td><td>{{ selected.data.alias || '-' }}</td></tr>
-              <tr><td class="text-muted">数据中心</td><td>{{ selected.dc?.alias || selected.dc?.name }}</td></tr>
-              <tr><td class="text-muted">集群数</td><td>{{ selected.data.clusters?.length || 0 }}</td></tr>
+              <tr><td class="text-muted w-25">{{ t('common.name') }}</td><td>{{ selected.data.name }}</td></tr>
+              <tr><td class="text-muted">{{ t('common.alias') }}</td><td>{{ selected.data.alias || '-' }}</td></tr>
+              <tr><td class="text-muted">{{ t('common.datacenter') }}</td><td>{{ selected.dc?.alias || selected.dc?.name }}</td></tr>
+              <tr><td class="text-muted">{{ t('topology_page.cluster_count') }}</td><td>{{ selected.data.clusters?.length || 0 }}</td></tr>
             </table>
           </div>
         </div>
@@ -150,11 +150,11 @@
           <div class="card-header bg-white d-flex justify-content-between align-items-center">
             <h6 class="mb-0">
               <i class="bi bi-diagram-3 me-2"></i>{{ selected.data.alias || selected.data.name }}
-              <span v-if="selected.data.is_default" class="badge ms-2" style="background-color:#6f42c1">默认集群</span>
+              <span v-if="selected.data.is_default" class="badge ms-2" style="background-color:#6f42c1">{{ t('topology_graph.default_cluster') }}</span>
             </h6>
             <div>
               <router-link :to="`/nodes?cluster_id=${selected.data.id}`" class="btn btn-sm btn-outline-success me-1">
-                <i class="bi bi-hdd-network"></i> 查看节点
+                <i class="bi bi-hdd-network"></i> {{ t('topology_page.view_nodes') }}
               </router-link>
               <button class="btn btn-sm btn-outline-primary me-1" @click="openEdit('cluster', selected.data)"><i class="bi bi-pencil"></i></button>
               <button class="btn btn-sm btn-outline-danger" @click="handleDelete('cluster', selected.data)"><i class="bi bi-trash"></i></button>
@@ -162,15 +162,15 @@
           </div>
           <div class="card-body">
             <table class="table table-sm">
-              <tr><td class="text-muted w-25">名称</td><td>{{ selected.data.name }}</td></tr>
-              <tr><td class="text-muted">别名</td><td>{{ selected.data.alias || '-' }}</td></tr>
-              <tr><td class="text-muted">区域</td><td>{{ selected.region?.alias || selected.region?.name }}</td></tr>
-              <tr><td class="text-muted">数据中心</td><td>{{ selected.dc?.alias || selected.dc?.name }}</td></tr>
-              <tr><td class="text-muted">环境</td><td>
+              <tr><td class="text-muted w-25">{{ t('common.name') }}</td><td>{{ selected.data.name }}</td></tr>
+              <tr><td class="text-muted">{{ t('common.alias') }}</td><td>{{ selected.data.alias || '-' }}</td></tr>
+              <tr><td class="text-muted">{{ t('common.region') }}</td><td>{{ selected.region?.alias || selected.region?.name }}</td></tr>
+              <tr><td class="text-muted">{{ t('common.datacenter') }}</td><td>{{ selected.dc?.alias || selected.dc?.name }}</td></tr>
+              <tr><td class="text-muted">{{ t('topology_graph.environment') }}</td><td>
                 <span v-if="selected.data.environment" class="badge" :style="{ backgroundColor: selected.data.env_color }">{{ selected.data.environment }}</span>
                 <span v-else>-</span>
               </td></tr>
-              <tr><td class="text-muted">节点</td><td>{{ selected.data.online_count }} 在线 / {{ selected.data.node_count }} 总计</td></tr>
+              <tr><td class="text-muted">{{ t('common.nodes') }}</td><td>{{ t('topology_page.node_count').replace('{online}', selected.data.online_count).replace('{total}', selected.data.node_count) }}</td></tr>
             </table>
           </div>
         </div>
@@ -178,17 +178,17 @@
         <!-- Match Rules for selected cluster -->
         <div v-if="selected.type === 'cluster'" class="card border-0 shadow-sm">
           <div class="card-header bg-white d-flex justify-content-between align-items-center">
-            <h6 class="mb-0"><i class="bi bi-funnel me-2"></i>自动匹配规则</h6>
-            <button class="btn btn-sm btn-outline-primary" @click="openRuleCreate"><i class="bi bi-plus"></i> 新增规则</button>
+            <h6 class="mb-0"><i class="bi bi-funnel me-2"></i>{{ t('topology_page.match_rules') }}</h6>
+            <button class="btn btn-sm btn-outline-primary" @click="openRuleCreate"><i class="bi bi-plus"></i> {{ t('topology_page.create_rule') }}</button>
           </div>
           <div class="card-body p-0">
             <div v-if="!matchRules.length" class="p-3 text-center text-muted small">
-              暂无匹配规则。新节点注册时不会自动分配到此集群。<br>
-              <span v-if="selected.data.is_default">但此集群为<b>默认集群</b>，未匹配的节点将自动归入此处。</span>
+              {{ t('topology_page.no_rules') }}<br>
+              <span v-if="selected.data.is_default">{{ t('topology_page.default_cluster_hint') }}</span>
             </div>
             <table v-else class="table table-sm table-hover mb-0">
               <thead><tr>
-                <th>规则名</th><th>优先级</th><th>主机名</th><th>IP</th><th>类型</th><th>OS</th><th>标签</th><th>状态</th><th>操作</th>
+                <th>{{ t('topology_page.rule_name') }}</th><th>{{ t('topology_page.priority') }}</th><th>{{ t('topology_page.hostname_match') }}</th><th>{{ t('topology_page.ip_match') }}</th><th>{{ t('common.type') }}</th><th>{{ t('topology_page.os_match') }}</th><th>{{ t('topology_page.labels') }}</th><th>{{ t('topology_page.active_state') }}</th><th>{{ t('actions') }}</th>
               </tr></thead>
               <tbody>
                 <tr v-for="rule in matchRules" :key="rule.id">
@@ -196,10 +196,10 @@
                   <td>{{ rule.priority }}</td>
                   <td><code>{{ rule.hostname_pattern || '*' }}</code></td>
                   <td><code>{{ rule.ip_pattern || '*' }}</code></td>
-                  <td>{{ rule.fluent_type || '任意' }}</td>
+                  <td>{{ rule.fluent_type || t('topology_page.any') }}</td>
                   <td>{{ rule.os_pattern || '*' }}</td>
                   <td><code class="small">{{ rule.label_selector || '-' }}</code></td>
-                  <td><span :class="rule.is_active ? 'text-success' : 'text-muted'">{{ rule.is_active ? '启用' : '禁用' }}</span></td>
+                  <td><span :class="rule.is_active ? 'text-success' : 'text-muted'">{{ rule.is_active ? t('common.enabled') : t('common.disabled') }}</span></td>
                   <td>
                     <button class="btn btn-sm btn-outline-primary me-1" @click="openRuleEdit(rule)"><i class="bi bi-pencil"></i></button>
                     <button class="btn btn-sm btn-outline-danger" @click="deleteRule(rule)"><i class="bi bi-trash"></i></button>
@@ -213,7 +213,7 @@
         <div v-if="!selected.type" class="card border-0 shadow-sm">
           <div class="card-body text-center text-muted py-5">
             <i class="bi bi-diagram-3 display-4 d-block mb-3"></i>
-            从左侧拓扑树选择一个数据中心、区域或集群查看详情
+            {{ t('topology_page.no_selection') }}
           </div>
         </div>
       </div>
@@ -224,43 +224,43 @@
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">{{ form.id ? '编辑' : '新建' }}{{ formTypeLabel }}</h5>
+            <h5 class="modal-title">{{ form.id ? t('topology_page.edit_title').replace('{type}', formTypeLabel) : t('topology_page.create_title').replace('{type}', formTypeLabel) }}</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body">
             <div class="mb-3">
-              <label class="form-label">名称</label>
+              <label class="form-label">{{ t('common.name') }}</label>
               <input v-model="form.name" type="text" class="form-control" required>
             </div>
             <div class="mb-3">
-              <label class="form-label">别名</label>
+              <label class="form-label">{{ t('common.alias') }}</label>
               <input v-model="form.alias" type="text" class="form-control">
             </div>
             <div v-if="formType === 'dc'" class="mb-3">
-              <label class="form-label">供应商</label>
+              <label class="form-label">{{ t('topology_page.provider') }}</label>
               <select v-model="form.provider" class="form-select">
-                <option value="">自定义</option>
+                <option value="">{{ t('topology_page.provider_custom') }}</option>
                 <option value="aws">AWS</option>
-                <option value="aliyun">阿里云</option>
+                <option value="aliyun">{{ t('topology_page.provider_aliyun') }}</option>
                 <option value="azure">Azure</option>
                 <option value="gcp">GCP</option>
-                <option value="tencent">腾讯云</option>
-                <option value="huawei">华为云</option>
-                <option value="idc">自建IDC</option>
+                <option value="tencent">{{ t('topology_page.provider_tencent') }}</option>
+                <option value="huawei">{{ t('topology_page.provider_huawei') }}</option>
+                <option value="idc">{{ t('topology_page.provider_idc') }}</option>
               </select>
             </div>
             <div v-if="formType === 'dc'" class="mb-3">
-              <label class="form-label">位置</label>
+              <label class="form-label">{{ t('topology_page.location') }}</label>
               <input v-model="form.location" type="text" class="form-control">
             </div>
             <div v-if="formType === 'region'" class="mb-3">
-              <label class="form-label">所属数据中心</label>
+              <label class="form-label">{{ t('common.datacenter') }}</label>
               <select v-model="form.datacenter_id" class="form-select" required>
                 <option v-for="dc in allDCs" :key="dc.id" :value="dc.id">{{ dc.alias || dc.name }}</option>
               </select>
             </div>
             <div v-if="formType === 'cluster'" class="mb-3">
-              <label class="form-label">所属区域</label>
+              <label class="form-label">{{ t('common.region') }}</label>
               <select v-model="form.region_id" class="form-select" required>
                 <option v-for="r in allRegions" :key="r.id" :value="r.id">
                   {{ r.datacenter?.alias || r.datacenter?.name }} / {{ r.alias || r.name }}
@@ -268,24 +268,24 @@
               </select>
             </div>
             <div v-if="formType === 'cluster'" class="mb-3">
-              <label class="form-label">环境</label>
+              <label class="form-label">{{ t('topology_graph.environment') }}</label>
               <select v-model="form.environment_id" class="form-select">
-                <option :value="null">不指定</option>
+                <option :value="null">{{ t('topology_page.no_environment') }}</option>
                 <option v-for="e in envs" :key="e.id" :value="e.id">{{ e.alias || e.name }}</option>
               </select>
             </div>
             <div v-if="formType === 'cluster'" class="mb-3 form-check">
               <input v-model="form.is_default" type="checkbox" class="form-check-input" id="isDefaultCheck">
-              <label class="form-check-label" for="isDefaultCheck">设为默认集群（未匹配的新节点将自动归入此集群）</label>
+              <label class="form-check-label" for="isDefaultCheck">{{ t('topology_page.set_default_cluster') }}</label>
             </div>
             <div class="mb-3">
-              <label class="form-label">描述</label>
+              <label class="form-label">{{ t('common.description') }}</label>
               <textarea v-model="form.description" class="form-control" rows="2"></textarea>
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-            <button type="button" class="btn btn-primary" @click="save">保存</button>
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('cancel') }}</button>
+            <button type="button" class="btn btn-primary" @click="save">{{ t('save') }}</button>
           </div>
         </div>
       </div>
@@ -296,50 +296,50 @@
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">{{ ruleForm.id ? '编辑' : '新增' }}匹配规则</h5>
+            <h5 class="modal-title">{{ ruleForm.id ? t('topology_page.edit_rule') : t('topology_page.create_rule_title') }}</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body">
             <div class="mb-3">
-              <label class="form-label">规则名称</label>
-              <input v-model="ruleForm.name" type="text" class="form-control" required placeholder="例: 生产Web服务器">
+              <label class="form-label">{{ t('topology_page.rule_name') }}</label>
+              <input v-model="ruleForm.name" type="text" class="form-control" required :placeholder="t('topology_page.rule_example')">
             </div>
             <div class="mb-3">
-              <label class="form-label">优先级 <small class="text-muted">(数字越小优先级越高)</small></label>
+              <label class="form-label">{{ t('topology_page.priority') }} <small class="text-muted">({{ t('topology_page.priority_help') }})</small></label>
               <input v-model.number="ruleForm.priority" type="number" class="form-control" min="0">
             </div>
             <div class="mb-3">
-              <label class="form-label">主机名匹配 <small class="text-muted">(Glob: web-*, db-cn-*)</small></label>
-              <input v-model="ruleForm.hostname_pattern" type="text" class="form-control" placeholder="留空匹配全部">
+              <label class="form-label">{{ t('topology_page.hostname_help') }} <small class="text-muted">(Glob: web-*, db-cn-*)</small></label>
+              <input v-model="ruleForm.hostname_pattern" type="text" class="form-control" :placeholder="t('topology_page.empty_matches_all')">
             </div>
             <div class="mb-3">
-              <label class="form-label">IP匹配 <small class="text-muted">(CIDR: 10.0.0.0/16 或 Glob: 192.168.1.*)</small></label>
-              <input v-model="ruleForm.ip_pattern" type="text" class="form-control" placeholder="留空匹配全部">
+              <label class="form-label">{{ t('topology_page.ip_help') }} <small class="text-muted">(CIDR: 10.0.0.0/16 / Glob: 192.168.1.*)</small></label>
+              <input v-model="ruleForm.ip_pattern" type="text" class="form-control" :placeholder="t('topology_page.empty_matches_all')">
             </div>
             <div class="mb-3">
-              <label class="form-label">Fluent类型</label>
+              <label class="form-label">{{ t('topology_page.fluent_type') }}</label>
               <select v-model="ruleForm.fluent_type" class="form-select">
-                <option value="">任意</option>
+                <option value="">{{ t('topology_page.any') }}</option>
                 <option value="fluentbit">Fluent Bit</option>
                 <option value="fluentd">Fluentd</option>
               </select>
             </div>
             <div class="mb-3">
-              <label class="form-label">OS匹配 <small class="text-muted">(Glob: linux*, windows*)</small></label>
-              <input v-model="ruleForm.os_pattern" type="text" class="form-control" placeholder="留空匹配全部">
+              <label class="form-label">{{ t('topology_page.os_help') }} <small class="text-muted">(Glob: linux*, windows*)</small></label>
+              <input v-model="ruleForm.os_pattern" type="text" class="form-control" :placeholder="t('topology_page.empty_matches_all')">
             </div>
             <div class="mb-3">
-              <label class="form-label">标签选择器 <small class="text-muted">(JSON: {"env":"prod","role":"web"})</small></label>
-              <input v-model="ruleForm.label_selector" type="text" class="form-control" placeholder="留空不检查标签">
+              <label class="form-label">{{ t('topology_page.label_help') }} <small class="text-muted">(JSON: {"env":"prod","role":"web"})</small></label>
+              <input v-model="ruleForm.label_selector" type="text" class="form-control" :placeholder="t('topology_page.label_placeholder')">
             </div>
             <div class="form-check">
               <input v-model="ruleForm.is_active" type="checkbox" class="form-check-input" id="ruleActiveCheck">
-              <label class="form-check-label" for="ruleActiveCheck">启用此规则</label>
+              <label class="form-check-label" for="ruleActiveCheck">{{ t('topology_page.enable_rule') }}</label>
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-            <button type="button" class="btn btn-primary" @click="saveRule">保存</button>
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('cancel') }}</button>
+            <button type="button" class="btn btn-primary" @click="saveRule">{{ t('save') }}</button>
           </div>
         </div>
       </div>
@@ -350,6 +350,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import TopologyGraph from '../components/TopologyGraph.vue'
+import { useI18n } from '../i18n'
 import {
   getTopologyTree, getEnvironments,
   getDataCenters, createDataCenter, updateDataCenter, deleteDataCenter,
@@ -370,8 +371,13 @@ const form = reactive({ id: null, name: '', alias: '', provider: '', location: '
 const ruleForm = reactive({ id: null, name: '', priority: 0, hostname_pattern: '', ip_pattern: '', fluent_type: '', os_pattern: '', label_selector: '', is_active: true })
 let topoModal = null
 let ruleModal = null
+const { t } = useI18n()
 
-const formTypeLabel = computed(() => ({ dc: '数据中心', region: '区域', cluster: '集群' }[formType.value] || ''))
+const formTypeLabel = computed(() => ({
+  dc: t('topology_page.dc_label'),
+  region: t('topology_page.region_label'),
+  cluster: t('topology_page.cluster_label'),
+}[formType.value] || ''))
 function getTopoModal() {
   if (!topoModal) topoModal = new window.bootstrap.Modal(document.getElementById('topoModal'))
   return topoModal
@@ -422,7 +428,7 @@ async function save() {
 
 async function handleDelete(type, data) {
   const label = data.alias || data.name
-  if (!confirm(`确认删除 ${label}?`)) return
+  if (!confirm(t('topology_page.confirm_delete').replace('{name}', label))) return
   if (type === 'dc') await deleteDataCenter(data.id)
   else if (type === 'region') await deleteRegion(data.id)
   else if (type === 'cluster') await deleteCluster(data.id)
@@ -453,7 +459,7 @@ async function saveRule() {
   loadClusterRules(selected.id)
 }
 async function deleteRule(rule) {
-  if (!confirm(`确认删除规则 ${rule.name}?`)) return
+  if (!confirm(t('topology_page.confirm_delete_rule').replace('{name}', rule.name))) return
   await deleteClusterRule(selected.id, rule.id)
   loadClusterRules(selected.id)
 }

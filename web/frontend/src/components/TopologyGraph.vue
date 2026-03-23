@@ -7,15 +7,15 @@
         <button class="btn btn-outline-secondary" @click="zoomLevel = 1"><i class="bi bi-arrows-fullscreen"></i></button>
       </div>
       <div class="btn-group btn-group-sm me-3">
-        <button class="btn" :class="layout === 'TB' ? 'btn-primary' : 'btn-outline-primary'" @click="layout = 'TB'">从上到下</button>
-        <button class="btn" :class="layout === 'LR' ? 'btn-primary' : 'btn-outline-primary'" @click="layout = 'LR'">从左到右</button>
+        <button class="btn" :class="layout === 'TB' ? 'btn-primary' : 'btn-outline-primary'" @click="layout = 'TB'">{{ t('topology_graph.top_to_bottom') }}</button>
+        <button class="btn" :class="layout === 'LR' ? 'btn-primary' : 'btn-outline-primary'" @click="layout = 'LR'">{{ t('topology_graph.left_to_right') }}</button>
       </div>
       <div class="d-flex align-items-center gap-3 ms-auto small text-muted">
-        <span><i class="bi bi-square-fill text-primary me-1"></i>数据中心</span>
-        <span><i class="bi bi-circle-fill me-1" style="color:#0dcaf0"></i>区域</span>
-        <span><i class="bi bi-diamond-fill text-success me-1"></i>集群</span>
-        <span><i class="bi bi-diamond-fill me-1" style="color:#6f42c1"></i>默认集群</span>
-        <span><i class="bi bi-diamond-fill me-1" style="color:#fd7e14"></i>异常集群</span>
+        <span><i class="bi bi-square-fill text-primary me-1"></i>{{ t('topology_graph.datacenter') }}</span>
+        <span><i class="bi bi-circle-fill me-1" style="color:#0dcaf0"></i>{{ t('topology_graph.region') }}</span>
+        <span><i class="bi bi-diamond-fill text-success me-1"></i>{{ t('topology_graph.cluster') }}</span>
+        <span><i class="bi bi-diamond-fill me-1" style="color:#6f42c1"></i>{{ t('topology_graph.default_cluster') }}</span>
+        <span><i class="bi bi-diamond-fill me-1" style="color:#fd7e14"></i>{{ t('topology_graph.unhealthy_cluster') }}</span>
       </div>
     </div>
     <v-chart
@@ -30,6 +30,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
+import { useI18n } from '../i18n'
 import { use } from 'echarts/core'
 import { TreeChart } from 'echarts/charts'
 import { TooltipComponent } from 'echarts/components'
@@ -43,6 +44,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['select'])
+const { t } = useI18n()
 
 const chartRef = ref(null)
 const layout = ref('TB')
@@ -51,7 +53,7 @@ const zoomLevel = ref(1)
 function buildTreeData(tree) {
   if (!tree || tree.length === 0) {
     return [{
-      name: '暂无数据中心，请在管理视图中创建',
+      name: t('topology_graph.no_datacenter'),
       itemStyle: { color: '#ccc', borderColor: '#ccc' },
       label: { color: '#999' },
     }]
@@ -90,7 +92,7 @@ function buildTreeData(tree) {
 
   if (dcNodes.length === 1) return dcNodes
   return [{
-    name: '基础设施',
+    name: t('topology_graph.infrastructure'),
     itemStyle: { color: '#6c757d', borderColor: '#6c757d' },
     label: { fontWeight: 'bold', fontSize: 14, color: '#333' },
     symbol: 'emptyCircle',
@@ -110,22 +112,22 @@ const chartOption = computed(() => ({
       if (!v) return params.name
       if (v.type === 'dc') {
         const d = v.data
-        return `<b style="color:#0d6efd">■ 数据中心</b><br/><b>${d.alias || d.name}</b><br/>` +
-          `标识: ${d.name}<br/>` +
-          `供应商: ${d.provider || '-'}`
+        return `<b style="color:#0d6efd">■ ${t('topology_graph.datacenter')}</b><br/><b>${d.alias || d.name}</b><br/>` +
+          `${t('topology_graph.identifier')}: ${d.name}<br/>` +
+          `${t('topology_graph.provider')}: ${d.provider || '-'}`
       }
       if (v.type === 'region') {
         const d = v.data
-        return `<b style="color:#0dcaf0">● 区域</b><br/><b>${d.alias || d.name}</b><br/>` +
-          `标识: ${d.name}`
+        return `<b style="color:#0dcaf0">● ${t('topology_graph.region')}</b><br/><b>${d.alias || d.name}</b><br/>` +
+          `${t('topology_graph.identifier')}: ${d.name}`
       }
       if (v.type === 'cluster') {
         const cl = v.data
-        return `<b style="color:#198754">◆ 集群</b><br/><b>${cl.alias || cl.name}</b><br/>` +
-          (cl.environment ? `环境: <span style="color:${cl.env_color}">● ${cl.environment}</span><br/>` : '') +
-          `节点: <b>${cl.online_count}</b> 在线 / ${cl.node_count} 总计` +
-          (cl.is_default ? '<br/><b style="color:#6f42c1">★ 默认集群</b>' : '') +
-          '<br/><small style="color:#999">点击查看详情</small>'
+        return `<b style="color:#198754">◆ ${t('topology_graph.cluster')}</b><br/><b>${cl.alias || cl.name}</b><br/>` +
+          (cl.environment ? `${t('topology_graph.environment')}: <span style="color:${cl.env_color}">● ${cl.environment}</span><br/>` : '') +
+          `${t('common.nodes')}: <b>${cl.online_count}</b> ${t('topology_graph.node_online')} / ${cl.node_count} ${t('topology_graph.node_total')}` +
+          (cl.is_default ? `<br/><b style="color:#6f42c1">★ ${t('topology_graph.default_cluster')}</b>` : '') +
+          `<br/><small style="color:#999">${t('topology_graph.click_detail')}</small>`
       }
       return params.name
     },

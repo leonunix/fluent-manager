@@ -60,7 +60,32 @@ func main() {
 	defer monitor.Stop()
 
 	// Service layer
-	svc := services.NewRegistry(models.DB)
+	fluentSharedKeySecret := cfg.Fluent.SharedKeySecret
+	if fluentSharedKeySecret == "" {
+		fluentSharedKeySecret = cfg.Auth.JWTSecret
+	}
+	svc := services.NewRegistry(models.DB, fluentSharedKeySecret, services.AgentSettings{
+		HeartbeatInterval:   cfg.Agent.HeartbeatInterval,
+		MetricsInterval:     cfg.Agent.MetricsInterval,
+		LogUploadInterval:   cfg.Agent.LogUploadInterval,
+		LogBufferLines:      cfg.Agent.LogBufferLines,
+		HealthPort:          cfg.Agent.HealthPort,
+		MaxRetries:          cfg.Agent.MaxRetries,
+		RetryBaseDelay:      cfg.Agent.RetryBaseDelay,
+		FluentType:          cfg.Agent.FluentType,
+		FluentConfigPath:    cfg.Agent.FluentConfigPath,
+		FluentConfigDir:     cfg.Agent.FluentConfigDir,
+		FluentBinary:        cfg.Agent.FluentBinary,
+		FluentServiceUnit:   cfg.Agent.FluentServiceUnit,
+		FluentRestartCmd:    cfg.Agent.FluentRestartCmd,
+		FluentReloadCmd:     cfg.Agent.FluentReloadCmd,
+		FluentDryRunCmd:     cfg.Agent.FluentDryRunCmd,
+		FluentLogPath:       cfg.Agent.FluentLogPath,
+		FluentMetricsURL:    cfg.Agent.FluentMetricsURL,
+		FluentMetricsFormat: cfg.Agent.FluentMetricsFormat,
+		BackupDir:           cfg.Agent.BackupDir,
+		MaxBackups:          cfg.Agent.MaxBackups,
+	})
 
 	// Handlers
 	authHandler := &handlers.AuthHandler{JWT: jwtSvc, LDAP: ldapAuth, SAML: samlAuth, Svc: svc.Auth}
@@ -68,9 +93,12 @@ func main() {
 	roleHandler := &handlers.RoleHandler{Svc: svc.Role}
 	nodeHandler := &handlers.NodeHandler{Svc: svc.Node}
 	topoHandler := &handlers.TopologyHandler{Svc: svc.Topology}
+	fluentHandler := &handlers.FluentHandler{Svc: svc.Fluent, NodeSvc: svc.Node}
+	fluentOpsHandler := &handlers.FluentOpsHandler{Svc: svc.FluentOps}
 	configHandler := &handlers.ConfigHandler{Svc: svc.Config}
 	deployHandler := &handlers.DeployHandler{Svc: svc.Deploy}
 	agentHandler := &handlers.AgentHandler{Svc: svc.Agent, NodeSvc: svc.Node}
+	agentPolicyHandler := &handlers.AgentPolicyHandler{Svc: svc.AgentPolicy, NodeSvc: svc.Node}
 	metricsHandler := &handlers.MetricsHandler{Svc: svc.Metrics, TopoSvc: svc.Topology}
 
 	// Router
@@ -200,6 +228,30 @@ func main() {
 		authed.GET("/users/:id/scopes", middleware.RequirePermission("users", "read"), topoHandler.ListUserScopes)
 		authed.PUT("/users/:id/scopes", middleware.RequirePermission("users", "update"), topoHandler.SetUserScopes)
 
+		// Fluent aggregation groups
+		aggGroups := authed.Group("/aggregation-groups")
+		{
+			aggGroups.GET("", middleware.RequirePermission("topology", "read"), fluentHandler.ListAggregationGroups)
+			aggGroups.GET("/deleted", middleware.RequirePermission("topology", "read"), fluentHandler.ListDeletedAggregationGroups)
+			aggGroups.GET("/:id", middleware.RequirePermission("topology", "read"), fluentHandler.GetAggregationGroup)
+			aggGroups.POST("", middleware.RequirePermission("topology", "create"), fluentHandler.CreateAggregationGroup)
+			aggGroups.PUT("/:id", middleware.RequirePermission("topology", "update"), fluentHandler.UpdateAggregationGroup)
+			aggGroups.DELETE("/:id", middleware.RequirePermission("topology", "delete"), fluentHandler.DeleteAggregationGroup)
+			aggGroups.POST("/:id/restore", middleware.RequirePermission("topology", "update"), fluentHandler.RestoreAggregationGroup)
+			aggGroups.GET("/:id/metrics", middleware.RequirePermission("topology", "read"), fluentOpsHandler.AggregationGroupMetrics)
+		}
+
+		// Fluent log pipelines and flow graph
+		pipelines := authed.Group("/log-pipelines")
+		{
+			pipelines.GET("", middleware.RequirePermission("topology", "read"), fluentOpsHandler.ListPipelines)
+			pipelines.GET("/graph", middleware.RequirePermission("topology", "read"), fluentOpsHandler.PipelineGraph)
+			pipelines.GET("/:id", middleware.RequirePermission("topology", "read"), fluentOpsHandler.GetPipeline)
+			pipelines.POST("", middleware.RequirePermission("topology", "create"), fluentOpsHandler.CreatePipeline)
+			pipelines.PUT("/:id", middleware.RequirePermission("topology", "update"), fluentOpsHandler.UpdatePipeline)
+			pipelines.DELETE("/:id", middleware.RequirePermission("topology", "delete"), fluentOpsHandler.DeletePipeline)
+		}
+
 		// Nodes
 		nodes := authed.Group("/nodes")
 		{
@@ -214,6 +266,8 @@ func main() {
 			nodes.GET("/:id/logs", middleware.RequirePermission("nodes", "read"), agentHandler.GetNodeLogs)
 			nodes.POST("/:id/commands", middleware.RequirePermission("nodes", "update"), agentHandler.SendCommand)
 			nodes.GET("/:id/commands", middleware.RequirePermission("nodes", "read"), agentHandler.ListNodeCommands)
+			nodes.GET("/:id/fluent-profile", middleware.RequirePermission("nodes", "read"), fluentHandler.GetNodeProfile)
+			nodes.PUT("/:id/fluent-profile", middleware.RequirePermission("nodes", "update"), fluentHandler.UpdateNodeProfile)
 		}
 
 		// Config Templates
@@ -227,6 +281,24 @@ func main() {
 			configs.GET("/templates/:id/versions", middleware.RequirePermission("configs", "read"), configHandler.ListVersions)
 			configs.POST("/templates/:id/versions", middleware.RequirePermission("configs", "create"), configHandler.CreateVersion)
 			configs.GET("/versions/:version_id", middleware.RequirePermission("configs", "read"), configHandler.GetVersion)
+			configs.GET("/modules", middleware.RequirePermission("configs", "read"), configHandler.ListModules)
+			configs.GET("/modules/:id", middleware.RequirePermission("configs", "read"), configHandler.GetModule)
+			configs.POST("/modules", middleware.RequirePermission("configs", "create"), configHandler.CreateModule)
+			configs.PUT("/modules/:id", middleware.RequirePermission("configs", "update"), configHandler.UpdateModule)
+			configs.DELETE("/modules/:id", middleware.RequirePermission("configs", "delete"), configHandler.DeleteModule)
+			configs.GET("/modules/:id/versions", middleware.RequirePermission("configs", "read"), configHandler.ListModuleVersions)
+			configs.POST("/modules/:id/versions", middleware.RequirePermission("configs", "create"), configHandler.CreateModuleVersion)
+			configs.POST("/rendered-configs/preview", middleware.RequirePermission("configs", "read"), configHandler.PreviewRenderedConfig)
+			configs.GET("/rendered-configs/:id", middleware.RequirePermission("configs", "read"), configHandler.GetRenderedConfig)
+		}
+
+		analysis := authed.Group("/config-analysis")
+		{
+			analysis.POST("/lint", middleware.RequirePermission("configs", "read"), fluentOpsHandler.LintConfig)
+			analysis.POST("/replay", middleware.RequirePermission("configs", "read"), fluentOpsHandler.ReplayConfig)
+			analysis.POST("/diff", middleware.RequirePermission("configs", "read"), fluentOpsHandler.SemanticDiff)
+			analysis.POST("/compatibility", middleware.RequirePermission("configs", "read"), fluentOpsHandler.CheckCompatibility)
+			analysis.GET("/:id", middleware.RequirePermission("configs", "read"), fluentOpsHandler.GetAnalysisResult)
 		}
 
 		// Deployments
@@ -243,6 +315,23 @@ func main() {
 			metrics.GET("/overview", middleware.RequirePermission("nodes", "read"), metricsHandler.Overview)
 			metrics.GET("/top-nodes", middleware.RequirePermission("nodes", "read"), metricsHandler.TopNodes)
 			metrics.GET("/by-datacenter", middleware.RequirePermission("nodes", "read"), metricsHandler.ByDatacenter)
+		}
+
+		runtime := authed.Group("/runtime")
+		{
+			runtime.GET("/drift", middleware.RequirePermission("nodes", "read"), fluentOpsHandler.RuntimeDrift)
+			runtime.GET("/health/graph", middleware.RequirePermission("nodes", "read"), fluentOpsHandler.RuntimeHealthGraph)
+			runtime.GET("/recommendations", middleware.RequirePermission("nodes", "read"), fluentOpsHandler.RuntimeRecommendations)
+		}
+
+		agentPolicies := authed.Group("/agent-policies")
+		{
+			agentPolicies.GET("", middleware.RequirePermission("configs", "read"), agentPolicyHandler.List)
+			agentPolicies.GET("/:id", middleware.RequirePermission("configs", "read"), agentPolicyHandler.Get)
+			agentPolicies.POST("", middleware.RequirePermission("configs", "update"), agentPolicyHandler.Create)
+			agentPolicies.PUT("/:id", middleware.RequirePermission("configs", "update"), agentPolicyHandler.Update)
+			agentPolicies.DELETE("/:id", middleware.RequirePermission("configs", "update"), agentPolicyHandler.Delete)
+			agentPolicies.GET("/resolve/:node_id", middleware.RequirePermission("nodes", "read"), agentPolicyHandler.ResolveForNode)
 		}
 
 		// Audit Logs
