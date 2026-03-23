@@ -10,8 +10,9 @@ Enterprise-grade centralized management platform for Fluent Bit / Fluentd agents
 ```
 ┌──────────────┐     ┌──────────────────────────────────────────────┐
 │  Vue 3 SPA   │────▶│  Go Server (Gin)                             │
-│  (ECharts)   │     │  ├── Auth (JWT / LDAP / SAML)                │
-└──────────────┘     │  ├── Handlers (REST API)                     │
+│  (TypeScript) │     │  ├── Auth (JWT / LDAP / SAML)                │
+│  (ECharts)   │     │  ├── Handlers (REST API, HTTP only)           │
+└──────────────┘     │  ├── Services (business logic, interfaces)    │
                      │  ├── Middleware (RBAC + Scope + Audit)        │
                      │  └── Models (GORM: SQLite / MySQL / Postgres) │
                      └──────────────────┬───────────────────────────┘
@@ -27,42 +28,72 @@ Enterprise-grade centralized management platform for Fluent Bit / Fluentd agents
 
 ## Tech Stack
 
-- **Backend**: Go 1.22, Gin, GORM, JWT/LDAP/SAML auth
-- **Frontend**: Vue 3, Vite, Bootstrap 5, ECharts, Pinia, Axios
+- **Backend**: Go 1.22, Gin, GORM, JWT/LDAP/SAML auth, layered (handler → service → model)
+- **Frontend**: Vue 3, Vite, TypeScript, Bootstrap 5, ECharts, Pinia, Axios
 - **Database**: SQLite (dev), MySQL / PostgreSQL (prod)
 - **Agent**: Go binary with heartbeat, metrics, command execution
 
 ## Project Structure
 
 ```
-cmd/server/main.go           # Server entry point, route registration
+cmd/server/main.go           # Server entry point, route registration, service wiring
 internal/
   agent/monitor.go            # Heartbeat monitor, offline detection
   auth/                       # JWT, LDAP, SAML services
+  cache/redis.go              # Redis cache (optional, graceful fallback)
   config/config.go            # YAML config loader
-  handlers/                   # REST API handlers
+  handlers/                   # REST API handlers (HTTP parsing + response only)
     agent_handler.go          # Agent register, heartbeat, commands
     auth_handler.go           # Login, profile, password
     config_handler.go         # Config templates + versions
     deploy_handler.go         # Deployment tasks
+    metrics_handler.go        # Aggregated metrics endpoints
     node_handler.go           # Node CRUD (scope-filtered)
     topology_handler.go       # DC/Region/Cluster/Environment + match rules + user scopes
     role_handler.go           # Roles + permissions
     user_handler.go           # User CRUD
+  services/                   # Business logic layer (interface + implementation)
+    services.go               # Registry, NewRegistry(db), ErrHasChildren
+    auth_service.go           # AuthService: login, LDAP user, password
+    user_service.go           # UserService: CRUD + bcrypt
+    role_service.go           # RoleService: CRUD + permissions
+    topology_service.go       # TopologyService: DC/Region/Cluster/Env/MatchRule/Scope/Tree
+    node_service.go           # NodeService: CRUD + scope filter + stats
+    config_service.go         # ConfigService: templates + versions
+    deploy_service.go         # DeployService: deploy tasks + audit logs
+    agent_service.go          # AgentService: register/heartbeat/command/log
+    metrics_service.go        # MetricsService: aggregation + cache
   middleware/
     auth.go                   # JWTAuth, RequirePermission, ScopeFilter, AgentAuth
     audit.go                  # Audit logging middleware
-  models/
-    models.go                 # All GORM models
+  models/                     # GORM models (split by domain)
+    auth.go                   # User, Role, Permission, UserScope
+    topology.go               # DataCenter, Region, Cluster, Environment, ClusterMatchRule
+    node.go                   # Node, NodeMetrics, RemoteCommand, NodeLog
+    config.go                 # ConfigTemplate, ConfigVersion
+    deploy.go                 # DeployTask, DeployRecord
+    audit.go                  # AuditLog
     database.go               # DB init, migrations, seed data
     scope.go                  # ClusterMatchRule matching, AllowedClusterIDs
 agent-client/                 # Distributed agent (separate Go module)
-web/frontend/                 # Vue 3 SPA
-  src/api/index.js            # All API endpoints
-  src/router/index.js         # Vue Router config
-  src/views/                  # Page components
+web/frontend/                 # Vue 3 SPA (TypeScript)
+  tsconfig.json               # TypeScript configuration
+  src/types/                  # Type definitions (auth, topology, node, config, deploy, audit, common)
+  src/api/                    # API modules (split by domain, typed)
+    client.ts                 # Axios instance + interceptors
+    auth.ts                   # Auth API
+    users.ts, roles.ts        # User/Role API
+    topology.ts               # DC/Region/Cluster/Env/MatchRule/Scope API
+    nodes.ts                  # Node API
+    configs.ts                # Config template/version API
+    deploys.ts, metrics.ts    # Deploy/Metrics API
+    audit.ts                  # Audit log API
+    index.ts                  # Barrel re-export (backward compatible)
+  src/router/index.ts         # Vue Router config
+  src/views/                  # Page components (.vue, not yet lang="ts")
   src/components/             # Reusable components (TopologyGraph)
-  src/store/auth.js           # Pinia auth store
+  src/store/auth.ts           # Pinia auth store
+  src/i18n/                   # i18n (index.ts + zh/en/ja.js)
 ```
 
 ## Data Model (Topology Hierarchy)
@@ -123,7 +154,7 @@ make frontend                  # npm install + build
 - Server: `config.yaml` (see `config.yaml.example`)
 - Agent: `agent.yaml` (see `agent.yaml.example`)
 
-Key server config sections: `server`, `database`, `auth` (jwt/ldap/saml), `agent` (heartbeat/api_key), `log`
+Key server config sections: `server`, `database`, `auth` (jwt/ldap/saml), `agent` (heartbeat/api_key), `cache` (redis, optional), `log`
 
 ## API Routes
 
@@ -158,12 +189,26 @@ All under `/api/v1`:
 | Roles | `/roles` | Role + permission management |
 | Audit Logs | `/audit` | Paginated audit trail |
 
+## Layering Convention
+
+```text
+Handler (HTTP) → Service (business logic, interface) → Model (GORM/DB)
+```
+
+- **Handlers** only parse requests, extract auth context, call service, return HTTP response
+- **Services** contain all business logic; each has an interface for testability
+- **Models** are pure GORM structs split by domain; `database.go` handles init/seed, `scope.go` handles RBAC scope resolution
+- Services are initialized via `services.NewRegistry(db)` in `main.go` and injected into handlers
+- `scope.go` functions (`AllowedClusterIDs`, `AutoAssignCluster`) still use global `models.DB` (to be refactored later)
+
 ## Development Notes
 
 - Database auto-migrates on startup. Delete `fluent_manager.db` to reset SQLite.
 - Default admin: `admin` / `admin123`
 - Agent API key is in config.yaml `agent.api_key`
 - Frontend dev server proxies `/api` to `http://localhost:8080`
+- Frontend uses TypeScript (`strict: false` for incremental adoption); Vue components remain JS (`<script setup>` without `lang="ts"`)
 - ECharts is lazy-loaded per component (tree in Topology, pie+bar in Dashboard)
 - Match rules are evaluated by priority (lower number = higher priority) on agent registration
 - Scope filtering is applied via `ScopeFilter` middleware; handlers use `middleware.GetAllowedClusters(c)`
+- Redis cache is optional; metrics service falls back to direct DB queries if cache is disabled
