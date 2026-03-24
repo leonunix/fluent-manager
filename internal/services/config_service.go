@@ -97,6 +97,7 @@ type ConfigService interface {
 	CreateModule(input *ConfigModuleInput, createdBy uint) (*models.ConfigModule, error)
 	UpdateModule(id uint, input *ConfigModuleInput) (*models.ConfigModule, error)
 	DeleteModule(id uint) error
+	DeleteModules(ids []uint) error
 	ListModuleVersions(moduleID uint) ([]models.ConfigModuleVersion, error)
 	CreateModuleVersion(moduleID, createdBy uint, content, variables, comment string) (*models.ConfigModuleVersion, error)
 	PreviewRenderedConfig(input *RenderedConfigPreviewInput, createdBy uint) (*models.RenderedConfig, error)
@@ -105,6 +106,18 @@ type ConfigService interface {
 
 type configService struct {
 	db *gorm.DB
+}
+
+type sourceModuleRef struct {
+	ModuleID   uint   `json:"module_id"`
+	ModuleName string `json:"module_name"`
+	ModuleType string `json:"module_type"`
+}
+
+type moduleUsageRef struct {
+	kind string
+	name string
+	id   uint
 }
 
 func NewConfigService(db *gorm.DB) ConfigService {
@@ -142,7 +155,12 @@ func (s *configService) CreateTemplate(input *ConfigTemplateInput, createdBy uin
 		return nil, err
 	}
 	tpl.CreatedBy = createdBy
-	if err := s.db.Create(&tpl).Error; err != nil {
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := purgeSoftDeletedTemplateName(tx, tpl.Name, 0); err != nil {
+			return err
+		}
+		return tx.Create(&tpl).Error
+	}); err != nil {
 		return nil, err
 	}
 	return tpl, nil
@@ -158,16 +176,23 @@ func (s *configService) UpdateTemplate(id uint, input *ConfigTemplateInput) (*mo
 	if err := s.db.First(&tpl, id).Error; err != nil {
 		return nil, err
 	}
-	s.db.Model(&tpl).Updates(map[string]interface{}{
-		"name":           next.Name,
-		"description":    next.Description,
-		"fluent_type":    next.FluentType,
-		"content":        next.Content,
-		"variables":      next.Variables,
-		"source_type":    next.SourceType,
-		"source_modules": next.SourceModules,
-		"flow_layout":    next.FlowLayout,
-	})
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := purgeSoftDeletedTemplateName(tx, next.Name, tpl.ID); err != nil {
+			return err
+		}
+		return tx.Model(&tpl).Updates(map[string]interface{}{
+			"name":           next.Name,
+			"description":    next.Description,
+			"fluent_type":    next.FluentType,
+			"content":        next.Content,
+			"variables":      next.Variables,
+			"source_type":    next.SourceType,
+			"source_modules": next.SourceModules,
+			"flow_layout":    next.FlowLayout,
+		}).Error
+	}); err != nil {
+		return nil, err
+	}
 	return s.GetTemplate(id)
 }
 
@@ -176,8 +201,12 @@ func (s *configService) DeleteTemplate(id uint) error {
 	if err := s.db.First(&tpl, id).Error; err != nil {
 		return err
 	}
-	s.db.Where("template_id = ?", id).Delete(&models.ConfigVersion{})
-	return s.db.Delete(&tpl).Error
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Unscoped().Where("template_id = ?", id).Delete(&models.ConfigVersion{}).Error; err != nil {
+			return err
+		}
+		return tx.Unscoped().Delete(&tpl).Error
+	})
 }
 
 func (s *configService) ListVersions(templateID uint) ([]models.ConfigVersion, error) {
@@ -234,14 +263,18 @@ func (s *configService) ListModules(fluentType, moduleType, search string, page,
 		query = query.Where("module_type = ?", moduleType)
 	}
 	if search != "" {
-		query = query.Where("name LIKE ? OR description LIKE ?", "%"+search+"%", "%"+search+"%")
+		keyword := "%" + strings.TrimSpace(search) + "%"
+		query = query.Where(
+			`name LIKE ? OR description LIKE ? OR module_type LIKE ? OR fluent_type LIKE ? OR preset_kind LIKE ? OR preset_key LIKE ? OR content LIKE ? OR variables LIKE ?`,
+			keyword, keyword, keyword, keyword, keyword, keyword, keyword, keyword,
+		)
 	}
 
 	var total int64
 	query.Model(&models.ConfigModule{}).Count(&total)
 
 	var modules []models.ConfigModule
-	err := query.Order("module_type ASC, name ASC").
+	err := query.Order("created_at DESC, id DESC").
 		Offset((page - 1) * pageSize).
 		Limit(pageSize).
 		Find(&modules).Error
@@ -262,7 +295,12 @@ func (s *configService) CreateModule(input *ConfigModuleInput, createdBy uint) (
 		return nil, err
 	}
 	module.CreatedBy = createdBy
-	if err := s.db.Create(module).Error; err != nil {
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := purgeSoftDeletedModuleIdentity(tx, module.Name, module.ModuleType, module.FluentType, 0); err != nil {
+			return err
+		}
+		return tx.Create(module).Error
+	}); err != nil {
 		return nil, err
 	}
 	return module, nil
@@ -286,17 +324,22 @@ func (s *configService) UpdateModule(id uint, input *ConfigModuleInput) (*models
 		module.PresetKey = current.PresetKey
 	}
 
-	if err := s.db.Model(&current).Updates(map[string]interface{}{
-		"name":        module.Name,
-		"description": module.Description,
-		"module_type": module.ModuleType,
-		"fluent_type": module.FluentType,
-		"content":     module.Content,
-		"variables":   module.Variables,
-		"is_builtin":  module.IsBuiltin,
-		"preset_kind": module.PresetKind,
-		"preset_key":  module.PresetKey,
-	}).Error; err != nil {
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := purgeSoftDeletedModuleIdentity(tx, module.Name, module.ModuleType, module.FluentType, current.ID); err != nil {
+			return err
+		}
+		return tx.Model(&current).Updates(map[string]interface{}{
+			"name":        module.Name,
+			"description": module.Description,
+			"module_type": module.ModuleType,
+			"fluent_type": module.FluentType,
+			"content":     module.Content,
+			"variables":   module.Variables,
+			"is_builtin":  module.IsBuiltin,
+			"preset_kind": module.PresetKind,
+			"preset_key":  module.PresetKey,
+		}).Error
+	}); err != nil {
 		return nil, err
 	}
 
@@ -304,12 +347,219 @@ func (s *configService) UpdateModule(id uint, input *ConfigModuleInput) (*models
 }
 
 func (s *configService) DeleteModule(id uint) error {
-	var module models.ConfigModule
-	if err := s.db.First(&module, id).Error; err != nil {
+	return s.DeleteModules([]uint{id})
+}
+
+func (s *configService) DeleteModules(ids []uint) error {
+	if len(ids) == 0 {
+		return fmt.Errorf("%w: at least one module id is required", ErrInvalidArgument)
+	}
+
+	uniqueIDs := make([]uint, 0, len(ids))
+	seen := make(map[uint]struct{}, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			return fmt.Errorf("%w: invalid module id 0", ErrInvalidArgument)
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		uniqueIDs = append(uniqueIDs, id)
+	}
+
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var modules []models.ConfigModule
+		if err := tx.Where("id IN ?", uniqueIDs).Find(&modules).Error; err != nil {
+			return err
+		}
+		if len(modules) != len(uniqueIDs) {
+			return gorm.ErrRecordNotFound
+		}
+
+		var builtinNames []string
+		for _, module := range modules {
+			if module.IsBuiltin {
+				builtinNames = append(builtinNames, module.Name)
+			}
+		}
+		if len(builtinNames) > 0 {
+			sort.Strings(builtinNames)
+			return fmt.Errorf("%w: builtin modules cannot be deleted: %s", ErrForbidden, strings.Join(builtinNames, ", "))
+		}
+
+		moduleUsages, err := findModuleUsageRefs(tx, uniqueIDs)
+		if err != nil {
+			return err
+		}
+		if len(moduleUsages) > 0 {
+			usedNames := make([]string, 0, len(moduleUsages))
+			for _, module := range modules {
+				usages := moduleUsages[module.ID]
+				if len(usages) == 0 {
+					continue
+				}
+				usedNames = append(usedNames, fmt.Sprintf("%s(%s)", module.Name, summarizeModuleUsageRefs(usages)))
+			}
+			if len(usedNames) > 0 {
+				sort.Strings(usedNames)
+				return fmt.Errorf("%w: modules are still referenced by templates or versions: %s", ErrForbidden, strings.Join(usedNames, ", "))
+			}
+		}
+
+		if err := tx.Unscoped().Where("module_id IN ?", uniqueIDs).Delete(&models.ConfigModuleVersion{}).Error; err != nil {
+			return err
+		}
+		return tx.Unscoped().Delete(&models.ConfigModule{}, uniqueIDs).Error
+	})
+}
+
+func purgeSoftDeletedModuleIdentity(tx *gorm.DB, name, moduleType, fluentType string, excludeID uint) error {
+	query := tx.Unscoped().
+		Where("name = ? AND module_type = ? AND fluent_type = ? AND deleted_at IS NOT NULL", name, moduleType, fluentType)
+	if excludeID > 0 {
+		query = query.Where("id <> ?", excludeID)
+	}
+
+	var stale []models.ConfigModule
+	if err := query.Find(&stale).Error; err != nil {
 		return err
 	}
-	s.db.Where("module_id = ?", id).Delete(&models.ConfigModuleVersion{})
-	return s.db.Delete(&module).Error
+	if len(stale) == 0 {
+		return nil
+	}
+
+	ids := make([]uint, 0, len(stale))
+	for _, item := range stale {
+		ids = append(ids, item.ID)
+	}
+
+	if err := tx.Unscoped().Where("module_id IN ?", ids).Delete(&models.ConfigModuleVersion{}).Error; err != nil {
+		return err
+	}
+	return tx.Unscoped().Delete(&models.ConfigModule{}, ids).Error
+}
+
+func purgeSoftDeletedTemplateName(tx *gorm.DB, name string, excludeID uint) error {
+	query := tx.Unscoped().
+		Where("name = ? AND deleted_at IS NOT NULL", name)
+	if excludeID > 0 {
+		query = query.Where("id <> ?", excludeID)
+	}
+
+	var stale []models.ConfigTemplate
+	if err := query.Find(&stale).Error; err != nil {
+		return err
+	}
+	if len(stale) == 0 {
+		return nil
+	}
+
+	ids := make([]uint, 0, len(stale))
+	for _, item := range stale {
+		ids = append(ids, item.ID)
+	}
+
+	if err := tx.Unscoped().Where("template_id IN ?", ids).Delete(&models.ConfigVersion{}).Error; err != nil {
+		return err
+	}
+	return tx.Unscoped().Delete(&models.ConfigTemplate{}, ids).Error
+}
+
+func findModuleUsageRefs(tx *gorm.DB, moduleIDs []uint) (map[uint][]moduleUsageRef, error) {
+	usageByModuleID := make(map[uint][]moduleUsageRef, len(moduleIDs))
+	targets := make(map[uint]struct{}, len(moduleIDs))
+	for _, id := range moduleIDs {
+		targets[id] = struct{}{}
+	}
+
+	var templates []models.ConfigTemplate
+	if err := tx.Where("source_type = ? AND source_modules <> ''", "module_assembly").Find(&templates).Error; err != nil {
+		return nil, err
+	}
+	for _, tpl := range templates {
+		attachModuleUsageRefs(usageByModuleID, targets, tpl.SourceModules, moduleUsageRef{
+			kind: "template",
+			name: tpl.Name,
+			id:   tpl.ID,
+		})
+	}
+
+	var versions []models.ConfigVersion
+	if err := tx.Preload("Template").Where("source_type = ? AND source_modules <> ''", "module_assembly").Find(&versions).Error; err != nil {
+		return nil, err
+	}
+	for _, version := range versions {
+		label := fmt.Sprintf("template version #%d", version.ID)
+		if version.Template != nil && strings.TrimSpace(version.Template.Name) != "" {
+			label = fmt.Sprintf("%s v%d", version.Template.Name, version.Version)
+		}
+		attachModuleUsageRefs(usageByModuleID, targets, version.SourceModules, moduleUsageRef{
+			kind: "version",
+			name: label,
+			id:   version.ID,
+		})
+	}
+
+	return usageByModuleID, nil
+}
+
+func attachModuleUsageRefs(dst map[uint][]moduleUsageRef, targets map[uint]struct{}, sourceModules string, usage moduleUsageRef) {
+	refs := parseSourceModuleRefs(sourceModules)
+	if len(refs) == 0 {
+		return
+	}
+
+	seen := make(map[uint]struct{}, len(refs))
+	for _, ref := range refs {
+		if ref.ModuleID == 0 {
+			continue
+		}
+		if _, exists := targets[ref.ModuleID]; !exists {
+			continue
+		}
+		if _, exists := seen[ref.ModuleID]; exists {
+			continue
+		}
+		seen[ref.ModuleID] = struct{}{}
+		dst[ref.ModuleID] = append(dst[ref.ModuleID], usage)
+	}
+}
+
+func parseSourceModuleRefs(raw string) []sourceModuleRef {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var refs []sourceModuleRef
+	if err := json.Unmarshal([]byte(raw), &refs); err != nil {
+		return nil
+	}
+	return refs
+}
+
+func summarizeModuleUsageRefs(usages []moduleUsageRef) string {
+	if len(usages) == 0 {
+		return ""
+	}
+
+	parts := make([]string, 0, len(usages))
+	seen := make(map[string]struct{}, len(usages))
+	for _, usage := range usages {
+		label := usage.kind
+		if strings.TrimSpace(usage.name) != "" {
+			label = fmt.Sprintf("%s:%s", usage.kind, usage.name)
+		}
+		if _, exists := seen[label]; exists {
+			continue
+		}
+		seen[label] = struct{}{}
+		parts = append(parts, label)
+	}
+	sort.Strings(parts)
+	if len(parts) > 3 {
+		return strings.Join(parts[:3], "; ") + fmt.Sprintf(" and %d more", len(parts)-3)
+	}
+	return strings.Join(parts, "; ")
 }
 
 func (s *configService) ListModuleVersions(moduleID uint) ([]models.ConfigModuleVersion, error) {
@@ -404,10 +654,7 @@ func (s *configService) PreviewRenderedConfig(input *RenderedConfigPreviewInput,
 	sort.SliceStable(parts, func(i, j int) bool {
 		left := moduleTypeOrder[parts[i].module.ModuleType]
 		right := moduleTypeOrder[parts[j].module.ModuleType]
-		if left != right {
-			return left < right
-		}
-		return parts[i].module.Name < parts[j].module.Name
+		return left < right
 	})
 
 	var sections []string

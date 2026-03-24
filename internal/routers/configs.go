@@ -20,6 +20,7 @@ func registerConfigRoutes(authed *gin.RouterGroup, h *allHandlers) {
 		configs.GET("/modules", middleware.RequirePermission("configs", "read"), h.Config.ListModules)
 		configs.GET("/modules/:id", middleware.RequirePermission("configs", "read"), h.Config.GetModule)
 		configs.POST("/modules", middleware.RequirePermission("configs", "create"), h.Config.CreateModule)
+		configs.POST("/modules/batch-delete", middleware.RequirePermission("configs", "delete"), h.Config.DeleteModules)
 		configs.PUT("/modules/:id", middleware.RequirePermission("configs", "update"), h.Config.UpdateModule)
 		configs.DELETE("/modules/:id", middleware.RequirePermission("configs", "delete"), h.Config.DeleteModule)
 		configs.GET("/modules/:id/versions", middleware.RequirePermission("configs", "read"), h.Config.ListModuleVersions)

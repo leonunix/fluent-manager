@@ -14,6 +14,7 @@ export const getModule = (id: number) => api.get(`/configs/modules/${id}`)
 export const createModule = (data: Record<string, any>) => api.post('/configs/modules', data)
 export const updateModule = (id: number, data: Record<string, any>) => api.put(`/configs/modules/${id}`, data)
 export const deleteModule = (id: number) => api.delete(`/configs/modules/${id}`)
+export const deleteModules = (ids: number[]) => api.post('/configs/modules/batch-delete', { ids })
 export const getModuleVersions = (moduleId: number) => api.get(`/configs/modules/${moduleId}/versions`)
 export const createModuleVersion = (moduleId: number, data: Record<string, any>) => api.post(`/configs/modules/${moduleId}/versions`, data)
 

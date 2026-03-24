@@ -209,6 +209,10 @@ type ConfigModuleRequest struct {
 	PresetKey   string `json:"preset_key"`
 }
 
+type DeleteModulesRequest struct {
+	IDs []uint `json:"ids" binding:"required"`
+}
+
 func (h *ConfigHandler) CreateModule(c *gin.Context) {
 	var req ConfigModuleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -267,6 +271,23 @@ func (h *ConfigHandler) DeleteModule(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "module deleted"})
+}
+
+func (h *ConfigHandler) DeleteModules(c *gin.Context) {
+	var req DeleteModulesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := h.Svc.DeleteModules(req.IDs); err != nil {
+		writeConfigError(c, err, "module")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"message": "modules deleted",
+		"count":   len(req.IDs),
+	})
 }
 
 type CreateModuleVersionRequest struct {
@@ -346,6 +367,8 @@ func writeConfigError(c *gin.Context, err error, resource string) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	case errors.Is(err, services.ErrConflict):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+	case errors.Is(err, services.ErrForbidden):
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 	case errors.Is(err, gorm.ErrRecordNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": resource + " not found"})
 	default:

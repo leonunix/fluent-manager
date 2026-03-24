@@ -106,27 +106,56 @@ type matchRule struct {
 
 var wildcardRegexCache sync.Map
 var importNameTokenRegex = regexp.MustCompile(`[^a-z0-9]+`)
+var importVariableTokenRegex = regexp.MustCompile(`[^a-z0-9_]+`)
 var importExtractableKeySet = map[string]bool{
-	"flush":       true,
-	"log_level":   true,
-	"workers":     true,
-	"path":        true,
-	"tag":         true,
-	"db":          true,
-	"db_path":     true,
-	"db.sync":     true,
-	"pos_file":    true,
-	"parser":      true,
-	"match":       true,
-	"host":        true,
-	"port":        true,
-	"uri":         true,
-	"endpoint":    true,
-	"index":       true,
-	"brokers":     true,
-	"time_key":    true,
-	"time_format": true,
-	"format":      true,
+	"flush":               true,
+	"log_level":           true,
+	"workers":             true,
+	"path":                true,
+	"tag":                 true,
+	"db":                  true,
+	"db_path":             true,
+	"db.sync":             true,
+	"db_sync":             true,
+	"pos_file":            true,
+	"parser":              true,
+	"match":               true,
+	"host":                true,
+	"port":                true,
+	"uri":                 true,
+	"endpoint":            true,
+	"index":               true,
+	"index_name":          true,
+	"brokers":             true,
+	"topic":               true,
+	"topics":              true,
+	"tenant_id":           true,
+	"labels":              true,
+	"http_user":           true,
+	"http_passwd":         true,
+	"http_password":       true,
+	"user":                true,
+	"password":            true,
+	"scheme":              true,
+	"tls":                 true,
+	"tls.verify":          true,
+	"tls_verify":          true,
+	"ssl_verify":          true,
+	"logstash_format":     true,
+	"logstash_prefix":     true,
+	"logstash_dateformat": true,
+	"generate_id":         true,
+	"retry_limit":         true,
+	"replace_dots":        true,
+	"suppress_type_name":  true,
+	"trace_error":         true,
+	"http_method":         true,
+	"serializer":          true,
+	"default_topic":       true,
+	"output_data_type":    true,
+	"format":              true,
+	"time_key":            true,
+	"time_format":         true,
 }
 
 func (s *fluentOpsService) ImportExistingConfig(input *ConfigImportInput) (*ConfigImportResult, error) {
@@ -153,6 +182,11 @@ func (s *fluentOpsService) ImportExistingConfig(input *ConfigImportInput) (*Conf
 	}
 	modules, matchedExisting, reusedExisting := s.attachImportReuseSuggestions(modules)
 	modules, destinations := s.attachImportDestinationSuggestions(fluentType, modules)
+	importMode, autoAssembleSupported, workspaceOnlyReason := classifyImportedConfigMode(modules)
+	suggestedTemplateName := prefix + "-assembly"
+	if !autoAssembleSupported {
+		suggestedTemplateName = prefix + "-assets"
+	}
 
 	flowPath := buildImportedFlowPath(modules, destinations)
 	templateDraftContent := buildImportedTemplateDraft(modules)
@@ -168,25 +202,30 @@ func (s *fluentOpsService) ImportExistingConfig(input *ConfigImportInput) (*Conf
 	}
 	validationSummary := fmt.Sprintf("%s; lint: %s", semanticDiff.Summary, lintSummary)
 	flowLayout := map[string]interface{}{
-		"builder":                "config_import",
-		"import_mode":            "existing_config",
-		"name_prefix":            prefix,
-		"path":                   flowPath,
-		"suggested_template":     prefix + "-assembly",
-		"module_count":           len(modules),
-		"matched_existing_count": matchedExisting,
-		"reused_existing_count":  reusedExisting,
-		"destination_count":      len(destinations),
-		"destinations":           destinations,
-		"retained_warnings":      uniqueSorted(warnings),
-		"validation_verdict":     verdict,
+		"builder":                 "config_import",
+		"import_mode":             importMode,
+		"auto_assemble_supported": autoAssembleSupported,
+		"workspace_only_reason":   workspaceOnlyReason,
+		"name_prefix":             prefix,
+		"path":                    flowPath,
+		"suggested_template":      suggestedTemplateName,
+		"module_count":            len(modules),
+		"matched_existing_count":  matchedExisting,
+		"reused_existing_count":   reusedExisting,
+		"destination_count":       len(destinations),
+		"destinations":            destinations,
+		"retained_warnings":       uniqueSorted(warnings),
+		"validation_verdict":      verdict,
 	}
 
 	return &ConfigImportResult{
 		FluentType:            fluentType,
 		NamePrefix:            prefix,
-		Summary:               fmt.Sprintf("extracted %d module draft(s) from the imported %s config, with %d reusable match(es)", len(modules), fluentType, reusedExisting),
-		SuggestedTemplateName: prefix + "-assembly",
+		ImportMode:            importMode,
+		AutoAssembleSupported: autoAssembleSupported,
+		WorkspaceOnlyReason:   workspaceOnlyReason,
+		Summary:               buildImportedConfigSummary(fluentType, modules, reusedExisting, autoAssembleSupported),
+		SuggestedTemplateName: suggestedTemplateName,
 		Warnings:              uniqueSorted(warnings),
 		Modules:               modules,
 		Destinations:          destinations,
@@ -205,6 +244,27 @@ func (s *fluentOpsService) ImportExistingConfig(input *ConfigImportInput) (*Conf
 	}, nil
 }
 
+func classifyImportedConfigMode(modules []ImportedConfigModule) (string, bool, string) {
+	hasPipelineStage := false
+	for _, module := range modules {
+		switch module.ModuleType {
+		case "input", "filter", "route", "output":
+			hasPipelineStage = true
+		}
+	}
+	if hasPipelineStage {
+		return "existing_config", true, ""
+	}
+	return "workspace_assets", false, "imported content contains only global assets such as service/parser blocks, so it will be stored in the module workspace without auto-assembling a runnable config template"
+}
+
+func buildImportedConfigSummary(fluentType string, modules []ImportedConfigModule, reusedExisting int, autoAssembleSupported bool) string {
+	if autoAssembleSupported {
+		return fmt.Sprintf("extracted %d module draft(s) from the imported %s config, with %d reusable match(es)", len(modules), fluentType, reusedExisting)
+	}
+	return fmt.Sprintf("extracted %d reusable global asset module(s) from the imported %s config; these assets will be stored in the workspace without auto-assembling a pipeline template", len(modules), fluentType)
+}
+
 func (s *fluentOpsService) attachImportReuseSuggestions(modules []ImportedConfigModule) ([]ImportedConfigModule, int, int) {
 	if len(modules) == 0 {
 		return modules, 0, 0
@@ -217,6 +277,10 @@ func (s *fluentOpsService) attachImportReuseSuggestions(modules []ImportedConfig
 
 	matched, reused := 0, 0
 	for index := range modules {
+		if modules[index].ModuleType == "output" {
+			modules[index].ImportAction = "create_new"
+			continue
+		}
 		match := findReusableImportedModule(modules[index], existing)
 		if match == nil {
 			modules[index].ImportAction = "create_new"
@@ -1160,6 +1224,11 @@ func mapFluentdBlockToModuleType(block fluentdBlock) (string, string) {
 }
 
 func buildImportedModuleName(prefix, moduleType, plugin string, order int) string {
+	if moduleType == "parser" {
+		if parserName := sanitizeImportNameToken(plugin); parserName != "" {
+			return parserName
+		}
+	}
 	base := []string{sanitizeImportNameToken(prefix), sanitizeImportNameToken(plugin), sanitizeImportNameToken(moduleType)}
 	tokens := make([]string, 0, len(base))
 	for _, token := range base {
@@ -1471,11 +1540,13 @@ func parseImportLine(line, runtime string) (string, string, string, bool) {
 
 func shouldExtractImportKey(key string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(key))
+	normalized = strings.ReplaceAll(normalized, ".", "_")
+	normalized = strings.ReplaceAll(normalized, "-", "_")
 	return importExtractableKeySet[normalized]
 }
 
 func uniqueImportVariableKey(key string, used map[string]int) string {
-	base := sanitizeImportNameToken(strings.ReplaceAll(strings.ToLower(strings.TrimSpace(key)), ".", "_"))
+	base := sanitizeImportVariableToken(strings.ReplaceAll(strings.ToLower(strings.TrimSpace(key)), ".", "_"))
 	if base == "" {
 		base = "value"
 	}
@@ -1484,6 +1555,19 @@ func uniqueImportVariableKey(key string, used map[string]int) string {
 		return base
 	}
 	return fmt.Sprintf("%s_%d", base, used[base])
+}
+
+func sanitizeImportVariableToken(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return ""
+	}
+	value = importVariableTokenRegex.ReplaceAllString(value, "_")
+	value = strings.Trim(value, "_")
+	for strings.Contains(value, "__") {
+		value = strings.ReplaceAll(value, "__", "_")
+	}
+	return value
 }
 
 func normalizeImportedVariableValue(raw string) interface{} {

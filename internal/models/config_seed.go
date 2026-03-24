@@ -106,7 +106,7 @@ func seedBuiltinConfigModules(db *gorm.DB) {
 			Description: "Send logs to an OpenSearch cluster with reusable destination variables.",
 			ModuleType:  "output",
 			FluentType:  "fluentbit",
-			Variables:   `{"match":"*","host":"opensearch.internal","port":9200,"index":"logs-%Y.%m.%d","http_user":"admin","http_password":"changeme","tls":"On","replace_dots":"On"}`,
+			Variables:   `{"match":"*","host":"opensearch.internal","port":9200,"http_user":"admin","http_passwd":"changeme","suppress_type_name":"On","replace_dots":"On","trace_error":"On","tls":"On","tls_verify":"Off","logstash_format":"On","logstash_prefix":"logs","logstash_dateformat":"%Y.%m.%d","retry_limit":10,"generate_id":"On"}`,
 			PresetKind:  "output",
 			PresetKey:   "opensearch",
 			Content: `[OUTPUT]
@@ -114,11 +114,18 @@ func seedBuiltinConfigModules(db *gorm.DB) {
     Match          {{ .match }}
     Host           {{ .host }}
     Port           {{ .port }}
-    Index          {{ .index }}
     HTTP_User      {{ .http_user }}
-    HTTP_Passwd    {{ .http_password }}
+    HTTP_Passwd    {{ .http_passwd }}
+    Suppress_Type_Name {{ .suppress_type_name }}
+    Replace_Dots   {{ .replace_dots }}
+    Trace_Error    {{ .trace_error }}
     tls            {{ .tls }}
-    Replace_Dots   {{ .replace_dots }}`,
+    tls.verify     {{ .tls_verify }}
+    Logstash_Format {{ .logstash_format }}
+    Logstash_Prefix {{ .logstash_prefix }}
+    Logstash_DateFormat {{ .logstash_dateformat }}
+    Retry_Limit    {{ .retry_limit }}
+    Generate_ID    {{ .generate_id }}`,
 		},
 		{
 			Name:        "guided-fb-output-loki",
@@ -216,7 +223,7 @@ func seedBuiltinConfigModules(db *gorm.DB) {
 			Description: "Send Fluentd events to OpenSearch with reusable destination settings.",
 			ModuleType:  "output",
 			FluentType:  "fluentd",
-			Variables:   `{"match":"**","host":"opensearch.internal","port":9200,"scheme":"https","index_name":"logs","user":"admin","password":"changeme"}`,
+			Variables:   `{"match":"**","host":"opensearch.internal","port":9200,"scheme":"https","index_name":"logs","user":"admin","password":"changeme","ssl_verify":"false"}`,
 			PresetKind:  "output",
 			PresetKey:   "opensearch",
 			Content: `<match {{ .match }}>
@@ -227,6 +234,7 @@ func seedBuiltinConfigModules(db *gorm.DB) {
   index_name {{ .index_name }}
   user {{ .user }}
   password {{ .password }}
+  ssl_verify {{ .ssl_verify }}
 </match>`,
 		},
 		{
@@ -280,6 +288,16 @@ func seedBuiltinConfigModules(db *gorm.DB) {
 		var existing ConfigModule
 		err := db.Where("name = ? AND module_type = ? AND fluent_type = ?", seed.Name, seed.ModuleType, seed.FluentType).First(&existing).Error
 		if err == nil {
+			if existing.IsBuiltin {
+				db.Model(&existing).Updates(map[string]interface{}{
+					"description": seed.Description,
+					"content":     seed.Content,
+					"variables":   seed.Variables,
+					"preset_kind": seed.PresetKind,
+					"preset_key":  seed.PresetKey,
+					"is_builtin":  true,
+				})
+			}
 			continue
 		}
 		if err != nil && err != gorm.ErrRecordNotFound {

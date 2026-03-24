@@ -181,6 +181,139 @@ func TestLintConfigPersistsFindings(t *testing.T) {
 	}
 }
 
+func TestLintConfigDetectsUndefinedFluentBitParser(t *testing.T) {
+	_, svc := setupFluentOpsTest(t)
+
+	result, err := svc.LintConfig(&ConfigLintInput{
+		FluentType: "fluentbit",
+		Content: `[INPUT]
+  Name tail
+  Path /var/log/app.log
+  Parser missing_parser
+
+[OUTPUT]
+  Name stdout
+  Match *`,
+	}, 1)
+	if err != nil {
+		t.Fatalf("lint: %v", err)
+	}
+
+	if !containsFinding(result.Findings, "PARSER_UNDEFINED") {
+		t.Fatalf("expected PARSER_UNDEFINED finding, got %#v", result.Findings)
+	}
+}
+
+func TestLintConfigWarnsWhenParserDependsOnExternalFile(t *testing.T) {
+	_, svc := setupFluentOpsTest(t)
+
+	result, err := svc.LintConfig(&ConfigLintInput{
+		FluentType: "fluentbit",
+		Content: `[SERVICE]
+  Parsers_File /etc/td-agent-bit/custom_parsers.conf
+
+[INPUT]
+  Name tail
+  Path /var/log/app.log
+  Parser openstack_reqid
+
+[OUTPUT]
+  Name stdout
+  Match *`,
+	}, 1)
+	if err != nil {
+		t.Fatalf("lint: %v", err)
+	}
+
+	if !containsFinding(result.Findings, "PARSER_EXTERNAL_VERIFY") {
+		t.Fatalf("expected PARSER_EXTERNAL_VERIFY finding, got %#v", result.Findings)
+	}
+}
+
+func TestLintConfigDetectsUndefinedFluentdParseBlock(t *testing.T) {
+	_, svc := setupFluentOpsTest(t)
+
+	result, err := svc.LintConfig(&ConfigLintInput{
+		FluentType: "fluentd",
+		Content: `<source>
+  @type tail
+  path /var/log/app.log
+  <parse>
+    time_key time
+  </parse>
+</source>
+
+<match app.**>
+  @type stdout
+</match>`,
+	}, 1)
+	if err != nil {
+		t.Fatalf("lint: %v", err)
+	}
+
+	if !containsFinding(result.Findings, "PARSER_UNDEFINED") {
+		t.Fatalf("expected PARSER_UNDEFINED finding, got %#v", result.Findings)
+	}
+}
+
+func TestLintConfigDetectsFluentdParserPluginWithoutNestedParse(t *testing.T) {
+	_, svc := setupFluentOpsTest(t)
+
+	result, err := svc.LintConfig(&ConfigLintInput{
+		FluentType: "fluentd",
+		Content: `<filter app.**>
+  @type parser
+  key_name log
+</filter>
+
+<match app.**>
+  @type stdout
+</match>`,
+	}, 1)
+	if err != nil {
+		t.Fatalf("lint: %v", err)
+	}
+
+	if !containsFinding(result.Findings, "PARSER_UNDEFINED") {
+		t.Fatalf("expected PARSER_UNDEFINED finding, got %#v", result.Findings)
+	}
+}
+
+func TestLintConfigAcceptsFluentdParseFormatShorthand(t *testing.T) {
+	_, svc := setupFluentOpsTest(t)
+
+	result, err := svc.LintConfig(&ConfigLintInput{
+		FluentType: "fluentd",
+		Content: `<source>
+  @type tail
+  path /var/log/app.log
+  <parse>
+    format json
+  </parse>
+</source>
+
+<match app.**>
+  @type stdout
+</match>`,
+	}, 1)
+	if err != nil {
+		t.Fatalf("lint: %v", err)
+	}
+
+	if containsFinding(result.Findings, "PARSER_UNDEFINED") {
+		t.Fatalf("did not expect PARSER_UNDEFINED finding, got %#v", result.Findings)
+	}
+}
+
+func containsFinding(findings []models.ConfigAnalysisFinding, ruleCode string) bool {
+	for _, finding := range findings {
+		if finding.RuleCode == ruleCode {
+			return true
+		}
+	}
+	return false
+}
+
 func TestImportExistingConfigForFluentBit(t *testing.T) {
 	_, svc := setupFluentOpsTest(t)
 
@@ -225,6 +358,45 @@ func TestImportExistingConfigForFluentBit(t *testing.T) {
 	}
 	if strings.TrimSpace(result.TemplateDraftContent) == "" {
 		t.Fatal("expected template draft content")
+	}
+}
+
+func TestImportExistingParserLibraryUsesWorkspaceAssetMode(t *testing.T) {
+	_, svc := setupFluentOpsTest(t)
+
+	result, err := svc.ImportExistingConfig(&ConfigImportInput{
+		FluentType: "fluentbit",
+		NamePrefix: "legacy-parsers",
+		Content: `[PARSER]
+  Name apache
+  Format regex
+  Regex ^(?<message>.*)$
+
+[PARSER]
+  Name nginx
+  Format regex
+  Regex ^(?<message>.*)$`,
+	})
+	if err != nil {
+		t.Fatalf("import existing config: %v", err)
+	}
+	if result.ImportMode != "workspace_assets" {
+		t.Fatalf("expected workspace_assets import mode, got %q", result.ImportMode)
+	}
+	if result.AutoAssembleSupported {
+		t.Fatal("expected auto assembly to be disabled for parser-only import")
+	}
+	if len(result.Modules) != 2 {
+		t.Fatalf("expected 2 parser modules, got %d", len(result.Modules))
+	}
+	if result.Modules[0].Name != "apache" {
+		t.Fatalf("expected parser module name to use parser Name directly, got %q", result.Modules[0].Name)
+	}
+	if result.Modules[1].Name != "nginx" {
+		t.Fatalf("expected parser module name to use parser Name directly, got %q", result.Modules[1].Name)
+	}
+	if result.SuggestedTemplateName != "legacy-parsers-assets" {
+		t.Fatalf("expected asset-oriented suggested name, got %q", result.SuggestedTemplateName)
 	}
 }
 
@@ -301,6 +473,39 @@ func TestImportExistingConfigMatchesExistingOutputTarget(t *testing.T) {
 	}
 	if result.Modules[0].OutputTargetName != "openstack-opensearch" {
 		t.Fatalf("expected output module to carry destination metadata, got %#v", result.Modules[0])
+	}
+}
+
+func TestImportExistingConfigSanitizesVariableKeysForTemplateRendering(t *testing.T) {
+	_, svc := setupFluentOpsTest(t)
+
+	result, err := svc.ImportExistingConfig(&ConfigImportInput{
+		FluentType: "fluentbit",
+		NamePrefix: "legacy-service",
+		Content: `[SERVICE]
+    Flush 1
+    DB.Sync normal
+    Log-Level info`,
+	})
+	if err != nil {
+		t.Fatalf("import existing config: %v", err)
+	}
+	if len(result.Modules) != 1 {
+		t.Fatalf("expected 1 imported module, got %d", len(result.Modules))
+	}
+	module := result.Modules[0]
+	if !strings.Contains(module.Content, "{{ .db_sync }}") {
+		t.Fatalf("expected dotted key to become underscore placeholder, got %q", module.Content)
+	}
+	if !strings.Contains(module.Content, "{{ .log_level }}") {
+		t.Fatalf("expected dashed key to become underscore placeholder, got %q", module.Content)
+	}
+	if _, err := renderModuleTemplate(module.Content, map[string]interface{}{
+		"flush":     1,
+		"db_sync":   "normal",
+		"log_level": "info",
+	}); err != nil {
+		t.Fatalf("expected imported module template to render successfully, got %v", err)
 	}
 }
 

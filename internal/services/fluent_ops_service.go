@@ -115,6 +115,9 @@ type ConfigImportValidation struct {
 type ConfigImportResult struct {
 	FluentType            string                      `json:"fluent_type"`
 	NamePrefix            string                      `json:"name_prefix"`
+	ImportMode            string                      `json:"import_mode"`
+	AutoAssembleSupported bool                        `json:"auto_assemble_supported"`
+	WorkspaceOnlyReason   string                      `json:"workspace_only_reason,omitempty"`
 	Summary               string                      `json:"summary"`
 	SuggestedTemplateName string                      `json:"suggested_template_name"`
 	Warnings              []string                    `json:"warnings"`
@@ -997,6 +1000,13 @@ func lintConfigContent(fluentType, content string) []models.ConfigAnalysisFindin
 		})
 	}
 
+	if fluentType == "fluentbit" {
+		findings = append(findings, lintFluentBitParserReferences(content)...)
+	}
+	if fluentType == "fluentd" {
+		findings = append(findings, lintFluentdParserDefinitions(content)...)
+	}
+
 	if len(findings) == 0 {
 		findings = append(findings, models.ConfigAnalysisFinding{
 			Severity:   "info",
@@ -1008,6 +1018,200 @@ func lintConfigContent(fluentType, content string) []models.ConfigAnalysisFindin
 	}
 
 	return findings
+}
+
+type parserReference struct {
+	Name string
+	Line int
+	Key  string
+}
+
+func lintFluentBitParserReferences(content string) []models.ConfigAnalysisFinding {
+	blocks := parseFluentBitBlocks(content)
+	if len(blocks) == 0 {
+		return nil
+	}
+
+	lines := strings.Split(content, "\n")
+	definedParsers := make(map[string]struct{})
+	parserFiles := make([]string, 0, 2)
+	references := make([]parserReference, 0, 8)
+	seenRef := make(map[string]struct{})
+
+	for _, block := range blocks {
+		switch block.Kind {
+		case "SERVICE":
+			for key, value := range block.Fields {
+				if strings.EqualFold(strings.TrimSpace(key), "parsers_file") && strings.TrimSpace(value) != "" {
+					parserFiles = append(parserFiles, strings.TrimSpace(value))
+				}
+			}
+		case "PARSER":
+			name := strings.TrimSpace(firstNonEmpty(block.Fields["name"], block.Fields["format"]))
+			if name != "" {
+				definedParsers[strings.ToLower(name)] = struct{}{}
+			}
+		}
+
+		for key, value := range block.Fields {
+			normalizedKey := strings.ToLower(strings.TrimSpace(key))
+			if !isFluentBitParserReferenceKey(normalizedKey) {
+				continue
+			}
+			parserName := strings.TrimSpace(value)
+			if parserName == "" {
+				continue
+			}
+			dedupeKey := normalizedKey + "::" + strings.ToLower(parserName)
+			if _, exists := seenRef[dedupeKey]; exists {
+				continue
+			}
+			seenRef[dedupeKey] = struct{}{}
+			references = append(references, parserReference{
+				Name: parserName,
+				Line: firstLineForField(lines, normalizedKey, parserName),
+				Key:  normalizedKey,
+			})
+		}
+	}
+
+	findings := make([]models.ConfigAnalysisFinding, 0, len(references))
+	for _, ref := range references {
+		if _, exists := definedParsers[strings.ToLower(ref.Name)]; exists {
+			continue
+		}
+		if len(parserFiles) > 0 {
+			findings = append(findings, models.ConfigAnalysisFinding{
+				Severity:   "warning",
+				RuleCode:   "PARSER_EXTERNAL_VERIFY",
+				Message:    fmt.Sprintf("parser %q is referenced by %s but not defined in the current config body", ref.Name, ref.Key),
+				Suggestion: fmt.Sprintf("confirm that %q is declared in Parsers_File: %s", ref.Name, strings.Join(uniqueSorted(parserFiles), ", ")),
+				Line:       ref.Line,
+			})
+			continue
+		}
+		findings = append(findings, models.ConfigAnalysisFinding{
+			Severity:   "error",
+			RuleCode:   "PARSER_UNDEFINED",
+			Message:    fmt.Sprintf("parser %q is referenced by %s but no parser definition was found", ref.Name, ref.Key),
+			Suggestion: "add a [PARSER] block or declare the parser through Parsers_File before deployment",
+			Line:       ref.Line,
+		})
+	}
+
+	return findings
+}
+
+func lintFluentdParserDefinitions(content string) []models.ConfigAnalysisFinding {
+	blocks := parseFluentdBlocks(content)
+	if len(blocks) == 0 {
+		return nil
+	}
+
+	lines := strings.Split(content, "\n")
+	findings := make([]models.ConfigAnalysisFinding, 0, 4)
+	seen := make(map[string]struct{})
+
+	for _, block := range blocks {
+		switch {
+		case block.Kind == "parse":
+			parserType := strings.TrimSpace(firstNonEmpty(block.Plugin, findFluentdFieldValue(block.Raw, "format")))
+			if parserType != "" {
+				continue
+			}
+			line := firstLineOfBlock(lines, block.Raw)
+			key := fmt.Sprintf("parse-missing-type:%d", line)
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			findings = append(findings, models.ConfigAnalysisFinding{
+				Severity:   "error",
+				RuleCode:   "PARSER_UNDEFINED",
+				Message:    "a <parse> block is declared but no parser type was found",
+				Suggestion: "set @type inside <parse> (for example json, regexp, nginx) before deployment",
+				Line:       line,
+			})
+		case block.Plugin == "parser" && !strings.Contains(strings.ToLower(block.Raw), "<parse"):
+			line := firstLineOfBlock(lines, block.Raw)
+			key := fmt.Sprintf("parser-plugin-missing-parse:%d", line)
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			findings = append(findings, models.ConfigAnalysisFinding{
+				Severity:   "error",
+				RuleCode:   "PARSER_UNDEFINED",
+				Message:    "a Fluentd parser block is configured without a nested <parse> definition",
+				Suggestion: "add a nested <parse> block with @type so the parser stage is fully defined",
+				Line:       line,
+			})
+		}
+	}
+
+	return findings
+}
+
+func isFluentBitParserReferenceKey(key string) bool {
+	switch key {
+	case "parser", "parser_firstline", "parser_n", "multiline.parser":
+		return true
+	default:
+		return strings.HasPrefix(key, "parser_")
+	}
+}
+
+func findFluentdFieldValue(raw, key string) string {
+	key = strings.TrimSpace(strings.ToLower(key))
+	for _, line := range strings.Split(raw, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		parts := strings.Fields(trimmed)
+		if len(parts) < 2 {
+			continue
+		}
+		if strings.ToLower(parts[0]) != key {
+			continue
+		}
+		return strings.TrimSpace(strings.TrimPrefix(trimmed, parts[0]))
+	}
+	return ""
+}
+
+func firstLineForField(lines []string, key, value string) int {
+	key = strings.ToLower(strings.TrimSpace(key))
+	value = strings.TrimSpace(value)
+	for i, raw := range lines {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, ";") {
+			continue
+		}
+		parts := strings.Fields(trimmed)
+		if len(parts) < 2 {
+			continue
+		}
+		if strings.ToLower(parts[0]) != key {
+			continue
+		}
+		if strings.TrimSpace(strings.TrimPrefix(trimmed, parts[0])) == value {
+			return i + 1
+		}
+	}
+	return firstLineContaining(lines, value)
+}
+
+func firstLineOfBlock(lines []string, raw string) int {
+	blockLines := strings.Split(raw, "\n")
+	for _, line := range blockLines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		return firstLineContaining(lines, trimmed)
+	}
+	return 1
 }
 
 func buildLintSummary(findings []models.ConfigAnalysisFinding) string {

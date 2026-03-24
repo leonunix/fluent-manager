@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -148,6 +149,80 @@ func TestDeleteTemplate(t *testing.T) {
 	}
 }
 
+func TestDeleteTemplateAllowsRecreateSameName(t *testing.T) {
+	db, svc := setupConfigTest(t)
+
+	created, err := svc.CreateTemplate(&ConfigTemplateInput{
+		Name:       "reusable-template",
+		FluentType: "fluentbit",
+		Content:    "[INPUT]\n  Name tail",
+	}, 1)
+	if err != nil {
+		t.Fatalf("create template: %v", err)
+	}
+
+	if err := svc.DeleteTemplate(created.ID); err != nil {
+		t.Fatalf("delete template: %v", err)
+	}
+
+	recreated, err := svc.CreateTemplate(&ConfigTemplateInput{
+		Name:       "reusable-template",
+		FluentType: "fluentbit",
+		Content:    "[INPUT]\n  Name tail\n  Tag app.logs",
+	}, 1)
+	if err != nil {
+		t.Fatalf("recreate template with same name: %v", err)
+	}
+	if recreated.ID == created.ID {
+		t.Fatalf("expected recreated template to be a fresh row, got same id %d", recreated.ID)
+	}
+
+	var total int64
+	db.Unscoped().Model(&models.ConfigTemplate{}).Where("name = ?", "reusable-template").Count(&total)
+	if total != 1 {
+		t.Fatalf("expected exactly one persisted template row, got %d", total)
+	}
+}
+
+func TestCreateTemplatePurgesLegacySoftDeletedName(t *testing.T) {
+	db, svc := setupConfigTest(t)
+
+	legacy := models.ConfigTemplate{
+		Name:       "legacy-imported-template",
+		FluentType: "fluentbit",
+		Content:    "[SERVICE]\n  Flush 1",
+	}
+	if err := db.Create(&legacy).Error; err != nil {
+		t.Fatalf("seed legacy template: %v", err)
+	}
+	if err := db.Delete(&legacy).Error; err != nil {
+		t.Fatalf("soft delete legacy template: %v", err)
+	}
+
+	created, err := svc.CreateTemplate(&ConfigTemplateInput{
+		Name:       "legacy-imported-template",
+		FluentType: "fluentbit",
+		Content:    "[SERVICE]\n  Flush 5",
+	}, 1)
+	if err != nil {
+		t.Fatalf("create template after soft delete: %v", err)
+	}
+
+	var rows []models.ConfigTemplate
+	if err := db.Unscoped().
+		Where("name = ?", "legacy-imported-template").
+		Order("id ASC").
+		Find(&rows).Error; err != nil {
+		t.Fatalf("query rows: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected legacy tombstone to be purged, got %d rows", len(rows))
+	}
+	if rows[0].ID != created.ID || rows[0].DeletedAt.Valid {
+		t.Fatalf("expected only the new active template row to remain, got %+v", rows[0])
+	}
+}
+
 func TestCreateVersion(t *testing.T) {
 	_, svc := setupConfigTest(t)
 
@@ -266,6 +341,62 @@ func TestCreateModuleAndListModules(t *testing.T) {
 	}
 }
 
+func TestListModulesSearchesOutputFieldsAndReturnsNewestFirst(t *testing.T) {
+	_, svc := setupConfigTest(t)
+
+	older, err := svc.CreateModule(&ConfigModuleInput{
+		Name:        "shared-opensearch-output",
+		Description: "OpenSearch output preset",
+		ModuleType:  "output",
+		FluentType:  "shared",
+		Content:     "[OUTPUT]\n  Name opensearch\n  Host search.internal",
+		Variables:   `{"host":"search.internal","match":"nova.*"}`,
+		PresetKind:  "output",
+		PresetKey:   "opensearch",
+	}, 1)
+	if err != nil {
+		t.Fatalf("create older output module: %v", err)
+	}
+
+	newer, err := svc.CreateModule(&ConfigModuleInput{
+		Name:        "tail-nova-input",
+		Description: "Nova tail input",
+		ModuleType:  "input",
+		FluentType:  "fluentbit",
+		Content:     "[INPUT]\n  Name tail\n  Path /var/log/nova/*.log",
+	}, 1)
+	if err != nil {
+		t.Fatalf("create newer input module: %v", err)
+	}
+
+	modules, total, err := svc.ListModules("", "", "opensearch", 1, 10)
+	if err != nil {
+		t.Fatalf("list modules by preset key search: %v", err)
+	}
+	if total != 1 || len(modules) != 1 || modules[0].ID != older.ID {
+		t.Fatalf("expected opensearch output module to be found, total=%d len=%d first=%+v", total, len(modules), modules)
+	}
+
+	modules, total, err = svc.ListModules("", "", "search.internal", 1, 10)
+	if err != nil {
+		t.Fatalf("list modules by content search: %v", err)
+	}
+	if total != 1 || len(modules) != 1 || modules[0].ID != older.ID {
+		t.Fatalf("expected content search to find output module, total=%d len=%d first=%+v", total, len(modules), modules)
+	}
+
+	modules, total, err = svc.ListModules("", "", "", 1, 10)
+	if err != nil {
+		t.Fatalf("list modules newest first: %v", err)
+	}
+	if total != 2 || len(modules) != 2 {
+		t.Fatalf("expected 2 modules, got total=%d len=%d", total, len(modules))
+	}
+	if modules[0].ID != newer.ID || modules[1].ID != older.ID {
+		t.Fatalf("expected newest module first, got ids %d then %d", modules[0].ID, modules[1].ID)
+	}
+}
+
 func TestCreateModuleRejectsInvalidVariables(t *testing.T) {
 	_, svc := setupConfigTest(t)
 
@@ -304,6 +435,254 @@ func TestCreateModuleVersion(t *testing.T) {
 	}
 	if v1.Version != 1 || v2.Version != 2 {
 		t.Fatalf("expected versions 1 and 2, got %d and %d", v1.Version, v2.Version)
+	}
+}
+
+func TestDeleteModuleRejectsBuiltin(t *testing.T) {
+	_, svc := setupConfigTest(t)
+
+	module, err := svc.CreateModule(&ConfigModuleInput{
+		Name:       "builtin-tail",
+		ModuleType: "input",
+		FluentType: "fluentbit",
+		Content:    "[INPUT]\n  Name tail",
+		IsBuiltin:  true,
+	}, 1)
+	if err != nil {
+		t.Fatalf("create module: %v", err)
+	}
+
+	err = svc.DeleteModule(module.ID)
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("expected ErrForbidden, got %v", err)
+	}
+}
+
+func TestDeleteModulesBatch(t *testing.T) {
+	db, svc := setupConfigTest(t)
+
+	first, err := svc.CreateModule(&ConfigModuleInput{
+		Name:       "batch-filter-1",
+		ModuleType: "filter",
+		FluentType: "shared",
+		Content:    "[FILTER]\n  Name modify",
+	}, 1)
+	if err != nil {
+		t.Fatalf("create first module: %v", err)
+	}
+	second, err := svc.CreateModule(&ConfigModuleInput{
+		Name:       "batch-filter-2",
+		ModuleType: "filter",
+		FluentType: "shared",
+		Content:    "[FILTER]\n  Name modify",
+	}, 1)
+	if err != nil {
+		t.Fatalf("create second module: %v", err)
+	}
+
+	if err := svc.DeleteModules([]uint{first.ID, second.ID, first.ID}); err != nil {
+		t.Fatalf("delete modules: %v", err)
+	}
+
+	var count int64
+	db.Model(&models.ConfigModule{}).Where("id IN ?", []uint{first.ID, second.ID}).Count(&count)
+	if count != 0 {
+		t.Fatalf("expected modules to be deleted, got %d remaining", count)
+	}
+}
+
+func TestDeleteModulesBatchRejectsBuiltin(t *testing.T) {
+	db, svc := setupConfigTest(t)
+
+	regular, err := svc.CreateModule(&ConfigModuleInput{
+		Name:       "regular-filter",
+		ModuleType: "filter",
+		FluentType: "shared",
+		Content:    "[FILTER]\n  Name modify",
+	}, 1)
+	if err != nil {
+		t.Fatalf("create regular module: %v", err)
+	}
+	builtin, err := svc.CreateModule(&ConfigModuleInput{
+		Name:       "builtin-filter",
+		ModuleType: "filter",
+		FluentType: "shared",
+		Content:    "[FILTER]\n  Name modify",
+		IsBuiltin:  true,
+	}, 1)
+	if err != nil {
+		t.Fatalf("create builtin module: %v", err)
+	}
+
+	err = svc.DeleteModules([]uint{regular.ID, builtin.ID})
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("expected ErrForbidden, got %v", err)
+	}
+
+	var count int64
+	db.Model(&models.ConfigModule{}).Where("id IN ?", []uint{regular.ID, builtin.ID}).Count(&count)
+	if count != 2 {
+		t.Fatalf("expected no modules to be deleted, got %d remaining", count)
+	}
+}
+
+func TestDeleteModuleAllowsRecreateSameIdentity(t *testing.T) {
+	db, svc := setupConfigTest(t)
+
+	created, err := svc.CreateModule(&ConfigModuleInput{
+		Name:       "reusable-service-module",
+		ModuleType: "service",
+		FluentType: "fluentbit",
+		Content:    "[SERVICE]\n  Flush 1",
+	}, 1)
+	if err != nil {
+		t.Fatalf("create module: %v", err)
+	}
+
+	if err := svc.DeleteModule(created.ID); err != nil {
+		t.Fatalf("delete module: %v", err)
+	}
+
+	recreated, err := svc.CreateModule(&ConfigModuleInput{
+		Name:       "reusable-service-module",
+		ModuleType: "service",
+		FluentType: "fluentbit",
+		Content:    "[SERVICE]\n  Flush 5",
+	}, 1)
+	if err != nil {
+		t.Fatalf("recreate module with same identity: %v", err)
+	}
+	if recreated.ID == created.ID {
+		t.Fatalf("expected recreated module to be a fresh row, got same id %d", recreated.ID)
+	}
+
+	var total int64
+	db.Unscoped().Model(&models.ConfigModule{}).
+		Where("name = ? AND module_type = ? AND fluent_type = ?", "reusable-service-module", "service", "fluentbit").
+		Count(&total)
+	if total != 1 {
+		t.Fatalf("expected exactly one persisted row after recreate, got %d", total)
+	}
+}
+
+func TestDeleteModuleRejectsTemplateReference(t *testing.T) {
+	_, svc := setupConfigTest(t)
+
+	module, err := svc.CreateModule(&ConfigModuleInput{
+		Name:       "protected-filter",
+		ModuleType: "filter",
+		FluentType: "shared",
+		Content:    "[FILTER]\n  Name modify",
+	}, 1)
+	if err != nil {
+		t.Fatalf("create module: %v", err)
+	}
+
+	_, err = svc.CreateTemplate(&ConfigTemplateInput{
+		Name:          "assembled-template",
+		FluentType:    "fluentbit",
+		Content:       "[FILTER]\n  Name modify",
+		SourceType:    "module_assembly",
+		SourceModules: fmt.Sprintf(`[{"module_id":%d,"module_name":"%s","module_type":"filter"}]`, module.ID, module.Name),
+	}, 1)
+	if err != nil {
+		t.Fatalf("create template: %v", err)
+	}
+
+	err = svc.DeleteModule(module.ID)
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("expected ErrForbidden, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "assembled-template") {
+		t.Fatalf("expected usage detail in error, got %v", err)
+	}
+}
+
+func TestDeleteModuleRejectsTemplateVersionReference(t *testing.T) {
+	_, svc := setupConfigTest(t)
+
+	module, err := svc.CreateModule(&ConfigModuleInput{
+		Name:       "protected-service",
+		ModuleType: "service",
+		FluentType: "fluentbit",
+		Content:    "[SERVICE]\n  Flush 1",
+	}, 1)
+	if err != nil {
+		t.Fatalf("create module: %v", err)
+	}
+
+	template, err := svc.CreateTemplate(&ConfigTemplateInput{
+		Name:          "versioned-template",
+		FluentType:    "fluentbit",
+		Content:       "[SERVICE]\n  Flush 1",
+		SourceType:    "module_assembly",
+		SourceModules: fmt.Sprintf(`[{"module_id":%d,"module_name":"%s","module_type":"service"}]`, module.ID, module.Name),
+	}, 1)
+	if err != nil {
+		t.Fatalf("create template: %v", err)
+	}
+
+	if _, err := svc.CreateVersion(template.ID, 1, "[SERVICE]\n  Flush 1", "initial"); err != nil {
+		t.Fatalf("create version: %v", err)
+	}
+
+	if _, err := svc.UpdateTemplate(template.ID, &ConfigTemplateInput{
+		Name:          "versioned-template",
+		FluentType:    "fluentbit",
+		Content:       "[SERVICE]\n  Flush 5",
+		SourceType:    "module_assembly",
+		SourceModules: `[]`,
+	}); err != nil {
+		t.Fatalf("update template: %v", err)
+	}
+
+	err = svc.DeleteModule(module.ID)
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("expected ErrForbidden, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "versioned-template v1") {
+		t.Fatalf("expected version usage detail in error, got %v", err)
+	}
+}
+
+func TestCreateModulePurgesLegacySoftDeletedIdentity(t *testing.T) {
+	db, svc := setupConfigTest(t)
+
+	legacy := models.ConfigModule{
+		Name:       "legacy-imported-service",
+		ModuleType: "service",
+		FluentType: "fluentbit",
+		Content:    "[SERVICE]\n  Flush 1",
+	}
+	if err := db.Create(&legacy).Error; err != nil {
+		t.Fatalf("seed legacy module: %v", err)
+	}
+	if err := db.Delete(&legacy).Error; err != nil {
+		t.Fatalf("soft delete legacy module: %v", err)
+	}
+
+	created, err := svc.CreateModule(&ConfigModuleInput{
+		Name:       "legacy-imported-service",
+		ModuleType: "service",
+		FluentType: "fluentbit",
+		Content:    "[SERVICE]\n  Flush 10",
+	}, 1)
+	if err != nil {
+		t.Fatalf("create module after legacy soft delete: %v", err)
+	}
+
+	var rows []models.ConfigModule
+	if err := db.Unscoped().
+		Where("name = ? AND module_type = ? AND fluent_type = ?", "legacy-imported-service", "service", "fluentbit").
+		Order("id ASC").
+		Find(&rows).Error; err != nil {
+		t.Fatalf("query rows: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected legacy tombstone to be purged, got %d rows", len(rows))
+	}
+	if rows[0].ID != created.ID || rows[0].DeletedAt.Valid {
+		t.Fatalf("expected only the new active row to remain, got %+v", rows[0])
 	}
 }
 

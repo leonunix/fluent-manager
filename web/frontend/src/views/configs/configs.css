@@ -1,0 +1,201 @@
+.fm-config-tabs .nav-link {
+  border: 0;
+  color: #475569;
+  font-weight: 600;
+  border-radius: 10px;
+}
+
+.fm-config-explainer {
+  border-radius: 12px;
+  background: linear-gradient(135deg, #ecfeff 0%, #f0fdfa 100%);
+  border: 1px solid rgba(13, 148, 136, 0.18);
+  color: #0f172a;
+}
+
+.fm-config-tabs .nav-link.active {
+  background: linear-gradient(135deg, #0f766e 0%, #0d9488 100%);
+  color: #fff;
+}
+
+.fm-module-choice {
+  display: flex;
+  gap: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 14px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.fm-module-choice:hover {
+  border-color: #94a3b8;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+}
+
+.fm-module-choice.selected {
+  border-color: #0d9488;
+  background: linear-gradient(180deg, #f0fdfa 0%, #ecfeff 100%);
+  box-shadow: 0 12px 30px rgba(13, 148, 136, 0.12);
+}
+
+.fm-import-module-card {
+  min-width: 0;
+  padding: 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
+
+.fm-config-textarea {
+  min-width: 0;
+  max-width: 100%;
+  resize: vertical;
+  overflow: auto;
+}
+
+.fm-module-snippet {
+  margin: 0;
+  font-size: 0.75rem;
+  max-width: 100%;
+  max-height: 110px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 10px 12px;
+  border-radius: 10px;
+}
+
+.fm-render-preview {
+  margin: 0;
+  max-width: 100%;
+  max-height: 560px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  background: #0b1120;
+  color: #dbeafe;
+  padding: 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(59, 130, 246, 0.15);
+}
+
+.fm-config-textarea::placeholder {
+  color: #94a3b8;
+  opacity: 1;
+}
+
+.fm-ai-result-box {
+  height: 100%;
+  padding: 1rem 1.05rem;
+  border-radius: 14px;
+  border: 1px solid #d7e2ee;
+  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+}
+
+.fm-ai-result-box__label {
+  margin-bottom: 0.45rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.fm-ai-assistant-feedback {
+  padding: 0.95rem 1rem;
+  border-radius: 14px;
+  border: 1px solid #d7e2ee;
+  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+}
+
+.fm-ai-assistant-feedback.is-success {
+  border-color: #bbf7d0;
+  background: linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%);
+}
+
+.fm-ai-assistant-feedback.is-danger {
+  border-color: #fecaca;
+  background: linear-gradient(180deg, #fef2f2 0%, #ffffff 100%);
+}
+
+.fm-ai-draft-panel {
+  padding: 1rem 1.05rem;
+  border-radius: 14px;
+  border: 1px solid #bfdbfe;
+  background: linear-gradient(180deg, #eff6ff 0%, #ffffff 100%);
+}
+
+.fm-ai-draft-panel__title {
+  margin-bottom: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.fm-ai-draft-diff-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.fm-ai-draft-diff-card {
+  padding: 0.8rem 0.9rem;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.fm-ai-draft-diff-card__label {
+  margin-bottom: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.fm-ai-draft-checklist {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.fm-ai-draft-checklist__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.fm-ai-draft-checklist__item .form-check-input {
+  float: none;
+  margin-top: 0.15rem;
+}
+
+.fm-ai-draft-actions {
+  padding: 0.85rem 0.9rem;
+  border-radius: 12px;
+  border: 1px dashed rgba(59, 130, 246, 0.35);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.fm-ai-draft-highlight {
+  border-color: #93c5fd;
+  background-color: #f8fbff;
+  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.08);
+}
+
+@media (max-width: 991.98px) {
+  .fm-ai-draft-diff-grid {
+    grid-template-columns: 1fr;
+  }
+}
