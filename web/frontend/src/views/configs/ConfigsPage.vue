@@ -3480,6 +3480,9 @@ async function importParsedModules() {
       replayResult.value = null
       diffResult.value = null
       importedWorkspaceTemplate.value = null
+      importedConfigResult.value = null
+      activeTab.value = 'modules'
+      alert(t('configs_page.import_success_assets').replace('{count}', String(created.length)))
       return
     }
 
