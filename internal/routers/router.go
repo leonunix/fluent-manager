@@ -1,7 +1,9 @@
 package routers
 
 import (
+	"io/fs"
 	"log"
+	"net/http"
 
 	"github.com/fluent-manager/fluent-manager/internal/auth"
 	"github.com/fluent-manager/fluent-manager/internal/config"
@@ -19,6 +21,7 @@ type Deps struct {
 	SAMLProvider *auth.SAMLProvider
 	CfgPath      string
 	RestartCh    chan struct{}
+	FrontendFS   fs.FS // non-nil = embedded frontend (all-in-one), nil = API-only
 }
 
 // SetupRouter creates the gin.Engine with all routes registered.
@@ -40,12 +43,28 @@ func SetupRouter(deps Deps) *gin.Engine {
 		c.Next()
 	})
 
-	// Serve frontend static files
-	r.Static("/assets", "./web/frontend/dist/assets")
-	r.StaticFile("/", "./web/frontend/dist/index.html")
-	r.NoRoute(func(c *gin.Context) {
-		c.File("./web/frontend/dist/index.html")
-	})
+	// Serve frontend static files (all-in-one mode only)
+	if deps.FrontendFS != nil {
+		frontendHTTP := http.FS(deps.FrontendFS)
+		r.StaticFS("/assets", http.FS(mustSub(deps.FrontendFS, "assets")))
+		r.GET("/", func(c *gin.Context) {
+			c.FileFromFS("/index.html", frontendHTTP)
+		})
+		r.NoRoute(func(c *gin.Context) {
+			c.FileFromFS("/index.html", frontendHTTP)
+		})
+		// Serve other root-level static files (favicon, brand, etc.)
+		for _, name := range []string{"favicon.ico", "favicon.svg"} {
+			n := name
+			r.GET("/"+n, func(c *gin.Context) {
+				c.FileFromFS("/"+n, frontendHTTP)
+			})
+		}
+		r.StaticFS("/brand", http.FS(mustSub(deps.FrontendFS, "brand")))
+		log.Println("Frontend embedded — serving SPA from binary")
+	} else {
+		log.Println("API-only mode — no frontend served")
+	}
 
 	// SAML routes — always registered; provider delegates dynamically
 	if deps.SAMLProvider != nil {
@@ -131,4 +150,13 @@ func buildHandlers(deps Deps) *allHandlers {
 		Metrics:        &handlers.MetricsHandler{Svc: deps.Svc.Metrics, TopoSvc: deps.Svc.Topology},
 		Setup:          &handlers.SetupHandler{Svc: deps.Svc.Setup, JWT: deps.JWTSvc, CfgPath: deps.CfgPath, RestartCh: deps.RestartCh},
 	}
+}
+
+// mustSub returns a sub-filesystem or panics. Used for embedded frontend subdirectories.
+func mustSub(parent fs.FS, dir string) fs.FS {
+	sub, err := fs.Sub(parent, dir)
+	if err != nil {
+		panic("frontend: missing embedded directory: " + dir)
+	}
+	return sub
 }

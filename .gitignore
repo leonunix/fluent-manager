@@ -1,10 +1,11 @@
 bin/
-server
+/server
 *.db
 *.exe
 vendor/
 web/frontend/node_modules/
 web/frontend/dist/
+cmd/server/frontend_dist/
 config.yaml
 .env
 *.key

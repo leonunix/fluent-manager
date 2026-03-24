@@ -126,6 +126,7 @@ func main() {
 		SAMLProvider: samlProvider,
 		CfgPath:      cfgPath,
 		RestartCh:    restartCh,
+		FrontendFS:   frontendFS,
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
