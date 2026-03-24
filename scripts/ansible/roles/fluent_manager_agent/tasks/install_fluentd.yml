@@ -1,0 +1,66 @@
+---
+# ============================================================================
+# Install Fluentd (td-agent) via official install script
+# ============================================================================
+
+- name: Check if fluentd is already installed
+  ansible.builtin.command: fluentd --version
+  register: fd_check
+  changed_when: false
+  failed_when: false
+
+- name: Check if td-agent is already installed
+  ansible.builtin.command: td-agent --version
+  register: td_check
+  changed_when: false
+  failed_when: false
+  when: fd_check.rc != 0
+
+- name: Install Fluentd (Debian/Ubuntu)
+  when:
+    - fd_check.rc != 0
+    - td_check.rc | default(1) != 0
+    - ansible_os_family == "Debian"
+  block:
+    - name: Download td-agent install script
+      ansible.builtin.get_url:
+        url: "https://toolbelt.treasuredata.com/sh/install-{{ ansible_distribution | lower }}-{{ ansible_distribution_release }}-td-agent5.sh"
+        dest: /tmp/install-td-agent.sh
+        mode: "0755"
+
+    - name: Run td-agent install script
+      ansible.builtin.command: /tmp/install-td-agent.sh
+      changed_when: true
+
+    - name: Clean up install script
+      ansible.builtin.file:
+        path: /tmp/install-td-agent.sh
+        state: absent
+
+- name: Install Fluentd (RedHat/CentOS)
+  when:
+    - fd_check.rc != 0
+    - td_check.rc | default(1) != 0
+    - ansible_os_family == "RedHat"
+  block:
+    - name: Download td-agent install script
+      ansible.builtin.get_url:
+        url: https://toolbelt.treasuredata.com/sh/install-redhat-td-agent4.sh
+        dest: /tmp/install-td-agent.sh
+        mode: "0755"
+
+    - name: Run td-agent install script
+      ansible.builtin.command: /tmp/install-td-agent.sh
+      changed_when: true
+
+    - name: Clean up install script
+      ansible.builtin.file:
+        path: /tmp/install-td-agent.sh
+        state: absent
+
+- name: Enable and start fluentd service
+  ansible.builtin.systemd:
+    name: "{{ 'td-agent' if td_check.rc | default(1) == 0 or fd_check.rc != 0 else 'fluentd' }}"
+    enabled: true
+    state: started
+  when: fd_check.rc != 0 and td_check.rc | default(1) != 0

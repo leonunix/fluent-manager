@@ -1,0 +1,40 @@
+# Fluent Manager Agent Configuration
+# Managed by Ansible - do not edit manually.
+# Generated: {{ ansible_date_time.iso8601 }}
+
+server_url: "{{ fm_server_url }}"
+api_key: "{{ fm_api_key }}"
+{% if fm_node_uid %}
+node_uid: "{{ fm_node_uid }}"
+{% endif %}
+
+fluent_type: "{{ fm_fluent_type }}"
+{% if fm_fluentbit_config_path %}
+fluent_config_path: "{{ fm_fluentbit_config_path }}"
+{% elif fm_fluentd_config_path %}
+fluent_config_path: "{{ fm_fluentd_config_path }}"
+{% endif %}
+{% if fm_fluentbit_service_unit %}
+fluent_service_unit: "{{ fm_fluentbit_service_unit }}"
+{% elif fm_fluentd_service_unit %}
+fluent_service_unit: "{{ fm_fluentd_service_unit }}"
+{% endif %}
+{% if fm_heartbeat_interval %}
+heartbeat_interval: {{ fm_heartbeat_interval }}
+{% endif %}
+{% if fm_metrics_interval %}
+metrics_interval: {{ fm_metrics_interval }}
+{% endif %}
+{% if fm_log_upload_interval %}
+log_upload_interval: {{ fm_log_upload_interval }}
+{% endif %}
+{% if fm_health_port %}
+health_port: {{ fm_health_port }}
+{% endif %}
+{% if fm_labels %}
+labels: '{{ fm_labels }}'
+{% endif %}
+{% if fm_extra_config %}
+
+{{ fm_extra_config }}
+{% endif %}

@@ -1,0 +1,61 @@
+---
+# ============================================================================
+# Example Playbook - Fluent Manager Agent Deployment
+#
+# Usage:
+#   ansible-playbook -i inventory.ini playbook.yml
+#   ansible-playbook -i inventory.ini playbook.yml --limit fluentbit_nodes
+#   ansible-playbook -i inventory.ini playbook.yml --tags configure
+# ============================================================================
+
+# --- Scenario 1: Deploy agent + Fluent Bit (most common) ---
+- name: Deploy Fluent Manager Agent with Fluent Bit
+  hosts: fluentbit_nodes
+  become: true
+  roles:
+    - role: roles/fluent_manager_agent
+      vars:
+        fm_server_url: "https://fm.example.com"
+        fm_api_key: "{{ vault_fm_api_key }}"
+        fm_agent_binary: files/fluent-manager-agent    # pre-built binary on control node
+        fm_fluent_type: fluentbit
+        fm_install_fluentbit: true
+
+# --- Scenario 2: Deploy agent + Fluentd (aggregation layer) ---
+- name: Deploy Fluent Manager Agent with Fluentd
+  hosts: fluentd_nodes
+  become: true
+  roles:
+    - role: roles/fluent_manager_agent
+      vars:
+        fm_server_url: "https://fm.example.com"
+        fm_api_key: "{{ vault_fm_api_key }}"
+        fm_agent_binary: files/fluent-manager-agent
+        fm_fluent_type: fluentd
+        fm_install_fluentd: true
+
+# --- Scenario 3: Download binary from internal artifact server ---
+- name: Deploy agent (download from artifact server)
+  hosts: all
+  become: true
+  roles:
+    - role: roles/fluent_manager_agent
+      vars:
+        fm_server_url: "https://fm.example.com"
+        fm_api_key: "{{ vault_fm_api_key }}"
+        fm_agent_download_url: "https://artifacts.example.com/fluent-manager-agent-linux-amd64"
+        fm_fluent_type: auto
+        fm_install_fluentbit: true
+        fm_labels: '{"env":"production","dc":"{{ datacenter }}"}'
+
+# --- Scenario 4: Minimal - agent only, fluent runtime already installed ---
+- name: Deploy agent only (runtime pre-installed)
+  hosts: preconfigured
+  become: true
+  roles:
+    - role: roles/fluent_manager_agent
+      vars:
+        fm_server_url: "https://fm.example.com"
+        fm_api_key: "{{ vault_fm_api_key }}"
+        fm_agent_binary: files/fluent-manager-agent
+        fm_fluent_type: auto

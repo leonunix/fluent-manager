@@ -1,0 +1,58 @@
+---
+# ============================================================================
+# fluent_manager_agent role - default variables
+# Override these in inventory, group_vars, or playbook.
+# ============================================================================
+
+# --- Required (must be provided) ---
+fm_server_url: ""
+fm_api_key: ""
+
+# --- Agent binary source (one required) ---
+# Local path on control node (will be copied via copy module)
+fm_agent_binary: ""
+# Remote URL (will be downloaded to target)
+fm_agent_download_url: ""
+
+# --- Optional agent settings ---
+fm_node_uid: ""
+fm_labels: ""
+
+# --- Install paths ---
+fm_install_dir: /usr/local/bin
+fm_config_dir: /etc/fluent-manager
+fm_state_dir: /var/lib/fluent-manager-agent
+fm_service_name: fluent-manager-agent
+fm_agent_user: fluent-manager
+fm_agent_group: fluent-manager
+
+# --- Fluent runtime ---
+# auto | fluentbit | fluentd
+fm_fluent_type: auto
+
+# Install Fluent Bit / Fluentd if not present
+fm_install_fluentbit: false
+fm_install_fluentd: false
+
+# Fluent Bit specific
+fm_fluentbit_version: ""          # empty = latest from repo
+fm_fluentbit_config_path: ""      # empty = agent auto-detect
+fm_fluentbit_service_unit: ""
+
+# Fluentd specific
+fm_fluentd_version: ""
+fm_fluentd_config_path: ""
+fm_fluentd_service_unit: ""
+
+# --- Agent config overrides (written to agent.yaml) ---
+fm_heartbeat_interval: ""
+fm_metrics_interval: ""
+fm_log_upload_interval: ""
+fm_health_port: ""
+
+# --- Service management ---
+fm_service_enabled: true
+fm_service_started: true
+
+# --- Extra agent.yaml content (appended raw) ---
+fm_extra_config: ""

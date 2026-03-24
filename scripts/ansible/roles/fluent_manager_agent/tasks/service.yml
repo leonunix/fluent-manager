@@ -1,0 +1,27 @@
+---
+# ============================================================================
+# Systemd service management
+# ============================================================================
+
+- name: Deploy systemd unit file
+  ansible.builtin.template:
+    src: fluent-manager-agent.service.j2
+    dest: "/etc/systemd/system/{{ fm_service_name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart fluent-manager-agent
+
+- name: Enable agent service
+  ansible.builtin.systemd:
+    name: "{{ fm_service_name }}"
+    enabled: "{{ fm_service_enabled }}"
+    daemon_reload: true
+
+- name: Start agent service
+  ansible.builtin.systemd:
+    name: "{{ fm_service_name }}"
+    state: started
+  when: fm_service_started | bool

@@ -1,0 +1,33 @@
+---
+# ============================================================================
+# fluent_manager_agent - main task entry point
+# ============================================================================
+
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - fm_server_url | length > 0
+      - fm_api_key | length > 0
+      - (fm_agent_binary | length > 0) or (fm_agent_download_url | length > 0)
+    fail_msg: "fm_server_url, fm_api_key, and one of fm_agent_binary/fm_agent_download_url are required."
+
+- name: Gather OS facts
+  ansible.builtin.setup:
+    filter: ansible_os_family,ansible_distribution*,ansible_pkg_mgr,ansible_architecture
+
+- name: Install Fluent Bit
+  ansible.builtin.include_tasks: install_fluentbit.yml
+  when: fm_install_fluentbit | bool
+
+- name: Install Fluentd
+  ansible.builtin.include_tasks: install_fluentd.yml
+  when: fm_install_fluentd | bool
+
+- name: Install agent
+  ansible.builtin.include_tasks: install_agent.yml
+
+- name: Configure agent
+  ansible.builtin.include_tasks: configure.yml
+
+- name: Setup service
+  ansible.builtin.include_tasks: service.yml

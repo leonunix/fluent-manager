@@ -1,0 +1,30 @@
+[Unit]
+Description=Fluent Manager Agent
+Documentation=https://github.com/fluent-manager/fluent-manager
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ fm_agent_user }}
+Group={{ fm_agent_group }}
+ExecStart={{ fm_install_dir }}/{{ fm_service_name }} --config {{ fm_config_dir }}/agent.yaml
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier={{ fm_service_name }}
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths={{ fm_state_dir }} /var/log
+PrivateTmp=true
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target

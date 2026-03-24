@@ -1,0 +1,10 @@
+---
+- name: reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: restart fluent-manager-agent
+  ansible.builtin.systemd:
+    name: "{{ fm_service_name }}"
+    state: restarted
+  when: fm_service_started | bool

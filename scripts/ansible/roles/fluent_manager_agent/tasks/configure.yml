@@ -1,0 +1,13 @@
+---
+# ============================================================================
+# Write agent.yaml configuration
+# ============================================================================
+
+- name: Deploy agent configuration
+  ansible.builtin.template:
+    src: agent.yaml.j2
+    dest: "{{ fm_config_dir }}/agent.yaml"
+    owner: root
+    group: "{{ fm_agent_group }}"
+    mode: "0640"
+  notify: restart fluent-manager-agent

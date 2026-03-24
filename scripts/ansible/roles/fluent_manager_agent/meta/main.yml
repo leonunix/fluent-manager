@@ -1,0 +1,23 @@
+---
+galaxy_info:
+  role_name: fluent_manager_agent
+  author: Fluent Manager
+  description: Install and configure Fluent Manager Agent with optional Fluent Bit / Fluentd setup
+  license: MIT
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Ubuntu
+      versions: [focal, jammy, noble]
+    - name: EL
+      versions: [7, 8, 9]
+    - name: Debian
+      versions: [bullseye, bookworm]
+    - name: Amazon
+      versions: [2, 2023]
+  galaxy_tags:
+    - logging
+    - monitoring
+    - fluentbit
+    - fluentd
+    - agent
+dependencies: []
