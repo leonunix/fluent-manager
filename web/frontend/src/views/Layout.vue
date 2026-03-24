@@ -1,105 +1,149 @@
 <template>
   <div class="d-flex">
     <!-- Sidebar -->
-    <nav class="fm-sidebar vh-100 d-flex flex-column" style="width: 240px; position: fixed; z-index: 100;">
+    <nav
+      class="fm-sidebar vh-100 d-flex flex-column"
+      style="width: 240px; position: fixed; z-index: 100"
+    >
       <!-- Logo -->
       <div class="fm-sidebar-logo">
         <div class="fm-logo-icon">
-          <img src="/brand/logo-flow-mesh.svg" alt="Fluent Manager logo">
+          <img src="/brand/logo-flow-mesh.svg" alt="Fluent Manager logo" />
         </div>
         <div>
           <div class="fm-logo-title">Fluent Manager</div>
-          <div class="fm-logo-subtitle">{{ t('nav.platform') }}</div>
+          <div class="fm-logo-subtitle">{{ t("nav.platform") }}</div>
         </div>
       </div>
 
       <!-- Nav links -->
       <ul class="nav flex-column flex-grow-1 px-3">
-        <li class="fm-nav-section">{{ t('nav.overview') }}</li>
+        <li class="fm-nav-section">{{ t("nav.overview") }}</li>
         <li class="nav-item">
           <router-link to="/" class="fm-nav-link" exact-active-class="active">
-            <i class="bi bi-grid-1x2 me-2"></i>{{ t('nav.dashboard') }}
+            <i class="bi bi-grid-1x2 me-2"></i>{{ t("nav.dashboard") }}
           </router-link>
         </li>
 
-        <li class="fm-nav-section">{{ t('nav.infra') }}</li>
+        <li class="fm-nav-section">{{ t("nav.infra") }}</li>
         <li class="nav-item">
           <router-link to="/topology" class="fm-nav-link" active-class="active">
-            <i class="bi bi-diagram-3 me-2"></i>{{ t('nav.topology') }}
+            <i class="bi bi-diagram-3 me-2"></i>{{ t("nav.topology") }}
           </router-link>
         </li>
         <li class="nav-item">
-          <router-link to="/environments" class="fm-nav-link" active-class="active">
-            <i class="bi bi-layers me-2"></i>{{ t('nav.environments') }}
+          <router-link
+            to="/environments"
+            class="fm-nav-link"
+            active-class="active"
+          >
+            <i class="bi bi-layers me-2"></i>{{ t("nav.environments") }}
           </router-link>
         </li>
         <li class="nav-item">
           <router-link to="/nodes" class="fm-nav-link" active-class="active">
-            <i class="bi bi-hdd-network me-2"></i>{{ t('nav.nodes') }}
+            <i class="bi bi-hdd-network me-2"></i>{{ t("nav.nodes") }}
           </router-link>
         </li>
         <li class="nav-item">
-          <router-link to="/aggregation-groups" class="fm-nav-link" active-class="active">
-            <i class="bi bi-diagram-2 me-2"></i>{{ t('nav.aggregation_groups') }}
+          <router-link
+            to="/aggregation-groups"
+            class="fm-nav-link"
+            active-class="active"
+          >
+            <i class="bi bi-diagram-2 me-2"></i
+            >{{ t("nav.aggregation_groups") }}
           </router-link>
         </li>
         <li class="nav-item">
-          <router-link to="/output-targets" class="fm-nav-link" active-class="active">
-            <i class="bi bi-bullseye me-2"></i>{{ t('nav.output_targets') }}
+          <router-link
+            to="/output-targets"
+            class="fm-nav-link"
+            active-class="active"
+          >
+            <i class="bi bi-bullseye me-2"></i>{{ t("nav.output_targets") }}
           </router-link>
         </li>
         <li class="nav-item">
-          <router-link to="/pipelines" class="fm-nav-link" active-class="active">
-            <i class="bi bi-bezier2 me-2"></i>{{ t('nav.pipelines') }}
+          <router-link
+            to="/pipelines"
+            class="fm-nav-link"
+            active-class="active"
+          >
+            <i class="bi bi-bezier2 me-2"></i>{{ t("nav.pipelines") }}
           </router-link>
         </li>
 
-        <li class="fm-nav-section">{{ t('nav.config_deploy') }}</li>
+        <li class="fm-nav-section">{{ t("nav.config_deploy") }}</li>
         <li class="nav-item">
           <router-link to="/configs" class="fm-nav-link" active-class="active">
-            <i class="bi bi-file-earmark-code me-2"></i>{{ t('nav.configs') }}
+            <i class="bi bi-file-earmark-code me-2"></i>{{ t("nav.configs") }}
           </router-link>
         </li>
         <li class="nav-item">
           <router-link to="/deploys" class="fm-nav-link" active-class="active">
-            <i class="bi bi-rocket-takeoff me-2"></i>{{ t('nav.deploys') }}
+            <i class="bi bi-rocket-takeoff me-2"></i>{{ t("nav.deploys") }}
+          </router-link>
+        </li>
+        <li v-if="auth.hasPermission('nodes', 'read')" class="nav-item">
+          <router-link
+            to="/bootstrap"
+            class="fm-nav-link"
+            active-class="active"
+          >
+            <i class="bi bi-terminal-plus me-2"></i>{{ t("nav.bootstrap") }}
           </router-link>
         </li>
         <li class="nav-item">
           <router-link to="/runtime" class="fm-nav-link" active-class="active">
-            <i class="bi bi-activity me-2"></i>{{ t('nav.runtime') }}
+            <i class="bi bi-activity me-2"></i>{{ t("nav.runtime") }}
           </router-link>
         </li>
 
-        <li class="fm-nav-section">{{ t('nav.system') }}</li>
+        <li class="fm-nav-section">{{ t("nav.system") }}</li>
         <li class="nav-item">
           <router-link to="/users" class="fm-nav-link" active-class="active">
-            <i class="bi bi-people me-2"></i>{{ t('nav.users') }}
+            <i class="bi bi-people me-2"></i>{{ t("nav.users") }}
           </router-link>
         </li>
         <li class="nav-item">
           <router-link to="/roles" class="fm-nav-link" active-class="active">
-            <i class="bi bi-shield-check me-2"></i>{{ t('nav.roles') }}
+            <i class="bi bi-shield-check me-2"></i>{{ t("nav.roles") }}
           </router-link>
         </li>
         <li class="nav-item">
           <router-link to="/audit" class="fm-nav-link" active-class="active">
-            <i class="bi bi-journal-text me-2"></i>{{ t('nav.audit') }}
+            <i class="bi bi-journal-text me-2"></i>{{ t("nav.audit") }}
           </router-link>
         </li>
         <li v-if="canSeeAISettings" class="nav-item">
-          <router-link to="/ai-settings" class="fm-nav-link" active-class="active">
-            <i class="bi bi-stars me-2"></i>{{ t('nav.ai_settings') }}
+          <router-link
+            to="/ai-settings"
+            class="fm-nav-link"
+            active-class="active"
+          >
+            <i class="bi bi-stars me-2"></i>{{ t("nav.ai_settings") }}
           </router-link>
         </li>
-        <li v-if="auth.hasPermission('agent_policies', 'read')" class="nav-item">
-          <router-link to="/agent-policies" class="fm-nav-link" active-class="active">
-            <i class="bi bi-sliders me-2"></i>{{ t('nav.agent_policies') }}
+        <li
+          v-if="auth.hasPermission('agent_policies', 'read')"
+          class="nav-item"
+        >
+          <router-link
+            to="/agent-policies"
+            class="fm-nav-link"
+            active-class="active"
+          >
+            <i class="bi bi-sliders me-2"></i>{{ t("nav.agent_policies") }}
           </router-link>
         </li>
         <li v-if="auth.hasPermission('agent_keys', 'read')" class="nav-item">
-          <router-link to="/agent-access-keys" class="fm-nav-link" active-class="active">
-            <i class="bi bi-key me-2"></i>{{ t('nav.agent_keys') }}
+          <router-link
+            to="/agent-access-keys"
+            class="fm-nav-link"
+            active-class="active"
+          >
+            <i class="bi bi-key me-2"></i>{{ t("nav.agent_keys") }}
           </router-link>
         </li>
       </ul>
@@ -107,20 +151,31 @@
       <!-- User footer -->
       <div class="fm-sidebar-footer">
         <div class="fm-user-avatar">
-          {{ (auth.user?.username || 'U').charAt(0).toUpperCase() }}
+          {{ (auth.user?.username || "U").charAt(0).toUpperCase() }}
         </div>
         <div class="flex-grow-1 overflow-hidden">
-          <div class="fm-user-name">{{ auth.user?.display_name || auth.user?.username }}</div>
-          <div class="fm-user-role">{{ auth.user?.roles?.[0]?.name || 'user' }}</div>
+          <div class="fm-user-name">
+            {{ auth.user?.display_name || auth.user?.username }}
+          </div>
+          <div class="fm-user-role">
+            {{ auth.user?.roles?.[0]?.name || "user" }}
+          </div>
         </div>
-        <button class="btn btn-sm fm-logout-btn" @click="handleLogout" :title="t('nav.logout')">
+        <button
+          class="btn btn-sm fm-logout-btn"
+          @click="handleLogout"
+          :title="t('nav.logout')"
+        >
           <i class="bi bi-box-arrow-right"></i>
         </button>
       </div>
     </nav>
 
     <!-- Main content -->
-    <main class="flex-grow-1 min-vh-100" style="margin-left: 240px; background: var(--fm-body-bg);">
+    <main
+      class="flex-grow-1 min-vh-100"
+      style="margin-left: 240px; background: var(--fm-body-bg)"
+    >
       <!-- Top bar -->
       <header class="fm-topbar">
         <div class="fm-breadcrumb">
@@ -128,8 +183,14 @@
           <span>{{ currentPageTitle }}</span>
         </div>
         <div class="fm-topbar-right">
-          <select v-model="currentLocale" class="form-select form-select-sm fm-lang-select" @change="switchLocale">
-            <option v-for="l in availableLocales" :key="l" :value="l">{{ localeNames[l] }}</option>
+          <select
+            v-model="currentLocale"
+            class="form-select form-select-sm fm-lang-select"
+            @change="switchLocale"
+          >
+            <option v-for="l in availableLocales" :key="l" :value="l">
+              {{ localeNames[l] }}
+            </option>
           </select>
           <span class="fm-time">{{ currentTime }}</span>
         </div>
@@ -142,70 +203,80 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, onUnmounted } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
-import { useAuthStore } from '../store/auth'
-import { useI18n } from '../i18n'
+import { computed, ref, onMounted, onUnmounted } from "vue";
+import { useRouter, useRoute } from "vue-router";
+import { useAuthStore } from "../store/auth";
+import { useI18n } from "../i18n";
 
-const router = useRouter()
-const route = useRoute()
-const auth = useAuthStore()
-const { t, locale, setLocale, availableLocales, localeNames } = useI18n()
-const currentTime = ref('')
-const currentLocale = ref(locale.value)
-let timer = null
+const router = useRouter();
+const route = useRoute();
+const auth = useAuthStore();
+const { t, locale, setLocale, availableLocales, localeNames } = useI18n();
+const currentTime = ref("");
+const currentLocale = ref(locale.value);
+let timer = null;
 
 const pageTitleKeys = {
-  'Dashboard': 'nav.dashboard',
-  'Topology': 'nav.topology',
-  'Environments': 'nav.environments',
-  'Nodes': 'nav.nodes',
-  'NodeDetail': 'nav.nodes',
-  'AggregationGroups': 'nav.aggregation_groups',
-  'OutputTargets': 'nav.output_targets',
-  'Pipelines': 'nav.pipelines',
-  'Configs': 'nav.configs',
-  'ConfigDetail': 'nav.configs',
-  'Deploys': 'nav.deploys',
-  'Runtime': 'nav.runtime',
-  'AgentPolicies': 'nav.agent_policies',
-  'AgentAccessKeys': 'nav.agent_keys',
-  'AISettings': 'nav.ai_settings',
-  'Users': 'nav.users',
-  'Roles': 'nav.roles',
-  'AuditLogs': 'nav.audit',
-}
+  Dashboard: "nav.dashboard",
+  Topology: "nav.topology",
+  Environments: "nav.environments",
+  Nodes: "nav.nodes",
+  NodeDetail: "nav.nodes",
+  AggregationGroups: "nav.aggregation_groups",
+  OutputTargets: "nav.output_targets",
+  Pipelines: "nav.pipelines",
+  Configs: "nav.configs",
+  ConfigDetail: "nav.configs",
+  Deploys: "nav.deploys",
+  BootstrapHosts: "nav.bootstrap",
+  Runtime: "nav.runtime",
+  AgentPolicies: "nav.agent_policies",
+  AgentAccessKeys: "nav.agent_keys",
+  AISettings: "nav.ai_settings",
+  Users: "nav.users",
+  Roles: "nav.roles",
+  AuditLogs: "nav.audit",
+};
 
-const currentPageTitle = computed(() => t(pageTitleKeys[route.name] || 'nav.dashboard'))
-const isAdmin = computed(() => (auth.user?.roles || []).some(role => role.name === 'admin'))
-const canSeeAISettings = computed(() =>
-  isAdmin.value || auth.hasPermission('ai_settings', 'read') || auth.hasPermission('ai_settings', 'update')
-)
+const currentPageTitle = computed(() =>
+  t(pageTitleKeys[route.name] || "nav.dashboard"),
+);
+const isAdmin = computed(() =>
+  (auth.user?.roles || []).some((role) => role.name === "admin"),
+);
+const canSeeAISettings = computed(
+  () =>
+    isAdmin.value ||
+    auth.hasPermission("ai_settings", "read") ||
+    auth.hasPermission("ai_settings", "update"),
+);
 
 function switchLocale() {
-  setLocale(currentLocale.value)
+  setLocale(currentLocale.value);
 }
 
 function updateTime() {
   currentTime.value = new Date().toLocaleString(
-    locale.value === 'zh' ? 'zh-CN' : locale.value === 'ja' ? 'ja-JP' : 'en-US',
-    { hour12: false }
-  )
+    locale.value === "zh" ? "zh-CN" : locale.value === "ja" ? "ja-JP" : "en-US",
+    { hour12: false },
+  );
 }
 
 function handleLogout() {
-  auth.logout()
-  router.push('/login')
+  auth.logout();
+  router.push("/login");
 }
 
 onMounted(async () => {
   if (auth.isAuthenticated) {
-    try { await auth.fetchProfile() } catch {}
+    try {
+      await auth.fetchProfile();
+    } catch {}
   }
-  updateTime()
-  timer = setInterval(updateTime, 1000)
-})
-onUnmounted(() => clearInterval(timer))
+  updateTime();
+  timer = setInterval(updateTime, 1000);
+});
+onUnmounted(() => clearInterval(timer));
 </script>
 
 <style scoped>

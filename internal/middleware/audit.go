@@ -56,6 +56,8 @@ func resolveAuditResource(c *gin.Context) (string, uint) {
 		"/api/v1/datacenters":       "datacenter",
 		"/api/v1/configs":           "config",
 		"/api/v1/deploys":           "deploy",
+		"/api/v1/bootstrap/hosts":   "bootstrap_host",
+		"/api/v1/bootstrap/tasks":   "bootstrap_task",
 		"/api/v1/users":             "user",
 		"/api/v1/roles":             "role",
 		"/api/v1/environments":      "environment",

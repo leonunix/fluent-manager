@@ -98,6 +98,7 @@ func SetupRouter(deps Deps) *gin.Engine {
 	registerNodeRoutes(authed, h)
 	registerConfigRoutes(authed, h)
 	registerDeployRoutes(authed, h)
+	registerBootstrapRoutes(authed, h)
 	registerMetricsRoutes(authed, h)
 
 	return r
@@ -117,6 +118,7 @@ type allHandlers struct {
 	FluentOps      *handlers.FluentOpsHandler
 	Config         *handlers.ConfigHandler
 	Deploy         *handlers.DeployHandler
+	Bootstrap      *handlers.BootstrapHandler
 	Agent          *handlers.AgentHandler
 	AgentAccessKey *handlers.AgentAccessKeyHandler
 	AgentPolicy    *handlers.AgentPolicyHandler
@@ -144,6 +146,7 @@ func buildHandlers(deps Deps) *allHandlers {
 		FluentOps:      &handlers.FluentOpsHandler{Svc: deps.Svc.FluentOps},
 		Config:         &handlers.ConfigHandler{Svc: deps.Svc.Config},
 		Deploy:         &handlers.DeployHandler{Svc: deps.Svc.Deploy},
+		Bootstrap:      &handlers.BootstrapHandler{Svc: deps.Svc.Bootstrap},
 		Agent:          &handlers.AgentHandler{Svc: deps.Svc.Agent, NodeSvc: deps.Svc.Node},
 		AgentAccessKey: &handlers.AgentAccessKeyHandler{Svc: deps.Svc.AgentAccessKey},
 		AgentPolicy:    &handlers.AgentPolicyHandler{Svc: deps.Svc.AgentPolicy, NodeSvc: deps.Svc.Node},

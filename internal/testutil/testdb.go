@@ -61,6 +61,9 @@ func NewTestDB() *gorm.DB {
 		&models.NodeRuntimeState{},
 		&models.DeployTask{},
 		&models.DeployRecord{},
+		&models.BootstrapHost{},
+		&models.BootstrapTask{},
+		&models.BootstrapRecord{},
 		&models.AuditLog{},
 	); err != nil {
 		panic("failed to migrate test db: " + err.Error())

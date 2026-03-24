@@ -96,6 +96,9 @@ func migrateAll(db *gorm.DB) error {
 		&NodeRuntimeState{},
 		&DeployTask{},
 		&DeployRecord{},
+		&BootstrapHost{},
+		&BootstrapTask{},
+		&BootstrapRecord{},
 		&AuditLog{},
 	); err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)
