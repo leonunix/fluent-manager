@@ -24,6 +24,8 @@ type Node struct {
 	AggregationGroup   *AggregationGroup  `json:"aggregation_group,omitempty"`
 	EnvironmentID      *uint              `gorm:"index" json:"environment_id"` // can override cluster's environment
 	Environment        *Environment       `json:"environment,omitempty"`
+	AgentAccessKeyID   *uint              `gorm:"index" json:"agent_access_key_id"`
+	AgentAccessKey     *AgentAccessKey    `json:"agent_access_key,omitempty"`
 	Labels             string             `gorm:"type:text" json:"labels"` // JSON key-value pairs
 	ConfigID           *uint              `json:"config_id"`               // node-level config (overrides cluster config)
 	Config             *ConfigVersion     `gorm:"foreignKey:ConfigID" json:"config,omitempty"`

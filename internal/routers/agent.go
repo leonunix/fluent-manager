@@ -8,7 +8,7 @@ import (
 
 func registerAgentRoutes(api *gin.RouterGroup, cfg *config.Config, h *allHandlers) {
 	agentAPI := api.Group("/agent")
-	agentAPI.Use(middleware.AgentAuth(cfg.Agent.APIKey))
+	agentAPI.Use(middleware.AgentAuth(h.AgentAccessKey.Svc, cfg.Agent.APIKey))
 	{
 		agentAPI.POST("/register", h.Agent.Register)
 		agentAPI.POST("/heartbeat", h.Agent.Heartbeat)

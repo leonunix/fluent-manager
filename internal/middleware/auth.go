@@ -6,6 +6,7 @@ import (
 
 	"github.com/fluent-manager/fluent-manager/internal/auth"
 	"github.com/fluent-manager/fluent-manager/internal/models"
+	"github.com/fluent-manager/fluent-manager/internal/services"
 	"github.com/gin-gonic/gin"
 )
 
@@ -109,15 +110,33 @@ func GetAllowedClusters(c *gin.Context) []uint {
 	return v.([]uint)
 }
 
+const authenticatedAgentKeyContextKey = "authenticated_agent_key"
+
+func GetAuthenticatedAgentKey(c *gin.Context) *services.AuthenticatedAgentKey {
+	value, exists := c.Get(authenticatedAgentKeyContextKey)
+	if !exists {
+		return nil
+	}
+	key, _ := value.(*services.AuthenticatedAgentKey)
+	return key
+}
+
 // AgentAuth authenticates agent nodes via API key.
-func AgentAuth(apiKey string) gin.HandlerFunc {
+func AgentAuth(svc services.AgentAccessKeyService, legacyKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		key := c.GetHeader("X-Agent-Key")
-		if key == "" || key != apiKey {
+		if key == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid agent key"})
 			c.Abort()
 			return
 		}
+		authenticatedKey, err := svc.Authenticate(key, legacyKey)
+		if err != nil || authenticatedKey == nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid agent key"})
+			c.Abort()
+			return
+		}
+		c.Set(authenticatedAgentKeyContextKey, authenticatedKey)
 		c.Next()
 	}
 }

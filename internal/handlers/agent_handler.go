@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/fluent-manager/fluent-manager/internal/middleware"
 	"github.com/fluent-manager/fluent-manager/internal/services"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -36,7 +37,29 @@ func (h *AgentHandler) Register(c *gin.Context) {
 		return
 	}
 
-	nodeID, err := h.Svc.Register(req.NodeUID, req.Hostname, req.IPAddress, req.OS, req.AgentVersion, req.FluentType, req.FluentVersion, req.Labels, req.FluentProfile)
+	authenticatedKey := middleware.GetAuthenticatedAgentKey(c)
+	var preferredClusterID *uint
+	var agentAccessKeyID *uint
+	if authenticatedKey != nil {
+		preferredClusterID = authenticatedKey.ClusterID
+		if authenticatedKey.ID != 0 {
+			agentAccessKeyID = &authenticatedKey.ID
+		}
+	}
+
+	nodeID, err := h.Svc.Register(
+		req.NodeUID,
+		req.Hostname,
+		req.IPAddress,
+		req.OS,
+		req.AgentVersion,
+		req.FluentType,
+		req.FluentVersion,
+		req.Labels,
+		req.FluentProfile,
+		preferredClusterID,
+		agentAccessKeyID,
+	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

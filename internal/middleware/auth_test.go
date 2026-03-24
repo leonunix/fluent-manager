@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/fluent-manager/fluent-manager/internal/models"
+	"github.com/fluent-manager/fluent-manager/internal/services"
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -24,7 +25,7 @@ func setupMiddlewareDB(t *testing.T) *gorm.DB {
 	})
 	db.AutoMigrate(
 		&models.User{}, &models.Role{}, &models.Permission{}, &models.UserScope{},
-		&models.DataCenter{}, &models.Region{}, &models.Cluster{},
+		&models.DataCenter{}, &models.Region{}, &models.Cluster{}, &models.AgentAccessKey{},
 	)
 	models.DB = db
 	return db
@@ -209,26 +210,40 @@ func TestRequirePermission_LacksPermission(t *testing.T) {
 // ---------- AgentAuth ----------
 
 func TestAgentAuth_ValidKey(t *testing.T) {
+	db := setupMiddlewareDB(t)
+	svc := services.NewAgentAccessKeyService(db)
+	result, err := svc.Create(services.AgentAccessKeyInput{Name: "test-key"}, 0, nil)
+	if err != nil {
+		t.Fatalf("create key: %v", err)
+	}
+
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("POST", "/", nil)
-	c.Request.Header.Set("X-Agent-Key", "test-api-key")
+	c.Request.Header.Set("X-Agent-Key", result.PlaintextKey)
 
-	handler := AgentAuth("test-api-key")
+	handler := AgentAuth(svc, "")
 	handler(c)
 
 	if c.IsAborted() {
 		t.Error("valid agent key should not be aborted")
 	}
+	authenticatedKey := GetAuthenticatedAgentKey(c)
+	if authenticatedKey == nil || authenticatedKey.Name != "test-key" {
+		t.Fatalf("expected authenticated key context, got %#v", authenticatedKey)
+	}
 }
 
 func TestAgentAuth_InvalidKey(t *testing.T) {
+	db := setupMiddlewareDB(t)
+	svc := services.NewAgentAccessKeyService(db)
+
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("POST", "/", nil)
 	c.Request.Header.Set("X-Agent-Key", "wrong-key")
 
-	handler := AgentAuth("test-api-key")
+	handler := AgentAuth(svc, "")
 	handler(c)
 
 	if w.Code != http.StatusUnauthorized {
@@ -237,14 +252,38 @@ func TestAgentAuth_InvalidKey(t *testing.T) {
 }
 
 func TestAgentAuth_MissingKey(t *testing.T) {
+	db := setupMiddlewareDB(t)
+	svc := services.NewAgentAccessKeyService(db)
+
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("POST", "/", nil)
 
-	handler := AgentAuth("test-api-key")
+	handler := AgentAuth(svc, "")
 	handler(c)
 
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestAgentAuth_LegacyKeyFallback(t *testing.T) {
+	db := setupMiddlewareDB(t)
+	svc := services.NewAgentAccessKeyService(db)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/", nil)
+	c.Request.Header.Set("X-Agent-Key", "legacy-api-key")
+
+	handler := AgentAuth(svc, "legacy-api-key")
+	handler(c)
+
+	if c.IsAborted() {
+		t.Error("legacy config key should still be accepted")
+	}
+	authenticatedKey := GetAuthenticatedAgentKey(c)
+	if authenticatedKey == nil || !authenticatedKey.Legacy {
+		t.Fatalf("expected legacy authenticated key context, got %#v", authenticatedKey)
 	}
 }

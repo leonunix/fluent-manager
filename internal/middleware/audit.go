@@ -50,16 +50,17 @@ func resolveAuditResource(c *gin.Context) (string, uint) {
 	path := c.FullPath()
 	// Map route prefixes to resource types
 	resourceMap := map[string]string{
-		"/api/v1/nodes":          "node",
-		"/api/v1/clusters":       "cluster",
-		"/api/v1/regions":        "region",
-		"/api/v1/datacenters":    "datacenter",
-		"/api/v1/configs":        "config",
-		"/api/v1/deploys":        "deploy",
-		"/api/v1/users":          "user",
-		"/api/v1/roles":          "role",
-		"/api/v1/environments":   "environment",
-		"/api/v1/agent-policies": "agent_policy",
+		"/api/v1/nodes":             "node",
+		"/api/v1/clusters":          "cluster",
+		"/api/v1/regions":           "region",
+		"/api/v1/datacenters":       "datacenter",
+		"/api/v1/configs":           "config",
+		"/api/v1/deploys":           "deploy",
+		"/api/v1/users":             "user",
+		"/api/v1/roles":             "role",
+		"/api/v1/environments":      "environment",
+		"/api/v1/agent-policies":    "agent_policy",
+		"/api/v1/agent-access-keys": "agent_access_key",
 	}
 	for prefix, resType := range resourceMap {
 		if strings.HasPrefix(path, prefix) {

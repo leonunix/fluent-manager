@@ -1,5 +1,5 @@
 server_url: "http://fluent-manager-server:8080"
-api_key: "your-agent-api-key"
+api_key: "paste-agent-key-created-by-admin"
 
 # Optional. Leave empty to auto-generate and persist a stable UID locally.
 node_uid: ""

@@ -78,6 +78,7 @@ func migrateAll(db *gorm.DB) error {
 		&ClusterMatchRule{},
 		&AggregationGroup{},
 		&OutputTarget{},
+		&AgentAccessKey{},
 		&Node{},
 		&NodeFluentProfile{},
 		&AgentPolicy{},
@@ -174,6 +175,10 @@ func seedDefaultsOn(db *gorm.DB) {
 		{Name: "agent_policies:read", Resource: "agent_policies", Action: "read"},
 		{Name: "agent_policies:update", Resource: "agent_policies", Action: "update"},
 		{Name: "agent_policies:delete", Resource: "agent_policies", Action: "delete"},
+		{Name: "agent_keys:create", Resource: "agent_keys", Action: "create"},
+		{Name: "agent_keys:read", Resource: "agent_keys", Action: "read"},
+		{Name: "agent_keys:update", Resource: "agent_keys", Action: "update"},
+		{Name: "agent_keys:delete", Resource: "agent_keys", Action: "delete"},
 		{Name: "users:create", Resource: "users", Action: "create"},
 		{Name: "users:read", Resource: "users", Action: "read"},
 		{Name: "users:update", Resource: "users", Action: "update"},
@@ -210,7 +215,7 @@ func seedDefaultsOn(db *gorm.DB) {
 	var viewerRole Role
 	result = db.Where("name = ?", "viewer").First(&viewerRole)
 	var readPerms []Permission
-	db.Where("action = ?", "read").Find(&readPerms)
+	db.Where("action = ? AND resource NOT IN ?", "read", []string{"agent_keys"}).Find(&readPerms)
 	if result.RowsAffected == 0 {
 		viewerRole = Role{Name: "viewer", Description: "Read-only access"}
 		db.Create(&viewerRole)

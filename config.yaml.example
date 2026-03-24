@@ -45,7 +45,7 @@ agent:
   health_port: 9880
   max_retries: 5
   retry_base_delay: 1000    # milliseconds
-  api_key: "your-agent-api-key"
+  api_key: ""                # deprecated legacy fallback; prefer creating managed agent keys in the UI
   fluent_type: ""           # optional: empty = agent auto-detects
   fluent_config_path: ""
   fluent_config_dir: ""

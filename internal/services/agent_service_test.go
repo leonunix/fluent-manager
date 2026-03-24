@@ -35,7 +35,7 @@ func TestRegister_NewNode(t *testing.T) {
 	c := models.Cluster{Name: "default", RegionID: r.ID, IsDefault: true}
 	db.Create(&c)
 
-	nodeID, err := svc.Register("uid-001", "web-01", "10.0.0.1", "linux", "1.0.0", "fluentbit", "2.0.0", `{"env":"prod"}`, nil)
+	nodeID, err := svc.Register("uid-001", "web-01", "10.0.0.1", "linux", "1.0.0", "fluentbit", "2.0.0", `{"env":"prod"}`, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestRegister_ExistingNode(t *testing.T) {
 
 	db.Create(&models.Node{NodeUID: "uid-001", Hostname: "old-host", Status: "offline"})
 
-	nodeID, err := svc.Register("uid-001", "new-host", "10.0.0.2", "linux", "2.0.0", "fluentbit", "3.0.0", "", nil)
+	nodeID, err := svc.Register("uid-001", "new-host", "10.0.0.2", "linux", "2.0.0", "fluentbit", "3.0.0", "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestRegister_PersistsFluentProfile(t *testing.T) {
 		Metadata:             `{"runtime_type":"fluentbit"}`,
 	}
 
-	nodeID, err := svc.Register("uid-profile", "profile-node", "10.0.0.10", "linux", "1.0.0", "fluentbit", "3.0.0", "", profile)
+	nodeID, err := svc.Register("uid-profile", "profile-node", "10.0.0.10", "linux", "1.0.0", "fluentbit", "3.0.0", "", profile, nil, nil)
 	if err != nil {
 		t.Fatalf("register with profile: %v", err)
 	}
@@ -152,12 +152,75 @@ func TestRegister_AutoAssignByMatchRule(t *testing.T) {
 		IsActive:        true,
 	})
 
-	nodeID, _ := svc.Register("uid-002", "web-01", "10.0.0.1", "linux", "1.0.0", "fluentbit", "2.0.0", "", nil)
+	nodeID, _ := svc.Register("uid-002", "web-01", "10.0.0.1", "linux", "1.0.0", "fluentbit", "2.0.0", "", nil, nil, nil)
 
 	var node models.Node
 	db.First(&node, nodeID)
 	if node.ClusterID == nil || *node.ClusterID != webCluster.ID {
 		t.Error("node should be assigned to web-cluster by match rule")
+	}
+}
+
+func TestRegister_PrefersBoundClusterFromAgentKey(t *testing.T) {
+	db, svc := setupAgentTest(t)
+
+	dc := models.DataCenter{Name: "dc-bound"}
+	db.Create(&dc)
+	r := models.Region{Name: "r-bound", DataCenterID: dc.ID}
+	db.Create(&r)
+	defaultCluster := models.Cluster{Name: "default-bound", RegionID: r.ID, IsDefault: true}
+	targetCluster := models.Cluster{Name: "target-bound", RegionID: r.ID}
+	db.Create(&defaultCluster)
+	db.Create(&targetCluster)
+
+	agentKey := models.AgentAccessKey{Name: "cluster-key", KeyHash: "hash", KeyPreview: "preview", ClusterID: &targetCluster.ID, IsActive: true}
+	db.Create(&agentKey)
+
+	nodeID, err := svc.Register("uid-bound", "host-bound", "10.0.0.3", "linux", "1.0.0", "fluentbit", "2.0.0", "", nil, &targetCluster.ID, &agentKey.ID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var node models.Node
+	db.First(&node, nodeID)
+	if node.ClusterID == nil || *node.ClusterID != targetCluster.ID {
+		t.Fatalf("expected bound cluster %d, got %#v", targetCluster.ID, node.ClusterID)
+	}
+	if node.AgentAccessKeyID == nil || *node.AgentAccessKeyID != agentKey.ID {
+		t.Fatalf("expected agent access key %d, got %#v", agentKey.ID, node.AgentAccessKeyID)
+	}
+}
+
+func TestRegister_DoesNotMoveExistingClusterWhenBoundKeyChanges(t *testing.T) {
+	db, svc := setupAgentTest(t)
+
+	dc := models.DataCenter{Name: "dc-existing"}
+	db.Create(&dc)
+	r := models.Region{Name: "r-existing", DataCenterID: dc.ID}
+	db.Create(&r)
+	originalCluster := models.Cluster{Name: "original-cluster", RegionID: r.ID}
+	newCluster := models.Cluster{Name: "new-cluster", RegionID: r.ID}
+	db.Create(&originalCluster)
+	db.Create(&newCluster)
+
+	node := models.Node{NodeUID: "uid-existing", Hostname: "old-node", ClusterID: &originalCluster.ID}
+	db.Create(&node)
+
+	agentKey := models.AgentAccessKey{Name: "new-key", KeyHash: "hash-2", KeyPreview: "preview-2", ClusterID: &newCluster.ID, IsActive: true}
+	db.Create(&agentKey)
+
+	nodeID, err := svc.Register("uid-existing", "new-node", "10.0.0.4", "linux", "1.0.0", "fluentbit", "2.0.0", "", nil, &newCluster.ID, &agentKey.ID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var updated models.Node
+	db.First(&updated, nodeID)
+	if updated.ClusterID == nil || *updated.ClusterID != originalCluster.ID {
+		t.Fatalf("expected existing cluster to remain %d, got %#v", originalCluster.ID, updated.ClusterID)
+	}
+	if updated.AgentAccessKeyID == nil || *updated.AgentAccessKeyID != agentKey.ID {
+		t.Fatalf("expected access key to update to %d, got %#v", agentKey.ID, updated.AgentAccessKeyID)
 	}
 }
 

@@ -97,6 +97,11 @@
             <i class="bi bi-sliders me-2"></i>{{ t('nav.agent_policies') }}
           </router-link>
         </li>
+        <li v-if="auth.hasPermission('agent_keys', 'read')" class="nav-item">
+          <router-link to="/agent-access-keys" class="fm-nav-link" active-class="active">
+            <i class="bi bi-key me-2"></i>{{ t('nav.agent_keys') }}
+          </router-link>
+        </li>
       </ul>
 
       <!-- User footer -->
@@ -164,6 +169,7 @@ const pageTitleKeys = {
   'Deploys': 'nav.deploys',
   'Runtime': 'nav.runtime',
   'AgentPolicies': 'nav.agent_policies',
+  'AgentAccessKeys': 'nav.agent_keys',
   'AISettings': 'nav.ai_settings',
   'Users': 'nav.users',
   'Roles': 'nav.roles',

@@ -34,6 +34,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'deploys', name: 'Deploys', component: () => import('../views/Deploys.vue') },
       { path: 'runtime', name: 'Runtime', component: () => import('../views/Runtime.vue') },
       { path: 'agent-policies', name: 'AgentPolicies', component: () => import('../views/AgentPolicies.vue') },
+      { path: 'agent-access-keys', name: 'AgentAccessKeys', component: () => import('../views/AgentAccessKeys.vue'), meta: { permission: { resource: 'agent_keys', action: 'read' } } },
       { path: 'ai-settings', name: 'AISettings', component: () => import('../views/AISettings.vue'), meta: { permission: { resource: 'ai_settings', action: 'read' } } },
       { path: 'users', name: 'Users', component: () => import('../views/Users.vue') },
       { path: 'roles', name: 'Roles', component: () => import('../views/Roles.vue') },

@@ -59,7 +59,7 @@ type AgentFluentProfileReport struct {
 }
 
 type AgentService interface {
-	Register(nodeUID, hostname, ipAddress, os, agentVersion, fluentType, fluentVersion, labels string, profile *AgentFluentProfileReport) (uint, error)
+	Register(nodeUID, hostname, ipAddress, os, agentVersion, fluentType, fluentVersion, labels string, profile *AgentFluentProfileReport, preferredClusterID *uint, agentAccessKeyID *uint) (uint, error)
 	Heartbeat(nodeUID, configHash string, metrics map[string]interface{}, profile *AgentFluentProfileReport) (*HeartbeatResponse, error)
 	GetSettingsForNodeID(nodeID uint) (*AgentSettings, error)
 	ReportStatus(nodeUID string, configID uint, success bool, message string) error
@@ -80,40 +80,52 @@ func NewAgentService(db *gorm.DB, policySvc AgentPolicyService) AgentService {
 	return &agentService{db: db, policySvc: policySvc}
 }
 
-func (s *agentService) Register(nodeUID, hostname, ipAddress, os, agentVersion, fluentType, fluentVersion, labels string, profile *AgentFluentProfileReport) (uint, error) {
+func (s *agentService) Register(nodeUID, hostname, ipAddress, os, agentVersion, fluentType, fluentVersion, labels string, profile *AgentFluentProfileReport, preferredClusterID *uint, agentAccessKeyID *uint) (uint, error) {
 	now := time.Now()
 	var node models.Node
 	result := s.db.Where("node_uid = ?", nodeUID).First(&node)
 	if result.RowsAffected == 0 {
-		clusterID := models.AutoAssignCluster(hostname, ipAddress, fluentType, os, labels)
+		clusterID := preferredClusterID
+		if clusterID == nil {
+			clusterID = models.AutoAssignCluster(hostname, ipAddress, fluentType, os, labels)
+		}
 		node = models.Node{
-			NodeUID:       nodeUID,
-			Hostname:      hostname,
-			IPAddress:     ipAddress,
-			OS:            os,
-			AgentVersion:  agentVersion,
-			FluentType:    fluentType,
-			FluentVersion: fluentVersion,
-			NodeRole:      models.NodeRoleStandalone,
-			Labels:        labels,
-			ClusterID:     clusterID,
-			Status:        "online",
-			LastHeartbeat: &now,
+			NodeUID:          nodeUID,
+			Hostname:         hostname,
+			IPAddress:        ipAddress,
+			OS:               os,
+			AgentVersion:     agentVersion,
+			FluentType:       fluentType,
+			FluentVersion:    fluentVersion,
+			NodeRole:         models.NodeRoleStandalone,
+			Labels:           labels,
+			ClusterID:        clusterID,
+			AgentAccessKeyID: agentAccessKeyID,
+			Status:           "online",
+			LastHeartbeat:    &now,
 		}
 		if err := s.db.Create(&node).Error; err != nil {
 			return 0, err
 		}
 	} else {
-		s.db.Model(&node).Updates(map[string]interface{}{
+		updates := map[string]interface{}{
 			"hostname":       hostname,
 			"ip_address":     ipAddress,
 			"os":             os,
 			"agent_version":  agentVersion,
 			"fluent_type":    fluentType,
 			"fluent_version": fluentVersion,
+			"labels":         labels,
 			"status":         "online",
 			"last_heartbeat": &now,
-		})
+		}
+		if agentAccessKeyID != nil {
+			updates["agent_access_key_id"] = *agentAccessKeyID
+		}
+		if node.ClusterID == nil && preferredClusterID != nil {
+			updates["cluster_id"] = *preferredClusterID
+		}
+		s.db.Model(&node).Updates(updates)
 	}
 	if err := s.upsertFluentProfile(node.ID, profile, now); err != nil {
 		return 0, err

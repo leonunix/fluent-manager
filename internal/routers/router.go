@@ -74,6 +74,7 @@ func SetupRouter(deps Deps) *gin.Engine {
 	registerGroupRoutes(authed, h)
 	registerAIRoutes(authed, h)
 	registerTopologyRoutes(authed, h)
+	registerAgentAccessKeyRoutes(authed, h)
 	registerFluentRoutes(authed, h)
 	registerNodeRoutes(authed, h)
 	registerConfigRoutes(authed, h)
@@ -85,22 +86,23 @@ func SetupRouter(deps Deps) *gin.Engine {
 
 // allHandlers holds all handler instances for route registration.
 type allHandlers struct {
-	Auth         *handlers.AuthHandler
-	User         *handlers.UserHandler
-	Role         *handlers.RoleHandler
-	Group        *handlers.GroupHandler
-	AuthSettings *handlers.AuthSettingsHandler
-	AI           *handlers.AIHandler
-	Node         *handlers.NodeHandler
-	Topology     *handlers.TopologyHandler
-	Fluent       *handlers.FluentHandler
-	FluentOps    *handlers.FluentOpsHandler
-	Config       *handlers.ConfigHandler
-	Deploy       *handlers.DeployHandler
-	Agent        *handlers.AgentHandler
-	AgentPolicy  *handlers.AgentPolicyHandler
-	Metrics      *handlers.MetricsHandler
-	Setup        *handlers.SetupHandler
+	Auth           *handlers.AuthHandler
+	User           *handlers.UserHandler
+	Role           *handlers.RoleHandler
+	Group          *handlers.GroupHandler
+	AuthSettings   *handlers.AuthSettingsHandler
+	AI             *handlers.AIHandler
+	Node           *handlers.NodeHandler
+	Topology       *handlers.TopologyHandler
+	Fluent         *handlers.FluentHandler
+	FluentOps      *handlers.FluentOpsHandler
+	Config         *handlers.ConfigHandler
+	Deploy         *handlers.DeployHandler
+	Agent          *handlers.AgentHandler
+	AgentAccessKey *handlers.AgentAccessKeyHandler
+	AgentPolicy    *handlers.AgentPolicyHandler
+	Metrics        *handlers.MetricsHandler
+	Setup          *handlers.SetupHandler
 }
 
 func buildHandlers(deps Deps) *allHandlers {
@@ -111,21 +113,22 @@ func buildHandlers(deps Deps) *allHandlers {
 	}
 
 	return &allHandlers{
-		Auth:         &handlers.AuthHandler{JWT: deps.JWTSvc, LDAP: ldapAuth, SAMLProvider: deps.SAMLProvider, Svc: deps.Svc.Auth, AuthSettingsSvc: deps.Svc.AuthSettings},
-		User:         &handlers.UserHandler{Svc: deps.Svc.User},
-		Role:         &handlers.RoleHandler{Svc: deps.Svc.Role},
-		Group:        &handlers.GroupHandler{Svc: deps.Svc.Group},
-		AuthSettings: &handlers.AuthSettingsHandler{Svc: deps.Svc.AuthSettings, SAMLProvider: deps.SAMLProvider},
-		AI:           &handlers.AIHandler{SettingsSvc: deps.Svc.AuthSettings, Svc: deps.Svc.AI},
-		Node:         &handlers.NodeHandler{Svc: deps.Svc.Node},
-		Topology:     &handlers.TopologyHandler{Svc: deps.Svc.Topology},
-		Fluent:       &handlers.FluentHandler{Svc: deps.Svc.Fluent, NodeSvc: deps.Svc.Node},
-		FluentOps:    &handlers.FluentOpsHandler{Svc: deps.Svc.FluentOps},
-		Config:       &handlers.ConfigHandler{Svc: deps.Svc.Config},
-		Deploy:       &handlers.DeployHandler{Svc: deps.Svc.Deploy},
-		Agent:        &handlers.AgentHandler{Svc: deps.Svc.Agent, NodeSvc: deps.Svc.Node},
-		AgentPolicy:  &handlers.AgentPolicyHandler{Svc: deps.Svc.AgentPolicy, NodeSvc: deps.Svc.Node},
-		Metrics:      &handlers.MetricsHandler{Svc: deps.Svc.Metrics, TopoSvc: deps.Svc.Topology},
-		Setup:        &handlers.SetupHandler{Svc: deps.Svc.Setup, JWT: deps.JWTSvc, CfgPath: deps.CfgPath, RestartCh: deps.RestartCh},
+		Auth:           &handlers.AuthHandler{JWT: deps.JWTSvc, LDAP: ldapAuth, SAMLProvider: deps.SAMLProvider, Svc: deps.Svc.Auth, AuthSettingsSvc: deps.Svc.AuthSettings},
+		User:           &handlers.UserHandler{Svc: deps.Svc.User},
+		Role:           &handlers.RoleHandler{Svc: deps.Svc.Role},
+		Group:          &handlers.GroupHandler{Svc: deps.Svc.Group},
+		AuthSettings:   &handlers.AuthSettingsHandler{Svc: deps.Svc.AuthSettings, SAMLProvider: deps.SAMLProvider},
+		AI:             &handlers.AIHandler{SettingsSvc: deps.Svc.AuthSettings, Svc: deps.Svc.AI},
+		Node:           &handlers.NodeHandler{Svc: deps.Svc.Node},
+		Topology:       &handlers.TopologyHandler{Svc: deps.Svc.Topology},
+		Fluent:         &handlers.FluentHandler{Svc: deps.Svc.Fluent, NodeSvc: deps.Svc.Node},
+		FluentOps:      &handlers.FluentOpsHandler{Svc: deps.Svc.FluentOps},
+		Config:         &handlers.ConfigHandler{Svc: deps.Svc.Config},
+		Deploy:         &handlers.DeployHandler{Svc: deps.Svc.Deploy},
+		Agent:          &handlers.AgentHandler{Svc: deps.Svc.Agent, NodeSvc: deps.Svc.Node},
+		AgentAccessKey: &handlers.AgentAccessKeyHandler{Svc: deps.Svc.AgentAccessKey},
+		AgentPolicy:    &handlers.AgentPolicyHandler{Svc: deps.Svc.AgentPolicy, NodeSvc: deps.Svc.Node},
+		Metrics:        &handlers.MetricsHandler{Svc: deps.Svc.Metrics, TopoSvc: deps.Svc.Topology},
+		Setup:          &handlers.SetupHandler{Svc: deps.Svc.Setup, JWT: deps.JWTSvc, CfgPath: deps.CfgPath, RestartCh: deps.RestartCh},
 	}
 }
