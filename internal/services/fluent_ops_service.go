@@ -1,6 +1,7 @@
 package services
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -22,6 +23,15 @@ var (
 		"loki":    true,
 		"custom":  true,
 	}
+	validOutputTargetTypes = map[string]bool{
+		"opensearch": true,
+		"loki":       true,
+		"kafka":      true,
+		"http":       true,
+		"s3":         true,
+		"stdout":     true,
+		"custom":     true,
+	}
 )
 
 type LogPipelineInput struct {
@@ -34,10 +44,20 @@ type LogPipelineInput struct {
 	SourceLabelSelector           string `json:"source_label_selector"`
 	UpstreamRole                  string `json:"upstream_role"`
 	DestinationAggregationGroupID *uint  `json:"destination_aggregation_group_id"`
+	DestinationOutputTargetID     *uint  `json:"destination_output_target_id"`
 	DestinationOutputName         string `json:"destination_output_name"`
 	DestinationOutputType         string `json:"destination_output_type"`
 	TagStrategy                   string `json:"tag_strategy"`
 	Enabled                       bool   `json:"enabled"`
+}
+
+type OutputTargetInput struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	FluentType  string `json:"fluent_type"`
+	TargetType  string `json:"target_type"`
+	Endpoint    string `json:"endpoint"`
+	Settings    string `json:"settings"`
 }
 
 type ConfigLintInput struct {
@@ -96,6 +116,11 @@ type AggregationGroupRuntimeMetric struct {
 }
 
 type FluentOpsService interface {
+	ListOutputTargets() ([]models.OutputTarget, error)
+	GetOutputTarget(id uint) (*models.OutputTarget, error)
+	CreateOutputTarget(input *OutputTargetInput, createdBy uint) (*models.OutputTarget, error)
+	UpdateOutputTarget(id uint, input *OutputTargetInput) (*models.OutputTarget, error)
+	DeleteOutputTarget(id uint) error
 	ListPipelines(allowedClusters []uint) ([]models.LogPipeline, error)
 	GetPipeline(id uint, allowedClusters []uint) (*models.LogPipeline, error)
 	CreatePipeline(input *LogPipelineInput, createdBy uint, allowedClusters []uint) (*models.LogPipeline, error)
@@ -119,6 +144,72 @@ type fluentOpsService struct {
 
 func NewFluentOpsService(db *gorm.DB) FluentOpsService {
 	return &fluentOpsService{db: db}
+}
+
+func (s *fluentOpsService) ListOutputTargets() ([]models.OutputTarget, error) {
+	var targets []models.OutputTarget
+	if err := s.db.Preload("Creator").Order("target_type, name").Find(&targets).Error; err != nil {
+		return nil, err
+	}
+	return targets, nil
+}
+
+func (s *fluentOpsService) GetOutputTarget(id uint) (*models.OutputTarget, error) {
+	var target models.OutputTarget
+	if err := s.db.Preload("Creator").First(&target, id).Error; err != nil {
+		return nil, err
+	}
+	return &target, nil
+}
+
+func (s *fluentOpsService) CreateOutputTarget(input *OutputTargetInput, createdBy uint) (*models.OutputTarget, error) {
+	target, err := s.buildOutputTargetModel(input, nil, createdBy)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.db.Create(target).Error; err != nil {
+		return nil, err
+	}
+	return s.GetOutputTarget(target.ID)
+}
+
+func (s *fluentOpsService) UpdateOutputTarget(id uint, input *OutputTargetInput) (*models.OutputTarget, error) {
+	current, err := s.GetOutputTarget(id)
+	if err != nil {
+		return nil, err
+	}
+	target, err := s.buildOutputTargetModel(input, current, current.CreatedBy)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.db.Model(current).Updates(map[string]interface{}{
+		"name":        target.Name,
+		"description": target.Description,
+		"fluent_type": target.FluentType,
+		"target_type": target.TargetType,
+		"endpoint":    target.Endpoint,
+		"settings":    target.Settings,
+	}).Error; err != nil {
+		return nil, err
+	}
+	return s.GetOutputTarget(id)
+}
+
+func (s *fluentOpsService) DeleteOutputTarget(id uint) error {
+	target, err := s.GetOutputTarget(id)
+	if err != nil {
+		return err
+	}
+	var count int64
+	if err := s.db.Model(&models.LogPipeline{}).
+		Where("destination_output_target_id = ?", target.ID).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return fmt.Errorf("%w: output target is referenced by %d pipeline(s)", ErrConflict, count)
+	}
+	return s.db.Delete(&models.OutputTarget{}, target.ID).Error
 }
 
 func (s *fluentOpsService) ListPipelines(allowedClusters []uint) ([]models.LogPipeline, error) {
@@ -171,6 +262,7 @@ func (s *fluentOpsService) UpdatePipeline(id uint, input *LogPipelineInput, allo
 		"source_label_selector":            pipeline.SourceLabelSelector,
 		"upstream_role":                    pipeline.UpstreamRole,
 		"destination_aggregation_group_id": pipeline.DestinationAggregationGroupID,
+		"destination_output_target_id":     pipeline.DestinationOutputTargetID,
 		"destination_output_name":          pipeline.DestinationOutputName,
 		"destination_output_type":          pipeline.DestinationOutputType,
 		"tag_strategy":                     pipeline.TagStrategy,
@@ -363,7 +455,56 @@ func (s *fluentOpsService) basePipelineQuery() *gorm.DB {
 	return s.db.Preload("Creator").
 		Preload("SourceCluster.Region.DataCenter").
 		Preload("SourceAggregationGroup.Cluster.Region.DataCenter").
-		Preload("DestinationAggregationGroup.Cluster.Region.DataCenter")
+		Preload("DestinationAggregationGroup.Cluster.Region.DataCenter").
+		Preload("DestinationOutputTarget")
+}
+
+func (s *fluentOpsService) buildOutputTargetModel(input *OutputTargetInput, existing *models.OutputTarget, createdBy uint) (*models.OutputTarget, error) {
+	if input == nil {
+		return nil, fmt.Errorf("%w: output target payload is required", ErrInvalidArgument)
+	}
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrInvalidArgument)
+	}
+	fluentType := strings.TrimSpace(input.FluentType)
+	if !validPipelineFluentTypes[fluentType] {
+		return nil, fmt.Errorf("%w: unsupported fluent_type %q", ErrInvalidArgument, fluentType)
+	}
+	targetType := strings.TrimSpace(input.TargetType)
+	if !validOutputTargetTypes[targetType] {
+		return nil, fmt.Errorf("%w: unsupported target_type %q", ErrInvalidArgument, targetType)
+	}
+	settings := strings.TrimSpace(input.Settings)
+	if settings == "" {
+		settings = "{}"
+	}
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(settings), &parsed); err != nil {
+		return nil, fmt.Errorf("%w: settings must be a JSON object", ErrInvalidArgument)
+	}
+	if parsed == nil {
+		settings = "{}"
+	}
+
+	var duplicate models.OutputTarget
+	err := s.db.Where("name = ?", name).First(&duplicate).Error
+	if err == nil && (existing == nil || duplicate.ID != existing.ID) {
+		return nil, fmt.Errorf("%w: output target name already exists", ErrConflict)
+	}
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return nil, err
+	}
+
+	return &models.OutputTarget{
+		Name:        name,
+		Description: strings.TrimSpace(input.Description),
+		FluentType:  fluentType,
+		TargetType:  targetType,
+		Endpoint:    strings.TrimSpace(input.Endpoint),
+		Settings:    settings,
+		CreatedBy:   createdBy,
+	}, nil
 }
 
 func (s *fluentOpsService) buildPipelineModel(input *LogPipelineInput, existing *models.LogPipeline, createdBy uint, allowedClusters []uint) (*models.LogPipeline, error) {
@@ -397,8 +538,18 @@ func (s *fluentOpsService) buildPipelineModel(input *LogPipelineInput, existing 
 		return nil, fmt.Errorf("%w: exactly one source selector is required", ErrInvalidArgument)
 	}
 
-	if input.DestinationAggregationGroupID == nil && strings.TrimSpace(input.DestinationOutputName) == "" {
-		return nil, fmt.Errorf("%w: destination aggregation group or output is required", ErrInvalidArgument)
+	destinationCount := 0
+	if input.DestinationAggregationGroupID != nil {
+		destinationCount++
+	}
+	if input.DestinationOutputTargetID != nil {
+		destinationCount++
+	}
+	if strings.TrimSpace(input.DestinationOutputName) != "" {
+		destinationCount++
+	}
+	if destinationCount != 1 {
+		return nil, fmt.Errorf("%w: exactly one destination selector is required", ErrInvalidArgument)
 	}
 
 	if input.SourceClusterID != nil {
@@ -428,6 +579,11 @@ func (s *fluentOpsService) buildPipelineModel(input *LogPipelineInput, existing 
 			return nil, ErrForbidden
 		}
 	}
+	if input.DestinationOutputTargetID != nil {
+		if err := s.db.First(&models.OutputTarget{}, *input.DestinationOutputTargetID).Error; err != nil {
+			return nil, fmt.Errorf("%w: destination output target not found", ErrInvalidArgument)
+		}
+	}
 	if allowedClusters != nil && strings.TrimSpace(input.SourceLabelSelector) != "" {
 		return nil, fmt.Errorf("%w: scoped users cannot create global label-selector pipelines", ErrForbidden)
 	}
@@ -451,6 +607,7 @@ func (s *fluentOpsService) buildPipelineModel(input *LogPipelineInput, existing 
 		SourceLabelSelector:           strings.TrimSpace(input.SourceLabelSelector),
 		UpstreamRole:                  strings.TrimSpace(input.UpstreamRole),
 		DestinationAggregationGroupID: input.DestinationAggregationGroupID,
+		DestinationOutputTargetID:     input.DestinationOutputTargetID,
 		DestinationOutputName:         strings.TrimSpace(input.DestinationOutputName),
 		DestinationOutputType:         strings.TrimSpace(input.DestinationOutputType),
 		TagStrategy:                   strings.TrimSpace(input.TagStrategy),
@@ -699,6 +856,17 @@ func pipelineTargetNode(pipeline *models.LogPipeline, includeHealth bool) (strin
 			NodeType:    "aggregation_group",
 			Health:      boolHealth(includeHealth),
 			Description: "aggregation destination",
+		}
+	}
+	if pipeline.DestinationOutputTarget != nil {
+		label := firstNonEmpty(pipeline.DestinationOutputTarget.Name, "output")
+		desc := firstNonEmpty(pipeline.DestinationOutputTarget.TargetType, pipeline.DestinationOutputTarget.Endpoint, "terminal output")
+		return fmt.Sprintf("output-target:%d", pipeline.DestinationOutputTarget.ID), PipelineGraphNode{
+			ID:          fmt.Sprintf("output-target:%d", pipeline.DestinationOutputTarget.ID),
+			Label:       label,
+			NodeType:    "output",
+			Health:      boolHealth(includeHealth),
+			Description: desc,
 		}
 	}
 	label := firstNonEmpty(pipeline.DestinationOutputName, "output")

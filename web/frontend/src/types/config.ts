@@ -34,6 +34,8 @@ export interface ConfigModule {
   content: string
   variables: string
   is_builtin: boolean
+  preset_kind: string
+  preset_key: string
   versions?: ConfigModuleVersion[]
   created_by: number
   creator?: import('./auth').User
@@ -58,6 +60,7 @@ export interface ConfigModuleVersion {
 export interface RenderModuleRef {
   module_id: number
   version_id?: number
+  variables?: string
 }
 
 export interface RenderedConfig {

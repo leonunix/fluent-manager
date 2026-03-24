@@ -20,6 +20,16 @@ func registerFluentRoutes(authed *gin.RouterGroup, h *allHandlers) {
 	}
 
 	// Log pipelines and flow graph
+	outputTargets := authed.Group("/output-targets")
+	{
+		outputTargets.GET("", middleware.RequirePermission("topology", "read"), h.FluentOps.ListOutputTargets)
+		outputTargets.GET("/:id", middleware.RequirePermission("topology", "read"), h.FluentOps.GetOutputTarget)
+		outputTargets.POST("", middleware.RequirePermission("topology", "create"), h.FluentOps.CreateOutputTarget)
+		outputTargets.PUT("/:id", middleware.RequirePermission("topology", "update"), h.FluentOps.UpdateOutputTarget)
+		outputTargets.DELETE("/:id", middleware.RequirePermission("topology", "delete"), h.FluentOps.DeleteOutputTarget)
+	}
+
+	// Log pipelines and flow graph
 	pipelines := authed.Group("/log-pipelines")
 	{
 		pipelines.GET("", middleware.RequirePermission("topology", "read"), h.FluentOps.ListPipelines)

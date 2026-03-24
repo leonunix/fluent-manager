@@ -80,7 +80,7 @@
             @click="activeTab = 'modules'"
           >
             {{ t('configs_page.modules') }}
-            <span class="badge rounded-pill text-bg-light ms-2">{{ modules.length }}</span>
+            <span class="badge rounded-pill text-bg-light ms-2">{{ visibleModules.length }}</span>
           </button>
           <button
             class="nav-link"
@@ -184,6 +184,9 @@
             <span class="badge text-bg-light">{{ wizardVariableFields.length }}</span>
           </div>
           <div class="card-body">
+            <div v-if="wizardVariableConflicts.length" class="alert alert-warning py-2">
+              {{ t('configs_page.wizard_shared_variables_warning').replace('{keys}', wizardVariableConflicts.join(', ')) }}
+            </div>
             <div v-if="wizardVariableFields.length" class="row g-3">
               <div v-for="field in wizardVariableFields" :key="field.key" class="col-12">
                 <label class="form-label d-flex justify-content-between align-items-center">
@@ -211,6 +214,105 @@
             </div>
             <div v-else class="text-center text-muted py-4">
               {{ t('configs_page.wizard_no_variables') }}
+            </div>
+          </div>
+        </div>
+
+        <div class="card border-0 shadow-sm mb-4">
+          <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <h6 class="mb-0">{{ t('configs_page.enterprise_input_presets') }}</h6>
+            <span class="badge text-bg-light">{{ wizardInputPresets.length }}</span>
+          </div>
+          <div class="card-body">
+            <div class="d-grid gap-2">
+              <button
+                v-for="preset in wizardInputPresets"
+                :key="preset.id"
+                type="button"
+                class="btn text-start"
+                :class="selectedWizardInputPresetKeys.includes(preset.preset_key) ? 'btn-primary' : 'btn-outline-secondary'"
+                @click="applyWizardInputPreset(preset)"
+              >
+                <div class="fw-semibold">{{ preset.name }}</div>
+                <div class="small opacity-75">{{ preset.description || t('common.no_description') }}</div>
+              </button>
+            </div>
+            <div v-if="!wizardInputPresets.length" class="text-center text-muted py-3">
+              {{ t('configs_page.current_runtime_no_modules') }}
+            </div>
+          </div>
+        </div>
+
+        <div class="card border-0 shadow-sm mb-4">
+          <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <h6 class="mb-0">{{ t('configs_page.output_destination') }}</h6>
+            <span class="badge text-bg-light">{{ wizardAvailableOutputTargets.length }}</span>
+          </div>
+          <div class="card-body">
+            <div class="d-grid gap-2 mb-3">
+              <button
+                v-for="target in wizardAvailableOutputTargets"
+                :key="target.id"
+                type="button"
+                class="btn text-start"
+                :class="selectedWizardOutputTargetIds.includes(target.id) ? 'btn-primary' : 'btn-outline-secondary'"
+                @click="toggleWizardOutputTarget(target.id)"
+              >
+                <div class="fw-semibold">{{ target.name }}</div>
+                <div class="small opacity-75">{{ target.target_type }} · {{ target.endpoint || t('common.unspecified') }}</div>
+              </button>
+            </div>
+            <div v-if="wizardUnresolvedOutputTargets.length" class="alert alert-warning py-2">
+              {{ t('configs_page.output_target_module_missing').replace('{targets}', wizardUnresolvedOutputTargets.map((item) => item.name).join(', ')) }}
+            </div>
+            <div v-if="!wizardSelectedOutputTargets.length" class="small text-muted">
+              {{ t('configs_page.output_destination_hint') }}
+            </div>
+          </div>
+        </div>
+
+        <div class="card border-0 shadow-sm mb-4">
+          <div class="card-header bg-white">
+            <h6 class="mb-0">{{ t('configs_page.solution_card') }}</h6>
+          </div>
+          <div class="card-body">
+            <div class="d-flex flex-wrap gap-2 mb-3">
+              <span class="badge bg-info-subtle text-info-emphasis">{{ runtimeLabel(wizardForm.fluent_type) }}</span>
+              <span class="badge text-bg-light">{{ wizardGoalLabel(wizardForm.goal) }}</span>
+            </div>
+            <div class="mb-3">
+              <div class="small text-muted mb-1">{{ t('configs_page.solution_path') }}</div>
+              <div class="fw-semibold">{{ wizardFlowPathLabel }}</div>
+            </div>
+            <div class="mb-3">
+              <div class="small text-muted mb-1">{{ t('configs_page.source_preset') }}</div>
+              <div class="d-flex flex-wrap gap-2">
+                <span
+                  v-for="preset in wizardSourcePresetChips"
+                  :key="preset"
+                  class="badge rounded-pill text-bg-light"
+                >
+                  {{ preset }}
+                </span>
+                <span v-if="!wizardSourcePresetChips.length" class="text-muted small">{{ t('configs_page.no_source_preset') }}</span>
+              </div>
+            </div>
+            <div class="mb-3">
+              <div class="small text-muted mb-1">{{ t('configs_page.processor_chain') }}</div>
+              <div>{{ wizardProcessorChainLabel }}</div>
+            </div>
+            <div class="mb-0">
+              <div class="small text-muted mb-2">{{ t('configs_page.destination_summary') }}</div>
+              <div class="d-flex flex-wrap gap-2">
+                <span
+                  v-for="chip in wizardDestinationChips"
+                  :key="chip"
+                  class="badge rounded-pill text-bg-light"
+                >
+                  {{ chip }}
+                </span>
+                <span v-if="!wizardDestinationChips.length" class="text-muted small">{{ t('configs_page.no_destination_summary') }}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -249,7 +351,7 @@
               <h6 class="mb-0">{{ t('configs_page.wizard_module_picker') }}</h6>
               <div class="small text-muted mt-1">{{ t('configs_page.runtime_help').replace('{runtime}', runtimeLabel(wizardForm.fluent_type)) }}</div>
             </div>
-            <span class="badge text-bg-light">{{ wizardEligibleModules.length }}</span>
+            <span class="badge text-bg-light">{{ wizardVisibleModules.length }}</span>
           </div>
           <div class="card-body">
             <div class="row g-4">
@@ -284,7 +386,7 @@
                   </div>
                 </div>
               </div>
-              <div v-if="!wizardEligibleModules.length" class="col-12 text-center text-muted py-5">
+              <div v-if="!wizardVisibleModules.length" class="col-12 text-center text-muted py-5">
                 {{ t('configs_page.current_runtime_no_modules') }}
               </div>
             </div>
@@ -308,6 +410,25 @@
                 <span class="badge bg-success-subtle text-success-emphasis">{{ wizardForm.goal }}</span>
                 <span class="badge bg-info-subtle text-info-emphasis">{{ runtimeLabel(renderedConfig.fluent_type) }}</span>
                 <span class="badge text-bg-light">{{ renderedConfig.runtime_version || t('common.unspecified') }}</span>
+              </div>
+              <div class="card border-0 bg-light-subtle mb-3">
+                <div class="card-body">
+                  <div class="fw-semibold mb-2">{{ t('configs_page.render_chain_summary') }}</div>
+                  <div class="small text-muted mb-3">{{ t('configs_page.render_chain_hint') }}</div>
+                  <div class="mb-2">
+                    <div class="small text-muted mb-1">{{ t('configs_page.solution_path') }}</div>
+                    <div class="fw-semibold">{{ wizardFlowPathLabel }}</div>
+                  </div>
+                  <div class="d-flex flex-wrap gap-2">
+                    <span
+                      v-for="chip in wizardDestinationChips"
+                      :key="`wizard-preview-${chip}`"
+                      class="badge rounded-pill text-bg-light"
+                    >
+                      {{ chip }}
+                    </span>
+                  </div>
+                </div>
               </div>
               <pre class="fm-render-preview">{{ renderedConfig.content }}</pre>
             </div>
@@ -494,7 +615,7 @@
           <div class="card border-0 shadow-sm h-100">
             <div class="card-body">
               <div class="text-muted small mb-1">{{ t('configs_page.total_modules') }}</div>
-              <div class="fs-3 fw-bold">{{ modules.length }}</div>
+              <div class="fs-3 fw-bold">{{ visibleModules.length }}</div>
               <div class="small text-muted mt-2">{{ t('configs_page.source_runtime_hint') }}</div>
             </div>
           </div>
@@ -512,7 +633,7 @@
           <div class="card border-0 shadow-sm h-100">
             <div class="card-body">
               <div class="text-muted small mb-1">{{ t('configs_page.module_type_coverage') }}</div>
-              <div class="fs-3 fw-bold">{{ usedModuleTypes.length }}/6</div>
+              <div class="fs-3 fw-bold">{{ usedModuleTypes.length }}/5</div>
               <div class="small text-muted mt-2">{{ usedModuleTypes.join(' / ') || '-' }}</div>
             </div>
           </div>
@@ -535,7 +656,7 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="module in modules" :key="module.id">
+                <tr v-for="module in visibleModules" :key="module.id">
                   <td>
                     <div class="fw-semibold">{{ module.name }}</div>
                     <div class="small text-muted">{{ module.description || t('common.no_description') }}</div>
@@ -563,7 +684,7 @@
                     </button>
                   </td>
                 </tr>
-                <tr v-if="!modules.length">
+                <tr v-if="!visibleModules.length">
                   <td colspan="7" class="text-center text-muted py-4">{{ t('configs_page.no_modules') }}</td>
                 </tr>
               </tbody>
@@ -605,6 +726,26 @@
                 rows="8"
                 placeholder='{"path":"/var/log/*.log","match":"*"}'
               ></textarea>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">{{ t('configs_page.output_destination') }}</label>
+              <div class="d-grid gap-2">
+                <button
+                  v-for="target in previewAvailableOutputTargets"
+                  :key="target.id"
+                  type="button"
+                  class="btn text-start"
+                  :class="selectedPreviewOutputTargetIds.includes(target.id) ? 'btn-primary' : 'btn-outline-secondary'"
+                  @click="togglePreviewOutputTarget(target.id)"
+                >
+                  <div class="fw-semibold">{{ target.name }}</div>
+                  <div class="small opacity-75">{{ target.target_type }} · {{ target.endpoint || t('common.unspecified') }}</div>
+                </button>
+              </div>
+              <div v-if="previewUnresolvedOutputTargets.length" class="alert alert-warning py-2 mt-2 mb-0">
+                {{ t('configs_page.output_target_module_missing').replace('{targets}', previewUnresolvedOutputTargets.map((item) => item.name).join(', ')) }}
+              </div>
+              <div class="small text-muted mt-2">{{ t('configs_page.preview_output_destination_hint') }}</div>
             </div>
             <div class="mb-3">
               <label class="form-label">{{ t('configs_page.compatibility_node') }}</label>
@@ -660,7 +801,7 @@
           <div class="card-body">
             <div class="row g-3">
               <div
-                v-for="module in previewEligibleModules"
+                v-for="module in previewVisibleModules"
                 :key="module.id"
                 class="col-lg-6"
               >
@@ -682,7 +823,7 @@
                   </div>
                 </label>
               </div>
-              <div v-if="!previewEligibleModules.length" class="col-12 text-center text-muted py-4">
+              <div v-if="!previewVisibleModules.length" class="col-12 text-center text-muted py-4">
                 {{ t('configs_page.current_runtime_no_modules') }}
               </div>
             </div>
@@ -706,6 +847,26 @@
                 <span class="badge bg-success-subtle text-success-emphasis">ID {{ renderedConfig.id }}</span>
                 <span class="badge bg-info-subtle text-info-emphasis">{{ runtimeLabel(renderedConfig.fluent_type) }}</span>
                 <span class="badge text-bg-light">{{ renderedConfig.runtime_version || t('common.unspecified') }}</span>
+              </div>
+              <div class="card border-0 bg-light-subtle mb-3">
+                <div class="card-body">
+                  <div class="fw-semibold mb-2">{{ t('configs_page.render_chain_summary') }}</div>
+                  <div class="small text-muted mb-3">{{ t('configs_page.render_chain_hint') }}</div>
+                  <div class="mb-2">
+                    <div class="small text-muted mb-1">{{ t('configs_page.solution_path') }}</div>
+                    <div class="fw-semibold">{{ previewFlowPathLabel }}</div>
+                  </div>
+                  <div class="d-flex flex-wrap gap-2">
+                    <span
+                      v-for="chip in previewDestinationChips"
+                      :key="`preview-${chip}`"
+                      class="badge rounded-pill text-bg-light"
+                    >
+                      {{ chip }}
+                    </span>
+                    <span v-if="!previewDestinationChips.length" class="text-muted small">{{ t('configs_page.no_destination_summary') }}</span>
+                  </div>
+                </div>
               </div>
               <pre class="fm-render-preview">{{ renderedConfig.content }}</pre>
             </div>
@@ -1360,6 +1521,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from '../i18n'
+import { buildConfigFlowSummary } from '../utils/config_flow'
 import {
   analyzeLogSampleAssistant,
   checkCompatibility,
@@ -1371,6 +1533,7 @@ import {
   diffConfig,
   getModuleVersions,
   getModules,
+  getOutputTargets,
   getRenderedConfig,
   getTemplates,
   lintConfig,
@@ -1382,6 +1545,7 @@ import {
 const activeTab = ref('templates')
 const templates = ref([])
 const modules = ref([])
+const outputTargets = ref([])
 const renderedConfig = ref(null)
 const analysisResult = ref(null)
 const compatibilityResult = ref(null)
@@ -1390,7 +1554,9 @@ const diffResult = ref(null)
 const currentModule = ref(null)
 const moduleVersions = ref([])
 const selectedPreviewModuleIds = ref([])
+const selectedPreviewOutputTargetIds = ref([])
 const selectedWizardModuleIds = ref([])
+const selectedWizardOutputTargetIds = ref([])
 const aiAssistantLoading = ref(false)
 const aiAssistantResult = ref(null)
 const aiAssistantFeedback = reactive({
@@ -1408,8 +1574,8 @@ const moduleVariablesMode = ref('form')
 const moduleVariableRows = ref([])
 const moduleVariablesFormError = ref('')
 
-const moduleTypes = ['service', 'input', 'parser', 'filter', 'route', 'output']
-const wizardRecommendedTypes = ['service', 'input', 'filter', 'output']
+const moduleTypes = ['service', 'input', 'parser', 'filter', 'route']
+const wizardRecommendedTypes = ['service', 'input', 'filter', 'route']
 const moduleExamples = {
   fluentbit: {
     service: {
@@ -1593,26 +1759,65 @@ const aiAssistantForm = reactive({
   extra_requirements: '',
 })
 
-const sharedModuleCount = computed(() => modules.value.filter((item) => item.fluent_type === 'shared').length)
-const usedModuleTypes = computed(() => [...new Set(modules.value.map((item) => item.module_type))])
+const visibleModules = computed(() => modules.value.filter((item) => item.module_type !== 'output'))
+const sharedModuleCount = computed(() => visibleModules.value.filter((item) => item.fluent_type === 'shared').length)
+const usedModuleTypes = computed(() => [...new Set(visibleModules.value.map((item) => item.module_type))])
 const previewEligibleModules = computed(() =>
   modules.value.filter((item) => item.fluent_type === 'shared' || item.fluent_type === previewForm.fluent_type)
+)
+const previewVisibleModules = computed(() =>
+  previewEligibleModules.value.filter((item) => item.module_type !== 'output')
 )
 const wizardEligibleModules = computed(() =>
   modules.value.filter((item) => item.fluent_type === 'shared' || item.fluent_type === wizardForm.fluent_type)
 )
+const wizardVisibleModules = computed(() =>
+  wizardEligibleModules.value.filter((item) => item.module_type !== 'output')
+)
+const wizardInputPresets = computed(() =>
+  wizardVisibleModules.value.filter((item) => item.module_type === 'input' && item.preset_kind === 'input')
+)
+const wizardAvailableOutputTargets = computed(() =>
+  outputTargets.value.filter((item) => item.fluent_type === 'shared' || item.fluent_type === wizardForm.fluent_type)
+)
+const previewAvailableOutputTargets = computed(() =>
+  outputTargets.value.filter((item) => item.fluent_type === 'shared' || item.fluent_type === previewForm.fluent_type)
+)
 const wizardSelectedModules = computed(() =>
   wizardEligibleModules.value.filter((item) => selectedWizardModuleIds.value.includes(item.id))
 )
+const selectedWizardInputPresetKeys = computed(() =>
+  wizardSelectedModules.value
+    .filter((item) => item.module_type === 'input' && item.preset_kind === 'input' && item.preset_key)
+    .map((item) => item.preset_key)
+)
+const wizardSelectedOutputTargets = computed(() =>
+  wizardAvailableOutputTargets.value.filter((item) => selectedWizardOutputTargetIds.value.includes(item.id))
+)
+const wizardUnresolvedOutputTargets = computed(() =>
+  wizardSelectedOutputTargets.value.filter((item) => !matchingOutputModuleForTarget(item, wizardEligibleModules.value, wizardForm.fluent_type))
+)
+const wizardInputPresetsSelected = computed(() =>
+  wizardSelectedModules.value.filter((item) => item.module_type === 'input' && item.preset_kind === 'input')
+)
+const wizardSelectedOutputModules = computed(() =>
+  wizardSelectedOutputTargets.value
+    .map((target) => matchingOutputModuleForTarget(target, wizardEligibleModules.value, wizardForm.fluent_type))
+    .filter(Boolean)
+)
+const wizardSummaryModules = computed(() => [...wizardSelectedModules.value, ...wizardSelectedOutputModules.value])
+const wizardFlowSummary = computed(() => buildConfigFlowSummary(wizardSummaryModules.value, wizardSelectedOutputTargets.value))
 const wizardModulesByType = computed(() =>
   moduleTypes
     .map((type) => ({
       type,
-      modules: wizardEligibleModules.value.filter((item) => item.module_type === type),
+      modules: wizardVisibleModules.value.filter((item) => item.module_type === type),
     }))
     .filter((group) => group.modules.length)
 )
-const wizardSelectedTypes = computed(() => [...new Set(wizardSelectedModules.value.map((item) => item.module_type))])
+const wizardSelectedTypes = computed(() =>
+  [...new Set(wizardSelectedModules.value.map((item) => item.module_type).filter((type) => moduleTypes.includes(type)))]
+)
 const wizardMissingTypes = computed(() => wizardRecommendedTypes.filter((type) => !wizardSelectedTypes.value.includes(type)))
 const wizardCoverageCount = computed(() => wizardRecommendedTypes.filter((type) => wizardSelectedTypes.value.includes(type)).length)
 const wizardVariableFields = computed(() => {
@@ -1640,6 +1845,9 @@ const wizardVariableFields = computed(() => {
   }
   return Array.from(merged.values())
 })
+const wizardVariableConflicts = computed(() =>
+  wizardVariableFields.value.filter((field) => field.moduleNames.length > 1).map((field) => field.key)
+)
 const currentModuleExample = computed(() => {
   const runtimeExamples = moduleExamples[moduleForm.fluent_type] || moduleExamples.shared
   return runtimeExamples[moduleForm.module_type] || runtimeExamples.input || {
@@ -1647,6 +1855,22 @@ const currentModuleExample = computed(() => {
     content: '# Example content',
   }
 })
+const previewSelectedModules = computed(() =>
+  previewEligibleModules.value.filter((item) => selectedPreviewModuleIds.value.includes(item.id))
+)
+const previewResolvedOutputTargets = computed(() =>
+  previewAvailableOutputTargets.value.filter((item) => selectedPreviewOutputTargetIds.value.includes(item.id))
+)
+const previewUnresolvedOutputTargets = computed(() =>
+  previewResolvedOutputTargets.value.filter((item) => !matchingOutputModuleForTarget(item, previewEligibleModules.value, previewForm.fluent_type))
+)
+const previewSelectedOutputModules = computed(() =>
+  previewResolvedOutputTargets.value
+    .map((target) => matchingOutputModuleForTarget(target, previewEligibleModules.value, previewForm.fluent_type))
+    .filter(Boolean)
+)
+const previewSummaryModules = computed(() => [...previewSelectedModules.value, ...previewSelectedOutputModules.value])
+const previewFlowSummary = computed(() => buildConfigFlowSummary(previewSummaryModules.value, previewResolvedOutputTargets.value))
 const currentTemplateExample = computed(() => templateExamples[templateForm.fluent_type] || templateExamples.fluentbit)
 const aiModuleDraftSource = computed(() => [aiModuleDraftState.provider, aiModuleDraftState.accountName].filter(Boolean).join(' / '))
 const aiTemplateDraftSource = computed(() => [aiTemplateDraftState.provider, aiTemplateDraftState.accountName].filter(Boolean).join(' / '))
@@ -1694,6 +1918,19 @@ function formatJson(value) {
     return String(value || '{}')
   }
 }
+
+const wizardFlowPathLabel = computed(() =>
+  wizardFlowSummary.value.path.length ? wizardFlowSummary.value.path.join(' -> ') : t('configs_page.no_solution_path')
+)
+const wizardProcessorChainLabel = computed(() =>
+  wizardFlowSummary.value.processors.length ? wizardFlowSummary.value.processors.join(' -> ') : t('configs_page.no_processors')
+)
+const wizardSourcePresetChips = computed(() => wizardInputPresetsSelected.value.map((item) => item.name))
+const wizardDestinationChips = computed(() => wizardFlowSummary.value.destinationChips || [])
+const previewFlowPathLabel = computed(() =>
+  previewFlowSummary.value.path.length ? previewFlowSummary.value.path.join(' -> ') : t('configs_page.no_solution_path')
+)
+const previewDestinationChips = computed(() => previewFlowSummary.value.destinationChips || [])
 
 function getErrorMessage(error) {
   return error?.response?.data?.user_message || error?.response?.data?.error || error?.message || t('common.request_failed')
@@ -2065,6 +2302,81 @@ function normalizeWizardVariableValue(value, kind) {
   return value
 }
 
+function mergeWizardVariableValues(nextValues) {
+  const merged = { ...wizardVariableValues.value }
+  for (const [key, value] of Object.entries(nextValues || {})) {
+    merged[key] = stringifyVariableValue(value)
+  }
+  wizardVariableValues.value = merged
+}
+
+function ensureWizardBaselineModules() {
+  const baseline = wizardEligibleModules.value.find((item) =>
+    item.module_type === 'service' &&
+    item.is_builtin &&
+    item.name.startsWith(`guided-${wizardForm.fluent_type === 'fluentbit' ? 'fb' : 'fd'}-service-`)
+  )
+  if (baseline && !selectedWizardModuleIds.value.includes(baseline.id)) {
+    selectedWizardModuleIds.value = [...selectedWizardModuleIds.value, baseline.id]
+  }
+}
+
+function matchingOutputModuleForTarget(target, eligibleModules, fluentType) {
+  if (!target) return null
+  const matches = eligibleModules.filter((item) =>
+    item.module_type === 'output' &&
+    item.preset_kind === 'output' &&
+    item.preset_key === target.target_type
+  )
+  return matches.find((item) => item.fluent_type === fluentType) || matches.find((item) => item.fluent_type === 'shared') || null
+}
+
+function applyWizardInputPreset(module) {
+  if (!module) return
+  if (selectedWizardModuleIds.value.includes(module.id)) {
+    selectedWizardModuleIds.value = selectedWizardModuleIds.value.filter((id) => id !== module.id)
+    return
+  }
+  selectedWizardModuleIds.value = [...selectedWizardModuleIds.value, module.id]
+  ensureWizardBaselineModules()
+  mergeWizardVariableValues(parseVariablesMap(module.variables))
+}
+
+function toggleWizardOutputTarget(targetId) {
+  if (selectedWizardOutputTargetIds.value.includes(targetId)) {
+    selectedWizardOutputTargetIds.value = selectedWizardOutputTargetIds.value.filter((id) => id !== targetId)
+    return
+  }
+  selectedWizardOutputTargetIds.value = [...selectedWizardOutputTargetIds.value, targetId]
+}
+
+function togglePreviewOutputTarget(targetId) {
+  if (selectedPreviewOutputTargetIds.value.includes(targetId)) {
+    selectedPreviewOutputTargetIds.value = selectedPreviewOutputTargetIds.value.filter((id) => id !== targetId)
+    return
+  }
+  selectedPreviewOutputTargetIds.value = [...selectedPreviewOutputTargetIds.value, targetId]
+}
+
+function buildOutputTargetModuleRefs(targets, eligibleModules, fluentType) {
+  return targets
+    .map((target) => {
+      const outputModule = matchingOutputModuleForTarget(target, eligibleModules, fluentType)
+      if (!outputModule) return null
+      const settings = parseVariablesMap(target.settings)
+      const variables = {
+        ...settings,
+        output_target_name: target.name,
+        output_target_type: target.target_type,
+      }
+      return {
+        module_id: outputModule.id,
+        variables: JSON.stringify(variables, null, 2),
+      }
+    })
+    .filter(Boolean)
+}
+
 function resetWizardForm() {
   wizardForm.goal = 'edge_collection'
   wizardForm.name = ''
@@ -2072,6 +2384,7 @@ function resetWizardForm() {
   wizardForm.fluent_type = 'fluentbit'
   wizardForm.runtime_version = ''
   selectedWizardModuleIds.value = []
+  selectedWizardOutputTargetIds.value = []
   wizardVariableValues.value = {}
 }
 
@@ -2083,6 +2396,14 @@ async function loadTemplates() {
 async function loadModules() {
   const { data } = await getModules()
   modules.value = data.data || []
+}
+
+async function loadOutputTargets() {
+  try {
+    outputTargets.value = await getOutputTargets()
+  } catch {
+    outputTargets.value = []
+  }
 }
 
 function ensureTemplateModal() {
@@ -2311,10 +2632,11 @@ function syncPreviewFromWizard() {
   }
   previewForm.variables = JSON.stringify(normalizedVariables, null, 2)
   selectedPreviewModuleIds.value = [...selectedWizardModuleIds.value]
+  selectedPreviewOutputTargetIds.value = [...selectedWizardOutputTargetIds.value]
 }
 
 async function runWizardPreview() {
-  if (!selectedWizardModuleIds.value.length) {
+  if (!selectedWizardModuleIds.value.length && !selectedWizardOutputTargetIds.value.length) {
     alert(t('configs_page.choose_modules'))
     return
   }
@@ -2448,7 +2770,16 @@ function wizardGoalLabel(goal) {
 }
 
 async function runPreview(options = {}) {
-  if (!selectedPreviewModuleIds.value.length) {
+  const outputModuleRefs = buildOutputTargetModuleRefs(
+    previewResolvedOutputTargets.value,
+    previewEligibleModules.value,
+    previewForm.fluent_type
+  )
+  if (previewUnresolvedOutputTargets.value.length) {
+    alert(t('configs_page.output_target_module_missing').replace('{targets}', previewUnresolvedOutputTargets.value.map((item) => item.name).join(', ')))
+    return
+  }
+  if (!selectedPreviewModuleIds.value.length && !outputModuleRefs.length) {
     alert(t('configs_page.choose_modules'))
     return
   }
@@ -2459,7 +2790,10 @@ async function runPreview(options = {}) {
       fluent_type: previewForm.fluent_type,
       runtime_version: previewForm.runtime_version,
       variables: previewForm.variables,
-      modules: selectedPreviewModuleIds.value.map((moduleId) => ({ module_id: moduleId })),
+      modules: [
+        ...selectedPreviewModuleIds.value.map((moduleId) => ({ module_id: moduleId })),
+        ...outputModuleRefs,
+      ],
     }
     const previewRes = await previewRenderedConfig(payload)
     const previewId = previewRes.data?.id
@@ -2578,6 +2912,8 @@ watch(
   () => {
     const eligibleIds = new Set(previewEligibleModules.value.map((item) => item.id))
     selectedPreviewModuleIds.value = selectedPreviewModuleIds.value.filter((id) => eligibleIds.has(id))
+    const availableIds = new Set(previewAvailableOutputTargets.value.map((item) => item.id))
+    selectedPreviewOutputTargetIds.value = selectedPreviewOutputTargetIds.value.filter((id) => availableIds.has(id))
   }
 )
 
@@ -2589,6 +2925,9 @@ watch(
     }
     const eligibleIds = new Set(wizardEligibleModules.value.map((item) => item.id))
     selectedWizardModuleIds.value = selectedWizardModuleIds.value.filter((id) => eligibleIds.has(id))
+    const availableIds = new Set(wizardAvailableOutputTargets.value.map((item) => item.id))
+    selectedWizardOutputTargetIds.value = selectedWizardOutputTargetIds.value.filter((id) => availableIds.has(id))
+    ensureWizardBaselineModules()
   },
   { immediate: true }
 )
@@ -2618,7 +2957,8 @@ watch(
 
 onMounted(async () => {
   resetWizardForm()
-  await Promise.all([loadTemplates(), loadModules()])
+  await Promise.all([loadTemplates(), loadModules(), loadOutputTargets()])
+  ensureWizardBaselineModules()
 })
 </script>
 

@@ -44,6 +44,11 @@
           </router-link>
         </li>
         <li class="nav-item">
+          <router-link to="/output-targets" class="fm-nav-link" active-class="active">
+            <i class="bi bi-bullseye me-2"></i>{{ t('nav.output_targets') }}
+          </router-link>
+        </li>
+        <li class="nav-item">
           <router-link to="/pipelines" class="fm-nav-link" active-class="active">
             <i class="bi bi-bezier2 me-2"></i>{{ t('nav.pipelines') }}
           </router-link>
@@ -152,6 +157,7 @@ const pageTitleKeys = {
   'Nodes': 'nav.nodes',
   'NodeDetail': 'nav.nodes',
   'AggregationGroups': 'nav.aggregation_groups',
+  'OutputTargets': 'nav.output_targets',
   'Pipelines': 'nav.pipelines',
   'Configs': 'nav.configs',
   'ConfigDetail': 'nav.configs',

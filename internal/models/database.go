@@ -77,6 +77,7 @@ func migrateAll(db *gorm.DB) error {
 		&Cluster{},
 		&ClusterMatchRule{},
 		&AggregationGroup{},
+		&OutputTarget{},
 		&Node{},
 		&NodeFluentProfile{},
 		&AgentPolicy{},
@@ -120,6 +121,11 @@ func MigrateSoftDeleteUniqueIndexes(db *gorm.DB) error {
 			legacy: "idx_log_pipelines_name",
 			target: "idx_log_pipeline_name_active",
 		},
+		{
+			model:  &OutputTarget{},
+			legacy: "idx_output_targets_name",
+			target: "idx_output_target_name_active",
+		},
 	}
 
 	for _, item := range indexes {
@@ -148,6 +154,7 @@ func seedDefaultsOn(db *gorm.DB) {
 	for _, env := range defaultEnvs {
 		db.FirstOrCreate(&env, Environment{Name: env.Name})
 	}
+	seedBuiltinConfigModules(db)
 
 	permissions := []Permission{
 		{Name: "nodes:create", Resource: "nodes", Action: "create"},

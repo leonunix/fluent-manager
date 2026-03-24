@@ -42,6 +42,7 @@ func NewTestDB() *gorm.DB {
 		&models.Cluster{},
 		&models.ClusterMatchRule{},
 		&models.AggregationGroup{},
+		&models.OutputTarget{},
 		&models.Node{},
 		&models.NodeFluentProfile{},
 		&models.AgentPolicy{},

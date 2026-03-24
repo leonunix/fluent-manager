@@ -11,6 +11,8 @@ import type {
   ConfigSemanticDiffResult,
   LogPipeline,
   LogPipelineInput,
+  OutputTarget,
+  OutputTargetInput,
   PipelineGraph,
   RuntimeDriftItem,
   RuntimeRecommendation,
@@ -31,6 +33,16 @@ export const updatePipeline = (id: number, data: LogPipelineInput) =>
 export const deletePipeline = (id: number) => api.delete(`/log-pipelines/${id}`)
 export const getPipelineGraph = () =>
   api.get<PipelineGraph>('/log-pipelines/graph').then(({ data }) => data)
+
+export const getOutputTargets = () =>
+  api.get<ListEnvelope<OutputTarget>>('/output-targets').then(({ data }) => data.data || [])
+export const getOutputTarget = (id: number) =>
+  api.get<OutputTarget>(`/output-targets/${id}`).then(({ data }) => data)
+export const createOutputTarget = (data: OutputTargetInput) =>
+  api.post<OutputTarget>('/output-targets', data).then(({ data: created }) => created)
+export const updateOutputTarget = (id: number, data: OutputTargetInput) =>
+  api.put<OutputTarget>(`/output-targets/${id}`, data).then(({ data: updated }) => updated)
+export const deleteOutputTarget = (id: number) => api.delete(`/output-targets/${id}`)
 
 export const lintConfig = (data: ConfigLintInput) =>
   api.post<ConfigAnalysisResult>('/config-analysis/lint', data).then(({ data: result }) => result)

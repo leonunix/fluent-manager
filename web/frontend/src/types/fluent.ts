@@ -37,6 +37,8 @@ export interface LogPipeline {
   upstream_role: string
   destination_aggregation_group_id: number | null
   destination_aggregation_group?: import('./node').AggregationGroup
+  destination_output_target_id: number | null
+  destination_output_target?: OutputTarget
   destination_output_name: string
   destination_output_type: string
   tag_strategy: string
@@ -57,10 +59,34 @@ export interface LogPipelineInput {
   source_label_selector?: string
   upstream_role?: string
   destination_aggregation_group_id?: number | null
+  destination_output_target_id?: number | null
   destination_output_name?: string
   destination_output_type?: string
   tag_strategy?: string
   enabled?: boolean
+}
+
+export interface OutputTarget {
+  id: number
+  name: string
+  description: string
+  fluent_type: string
+  target_type: string
+  endpoint: string
+  settings: string
+  created_by: number
+  creator?: import('./auth').User
+  created_at: string
+  updated_at: string
+}
+
+export interface OutputTargetInput {
+  name: string
+  description?: string
+  fluent_type: string
+  target_type: string
+  endpoint?: string
+  settings?: string
 }
 
 export interface PipelineGraphNode {

@@ -14,6 +14,72 @@ type FluentOpsHandler struct {
 	Svc services.FluentOpsService
 }
 
+func (h *FluentOpsHandler) ListOutputTargets(c *gin.Context) {
+	targets, err := h.Svc.ListOutputTargets()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": targets})
+}
+
+func (h *FluentOpsHandler) GetOutputTarget(c *gin.Context) {
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	target, err := h.Svc.GetOutputTarget(id)
+	if err != nil {
+		writeFluentOpsError(c, err, "output target")
+		return
+	}
+	c.JSON(http.StatusOK, target)
+}
+
+func (h *FluentOpsHandler) CreateOutputTarget(c *gin.Context) {
+	var req services.OutputTargetInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	target, err := h.Svc.CreateOutputTarget(&req, c.GetUint("user_id"))
+	if err != nil {
+		writeFluentOpsError(c, err, "output target")
+		return
+	}
+	c.JSON(http.StatusCreated, target)
+}
+
+func (h *FluentOpsHandler) UpdateOutputTarget(c *gin.Context) {
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	var req services.OutputTargetInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	target, err := h.Svc.UpdateOutputTarget(id, &req)
+	if err != nil {
+		writeFluentOpsError(c, err, "output target")
+		return
+	}
+	c.JSON(http.StatusOK, target)
+}
+
+func (h *FluentOpsHandler) DeleteOutputTarget(c *gin.Context) {
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	if err := h.Svc.DeleteOutputTarget(id); err != nil {
+		writeFluentOpsError(c, err, "output target")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "output target deleted"})
+}
+
 func (h *FluentOpsHandler) ListPipelines(c *gin.Context) {
 	pipelines, err := h.Svc.ListPipelines(middleware.GetAllowedClusters(c))
 	if err != nil {

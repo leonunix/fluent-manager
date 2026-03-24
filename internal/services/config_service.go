@@ -49,11 +49,14 @@ type ConfigModuleInput struct {
 	Content     string `json:"content"`
 	Variables   string `json:"variables"`
 	IsBuiltin   bool   `json:"is_builtin"`
+	PresetKind  string `json:"preset_kind"`
+	PresetKey   string `json:"preset_key"`
 }
 
 type RenderModuleRef struct {
 	ModuleID  uint  `json:"module_id"`
 	VersionID *uint `json:"version_id"`
+	Variables string `json:"variables"`
 }
 
 type RenderedConfigPreviewInput struct {
@@ -255,6 +258,10 @@ func (s *configService) UpdateModule(id uint, input *ConfigModuleInput) (*models
 	module.ID = current.ID
 	module.CreatedBy = current.CreatedBy
 	module.CreatedAt = current.CreatedAt
+	if module.PresetKind == "" && module.PresetKey == "" {
+		module.PresetKind = current.PresetKind
+		module.PresetKey = current.PresetKey
+	}
 
 	if err := s.db.Model(&current).Updates(map[string]interface{}{
 		"name":        module.Name,
@@ -264,6 +271,8 @@ func (s *configService) UpdateModule(id uint, input *ConfigModuleInput) (*models
 		"content":     module.Content,
 		"variables":   module.Variables,
 		"is_builtin":  module.IsBuiltin,
+		"preset_kind": module.PresetKind,
+		"preset_key":  module.PresetKey,
 	}).Error; err != nil {
 		return nil, err
 	}
@@ -336,6 +345,7 @@ func (s *configService) PreviewRenderedConfig(input *RenderedConfigPreviewInput,
 		module  models.ConfigModule
 		version *models.ConfigModuleVersion
 		content string
+		ref     RenderModuleRef
 	}
 
 	parts := make([]renderPart, 0, len(input.Modules))
@@ -350,12 +360,16 @@ func (s *configService) PreviewRenderedConfig(input *RenderedConfigPreviewInput,
 			module:  *module,
 			version: version,
 			content: content,
+			ref:     ref,
 		})
 
 		sourceRef := map[string]interface{}{
 			"module_id":   module.ID,
 			"module_name": module.Name,
 			"module_type": module.ModuleType,
+		}
+		if strings.TrimSpace(ref.Variables) != "" {
+			sourceRef["variables"] = normalizeJSONString(ref.Variables)
 		}
 		if version != nil {
 			sourceRef["version_id"] = version.ID
@@ -375,7 +389,16 @@ func (s *configService) PreviewRenderedConfig(input *RenderedConfigPreviewInput,
 
 	var sections []string
 	for _, part := range parts {
-		rendered, err := renderModuleTemplate(part.content, variables)
+		moduleVariables := cloneRenderVariables(variables)
+		overrideVariables, err := parseRenderVariables(part.ref.Variables)
+		if err != nil {
+			return nil, err
+		}
+		for key, value := range overrideVariables {
+			moduleVariables[key] = value
+		}
+
+		rendered, err := renderModuleTemplate(part.content, moduleVariables)
 		if err != nil {
 			return nil, fmt.Errorf("%w: render module %q failed: %v", ErrInvalidArgument, part.module.Name, err)
 		}
@@ -456,6 +479,10 @@ func validateConfigModuleInput(input *ConfigModuleInput) (*models.ConfigModule, 
 	if _, err := parseRenderVariables(input.Variables); err != nil {
 		return nil, err
 	}
+	presetKind := strings.TrimSpace(input.PresetKind)
+	if presetKind != "" && presetKind != "input" && presetKind != "output" {
+		return nil, fmt.Errorf("%w: unsupported preset_kind %q", ErrInvalidArgument, presetKind)
+	}
 
 	return &models.ConfigModule{
 		Name:        name,
@@ -465,6 +492,8 @@ func validateConfigModuleInput(input *ConfigModuleInput) (*models.ConfigModule, 
 		Content:     content,
 		Variables:   normalizeJSONString(input.Variables),
 		IsBuiltin:   input.IsBuiltin,
+		PresetKind:  presetKind,
+		PresetKey:   strings.TrimSpace(input.PresetKey),
 	}, nil
 }
 
@@ -490,6 +519,17 @@ func normalizeJSONString(raw string) string {
 		return "{}"
 	}
 	return raw
+}
+
+func cloneRenderVariables(source map[string]interface{}) map[string]interface{} {
+	if len(source) == 0 {
+		return map[string]interface{}{}
+	}
+	cloned := make(map[string]interface{}, len(source))
+	for key, value := range source {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func renderModuleTemplate(content string, variables map[string]interface{}) (string, error) {

@@ -27,6 +27,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'nodes', name: 'Nodes', component: () => import('../views/Nodes.vue') },
       { path: 'nodes/:id', name: 'NodeDetail', component: () => import('../views/NodeDetail.vue') },
       { path: 'aggregation-groups', name: 'AggregationGroups', component: () => import('../views/AggregationGroups.vue') },
+      { path: 'output-targets', name: 'OutputTargets', component: () => import('../views/OutputTargets.vue') },
       { path: 'pipelines', name: 'Pipelines', component: () => import('../views/Pipelines.vue') },
       { path: 'configs', name: 'Configs', component: () => import('../views/Configs.vue') },
       { path: 'configs/:id', name: 'ConfigDetail', component: () => import('../views/ConfigDetail.vue') },

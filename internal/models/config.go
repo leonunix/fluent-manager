@@ -47,6 +47,8 @@ type ConfigModule struct {
 	Content     string                `gorm:"type:text;not null" json:"content"`
 	Variables   string                `gorm:"type:text" json:"variables"`
 	IsBuiltin   bool                  `gorm:"default:false" json:"is_builtin"`
+	PresetKind  string                `gorm:"size:16" json:"preset_kind"`
+	PresetKey   string                `gorm:"size:64;index" json:"preset_key"`
 	Versions    []ConfigModuleVersion `gorm:"foreignKey:ModuleID" json:"versions,omitempty"`
 	CreatedBy   uint                  `json:"created_by"`
 	Creator     *User                 `gorm:"foreignKey:CreatedBy" json:"creator,omitempty"`

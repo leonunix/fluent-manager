@@ -179,12 +179,34 @@
                   <option :value="null">{{ t('pipelines.select_group') }}</option>
                   <option v-for="group in groups" :key="group.id" :value="group.id">{{ group.alias || group.name }}</option>
                 </select>
-                <div v-else class="row g-2">
-                  <div class="col-md-6">
-                    <input v-model="form.destination_output_name" type="text" class="form-control" placeholder="loki-prod">
-                  </div>
-                  <div class="col-md-6">
-                    <input v-model="form.destination_output_type" type="text" class="form-control" placeholder="loki / kafka / http">
+                <div v-else>
+                  <select v-model="form.destination_output_target_id" class="form-select">
+                    <option :value="null">{{ t('pipelines.select_output_target') }}</option>
+                    <option v-for="target in availableOutputTargets" :key="target.id" :value="target.id">
+                      {{ target.name }} · {{ target.target_type }}
+                    </option>
+                  </select>
+                  <div class="small text-muted mt-2">{{ t('pipelines.output_target_hint') }}</div>
+                  <div v-if="selectedOutputTarget" class="border rounded-3 p-3 bg-light-subtle mt-3">
+                    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+                      <div>
+                        <div class="fw-semibold">{{ selectedOutputTarget.name }}</div>
+                        <div class="small text-muted">{{ selectedOutputTarget.description || t('common.no_description') }}</div>
+                      </div>
+                      <span class="badge text-bg-secondary">{{ selectedOutputTarget.target_type }}</span>
+                    </div>
+                    <div class="small text-muted mb-2">{{ t('pipelines.selected_output_summary') }}</div>
+                    <div class="mb-2"><code>{{ selectedOutputSummary.endpoint }}</code></div>
+                    <div class="d-flex flex-wrap gap-2">
+                      <span
+                        v-for="chip in selectedOutputSummary.chips"
+                        :key="chip"
+                        class="badge rounded-pill text-bg-light"
+                      >
+                        {{ chip }}
+                      </span>
+                      <span v-if="!selectedOutputSummary.chips.length" class="text-muted small">{{ t('pipelines.no_output_summary') }}</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -212,6 +234,13 @@
                 </div>
               </div>
             </div>
+
+            <div v-if="pipelineGuidance.items.length" class="alert mt-3 mb-0" :class="pipelineGuidance.alertClass">
+              <div class="fw-semibold mb-2">{{ t('pipelines.guidance_title') }}</div>
+              <div v-for="item in pipelineGuidance.items" :key="item.message" class="small mb-1">
+                {{ item.message }}
+              </div>
+            </div>
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('cancel') }}</button>
@@ -226,16 +255,18 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
-import { createPipeline, deletePipeline, getAggregationGroups, getClusters, getPipelineGraph, getPipelines, updatePipeline } from '../api'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { createPipeline, deletePipeline, getAggregationGroups, getClusters, getOutputTargets, getPipelineGraph, getPipelines, updatePipeline } from '../api'
 import FluentFlowGraph from '../components/FluentFlowGraph.vue'
 import { useI18n } from '../i18n'
+import { summarizeOutputTarget } from '../utils/output_targets'
 
 const viewMode = ref('graph')
 const pipelines = ref([])
 const graph = ref({ nodes: [], edges: [] })
 const clusters = ref([])
 const groups = ref([])
+const outputTargets = ref([])
 const editingId = ref(null)
 const { t } = useI18n()
 
@@ -251,14 +282,77 @@ const form = reactive({
   upstream_role: '',
   destination_type: 'aggregation_group',
   destination_aggregation_group_id: null,
-  destination_output_name: '',
-  destination_output_type: '',
+  destination_output_target_id: null,
   tag_strategy: '',
   enabled: true,
 })
 
 const aggregationTargetCount = computed(() => pipelines.value.filter((item) => item.destination_aggregation_group_id).length)
-const outputTargetCount = computed(() => pipelines.value.filter((item) => item.destination_output_name).length)
+const outputTargetCount = computed(() => pipelines.value.filter((item) => item.destination_output_target_id || item.destination_output_name).length)
+const availableOutputTargets = computed(() =>
+  outputTargets.value.filter((item) => item.fluent_type === 'shared' || item.fluent_type === form.fluent_type)
+)
+const selectedOutputTarget = computed(() =>
+  availableOutputTargets.value.find((item) => item.id === form.destination_output_target_id) || null
+)
+const selectedOutputSummary = computed(() => summarizeOutputTarget(selectedOutputTarget.value))
+const pipelineGuidance = computed(() => {
+  const items = []
+  let level = 'info'
+
+  if (form.destination_type === 'aggregation_group') {
+    if (form.protocol !== 'forward') {
+      items.push({ level: 'warning', message: t('pipelines.guidance_group_forward') })
+      level = 'warning'
+    } else {
+      items.push({ level: 'success', message: t('pipelines.guidance_group_forward_ok') })
+      if (level !== 'warning') level = 'success'
+    }
+  }
+
+  if (form.destination_type === 'output') {
+    if (!selectedOutputTarget.value) {
+      items.push({ level: 'info', message: t('pipelines.guidance_pick_target') })
+    } else {
+      const targetType = selectedOutputTarget.value.target_type
+      if (targetType === 'kafka' && form.protocol !== 'kafka') {
+        items.push({ level: 'warning', message: t('pipelines.guidance_kafka_protocol') })
+        level = 'warning'
+      }
+      if (targetType === 'opensearch' && !['http', 'custom'].includes(form.protocol)) {
+        items.push({ level: 'warning', message: t('pipelines.guidance_opensearch_protocol') })
+        level = 'warning'
+      }
+      if (targetType === 'loki' && !['loki', 'http', 'custom'].includes(form.protocol)) {
+        items.push({ level: 'warning', message: t('pipelines.guidance_loki_protocol') })
+        level = 'warning'
+      }
+      if (targetType === 'http' && !['http', 'custom'].includes(form.protocol)) {
+        items.push({ level: 'warning', message: t('pipelines.guidance_http_protocol') })
+        level = 'warning'
+      }
+      if (targetType === 's3' && form.protocol === 'forward') {
+        items.push({ level: 'warning', message: t('pipelines.guidance_s3_protocol') })
+        level = 'warning'
+      }
+      if (targetType === 'stdout') {
+        items.push({ level: 'info', message: t('pipelines.guidance_stdout_protocol') })
+      }
+      if (form.protocol === 'forward' && targetType !== 'stdout') {
+        items.push({ level: 'info', message: t('pipelines.guidance_forward_terminal') })
+      }
+    }
+  }
+
+  return {
+    items,
+    alertClass: level === 'warning'
+      ? 'alert-warning'
+      : level === 'success'
+        ? 'alert-success'
+        : 'alert-info',
+  }
+})
 
 let modal = null
 
@@ -285,8 +379,7 @@ function resetForm() {
   form.upstream_role = ''
   form.destination_type = 'aggregation_group'
   form.destination_aggregation_group_id = null
-  form.destination_output_name = ''
-  form.destination_output_type = ''
+  form.destination_output_target_id = null
   form.tag_strategy = ''
   form.enabled = true
 }
@@ -299,6 +392,7 @@ function pipelineSourceLabel(pipeline) {
 
 function pipelineTargetLabel(pipeline) {
   if (pipeline.destination_aggregation_group) return pipeline.destination_aggregation_group.alias || pipeline.destination_aggregation_group.name
+  if (pipeline.destination_output_target) return pipeline.destination_output_target.name
   return pipeline.destination_output_name || '-'
 }
 
@@ -321,8 +415,7 @@ function openEdit(pipeline) {
   form.upstream_role = pipeline.upstream_role || ''
   form.destination_type = pipeline.destination_aggregation_group_id ? 'aggregation_group' : 'output'
   form.destination_aggregation_group_id = pipeline.destination_aggregation_group_id || null
-  form.destination_output_name = pipeline.destination_output_name || ''
-  form.destination_output_type = pipeline.destination_output_type || ''
+  form.destination_output_target_id = pipeline.destination_output_target_id || null
   form.tag_strategy = pipeline.tag_strategy || ''
   form.enabled = !!pipeline.enabled
   ensureModal()
@@ -340,6 +433,7 @@ function buildPayload() {
     source_label_selector: '',
     upstream_role: form.upstream_role,
     destination_aggregation_group_id: null,
+    destination_output_target_id: null,
     destination_output_name: '',
     destination_output_type: '',
     tag_strategy: form.tag_strategy,
@@ -353,8 +447,7 @@ function buildPayload() {
   if (form.destination_type === 'aggregation_group') {
     payload.destination_aggregation_group_id = form.destination_aggregation_group_id
   } else {
-    payload.destination_output_name = form.destination_output_name
-    payload.destination_output_type = form.destination_output_type
+    payload.destination_output_target_id = form.destination_output_target_id
   }
 
   return payload
@@ -386,17 +479,30 @@ async function handleDelete(pipeline) {
 }
 
 async function loadData() {
-  const [pipelinesRes, graphRes, clustersRes, groupsRes] = await Promise.all([
+  const [pipelinesRes, graphRes, clustersRes, groupsRes, outputTargetsRes] = await Promise.all([
     getPipelines(),
     getPipelineGraph(),
     getClusters(),
     getAggregationGroups(),
+    getOutputTargets(),
   ])
   pipelines.value = pipelinesRes || []
   graph.value = graphRes || { nodes: [], edges: [] }
   clusters.value = clustersRes.data.data || []
   groups.value = groupsRes || []
+  outputTargets.value = outputTargetsRes || []
 }
+
+watch(
+  () => form.fluent_type,
+  () => {
+    if (form.destination_type !== 'output') return
+    const availableIds = new Set(availableOutputTargets.value.map((item) => item.id))
+    if (!availableIds.has(form.destination_output_target_id)) {
+      form.destination_output_target_id = null
+    }
+  }
+)
 
 onMounted(loadData)
 </script>

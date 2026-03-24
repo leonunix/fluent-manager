@@ -304,6 +304,48 @@ func TestPreviewRenderedConfig(t *testing.T) {
 	}
 }
 
+func TestPreviewRenderedConfigSupportsPerModuleVariables(t *testing.T) {
+	_, svc := setupConfigTest(t)
+
+	outputModule, err := svc.CreateModule(&ConfigModuleInput{
+		Name:       "http-output",
+		ModuleType: "output",
+		FluentType: "shared",
+		Content:    "[OUTPUT]\n  Name http\n  Match {{.match}}\n  Host {{.host}}\n  Port {{.port}}",
+	}, 1)
+	if err != nil {
+		t.Fatalf("create output module: %v", err)
+	}
+
+	rendered, err := svc.PreviewRenderedConfig(&RenderedConfigPreviewInput{
+		Name:       "preview-multi-output",
+		FluentType: "fluentbit",
+		Modules: []RenderModuleRef{
+			{
+				ModuleID:  outputModule.ID,
+				Variables: `{"host":"primary.internal","port":8080,"match":"app.primary"}`,
+			},
+			{
+				ModuleID:  outputModule.ID,
+				Variables: `{"host":"backup.internal","port":8081,"match":"app.backup"}`,
+			},
+		},
+		Variables: `{"match":"*"}`,
+	}, 1)
+	if err != nil {
+		t.Fatalf("preview render with module variables: %v", err)
+	}
+	if !strings.Contains(rendered.Content, "Host primary.internal") {
+		t.Fatalf("expected first output override, got %s", rendered.Content)
+	}
+	if !strings.Contains(rendered.Content, "Host backup.internal") {
+		t.Fatalf("expected second output override, got %s", rendered.Content)
+	}
+	if !strings.Contains(rendered.Content, "Match app.primary") || !strings.Contains(rendered.Content, "Match app.backup") {
+		t.Fatalf("expected per-module match overrides, got %s", rendered.Content)
+	}
+}
+
 func TestPreviewRenderedConfigRejectsRuntimeMismatch(t *testing.T) {
 	_, svc := setupConfigTest(t)
 

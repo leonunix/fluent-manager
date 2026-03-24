@@ -184,6 +184,8 @@ type ConfigModuleRequest struct {
 	Content     string `json:"content" binding:"required"`
 	Variables   string `json:"variables"`
 	IsBuiltin   bool   `json:"is_builtin"`
+	PresetKind  string `json:"preset_kind"`
+	PresetKey   string `json:"preset_key"`
 }
 
 func (h *ConfigHandler) CreateModule(c *gin.Context) {
@@ -201,6 +203,8 @@ func (h *ConfigHandler) CreateModule(c *gin.Context) {
 		Content:     req.Content,
 		Variables:   req.Variables,
 		IsBuiltin:   req.IsBuiltin,
+		PresetKind:  req.PresetKind,
+		PresetKey:   req.PresetKey,
 	}, c.GetUint("user_id"))
 	if err != nil {
 		writeConfigError(c, err, "module")
@@ -225,6 +229,8 @@ func (h *ConfigHandler) UpdateModule(c *gin.Context) {
 		Content:     req.Content,
 		Variables:   req.Variables,
 		IsBuiltin:   req.IsBuiltin,
+		PresetKind:  req.PresetKind,
+		PresetKey:   req.PresetKey,
 	})
 	if err != nil {
 		writeConfigError(c, err, "module")

@@ -6,6 +6,23 @@ import (
 	"gorm.io/gorm"
 )
 
+// OutputTarget represents a reusable terminal destination such as OpenSearch,
+// Loki, Kafka, or a custom HTTP sink.
+type OutputTarget struct {
+	ID          uint           `gorm:"primaryKey" json:"id"`
+	Name        string         `gorm:"size:128;not null;uniqueIndex:idx_output_target_name_active,priority:1" json:"name"`
+	Description string         `gorm:"size:512" json:"description"`
+	FluentType  string         `gorm:"size:32;not null" json:"fluent_type"`
+	TargetType  string         `gorm:"size:64;not null" json:"target_type"`
+	Endpoint    string         `gorm:"size:255" json:"endpoint"`
+	Settings    string         `gorm:"type:text" json:"settings"`
+	CreatedBy   uint           `json:"created_by"`
+	Creator     *User          `gorm:"foreignKey:CreatedBy" json:"creator,omitempty"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	DeletedAt   gorm.DeletedAt `gorm:"index;uniqueIndex:idx_output_target_name_active,priority:2" json:"-"`
+}
+
 // LogPipeline represents a logical log flow from a source cluster/group to an
 // aggregation group or terminal output.
 type LogPipeline struct {
@@ -22,6 +39,8 @@ type LogPipeline struct {
 	UpstreamRole                  string            `gorm:"size:32" json:"upstream_role"`
 	DestinationAggregationGroupID *uint             `gorm:"index" json:"destination_aggregation_group_id"`
 	DestinationAggregationGroup   *AggregationGroup `json:"destination_aggregation_group,omitempty"`
+	DestinationOutputTargetID     *uint             `gorm:"index" json:"destination_output_target_id"`
+	DestinationOutputTarget       *OutputTarget     `json:"destination_output_target,omitempty"`
 	DestinationOutputName         string            `gorm:"size:128" json:"destination_output_name"`
 	DestinationOutputType         string            `gorm:"size:64" json:"destination_output_type"`
 	TagStrategy                   string            `gorm:"size:128" json:"tag_strategy"`

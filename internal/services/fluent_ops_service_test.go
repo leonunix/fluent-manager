@@ -45,11 +45,27 @@ func seedOpsGroup(t *testing.T, db *gorm.DB, clusterID uint, suffix string) mode
 	return group
 }
 
+func seedOpsOutputTarget(t *testing.T, db *gorm.DB, suffix string) models.OutputTarget {
+	t.Helper()
+	target := models.OutputTarget{
+		Name:       "ops-output-" + suffix,
+		FluentType: "shared",
+		TargetType: "opensearch",
+		Endpoint:   "https://opensearch.internal:9200",
+		Settings:   `{"match":"*","host":"opensearch.internal","port":9200}`,
+	}
+	if err := db.Create(&target).Error; err != nil {
+		t.Fatalf("create output target: %v", err)
+	}
+	return target
+}
+
 func TestPipelineCRUDAndGraph(t *testing.T) {
 	db, svc := setupFluentOpsTest(t)
 	clusterA := seedOpsCluster(t, db, "a")
 	clusterB := seedOpsCluster(t, db, "b")
 	group := seedOpsGroup(t, db, clusterB.ID, "agg")
+	outputTarget := seedOpsOutputTarget(t, db, "main")
 
 	pipeline, err := svc.CreatePipeline(&LogPipelineInput{
 		Name:                          "edge-to-agg",
@@ -76,13 +92,12 @@ func TestPipelineCRUDAndGraph(t *testing.T) {
 	}
 
 	_, err = svc.UpdatePipeline(pipeline.ID, &LogPipelineInput{
-		Name:                  "edge-to-output",
-		FluentType:            "fluentbit",
-		Protocol:              "http",
-		SourceClusterID:       &clusterA.ID,
-		DestinationOutputName: "loki-main",
-		DestinationOutputType: "loki",
-		Enabled:               true,
+		Name:                      "edge-to-output",
+		FluentType:                "fluentbit",
+		Protocol:                  "http",
+		SourceClusterID:           &clusterA.ID,
+		DestinationOutputTargetID: &outputTarget.ID,
+		Enabled:                   true,
 	}, nil)
 	if err != nil {
 		t.Fatalf("update pipeline: %v", err)
@@ -105,6 +120,46 @@ func TestPipelineScopeEnforced(t *testing.T) {
 	}, 1, []uint{clusterA.ID})
 	if !errors.Is(err, ErrForbidden) {
 		t.Fatalf("expected ErrForbidden, got %v", err)
+	}
+}
+
+func TestOutputTargetCRUD(t *testing.T) {
+	_, svc := setupFluentOpsTest(t)
+
+	target, err := svc.CreateOutputTarget(&OutputTargetInput{
+		Name:       "opensearch-prod",
+		FluentType: "shared",
+		TargetType: "opensearch",
+		Endpoint:   "https://opensearch.internal:9200",
+		Settings:   `{"match":"*","host":"opensearch.internal","port":9200,"index":"logs-%Y.%m.%d"}`,
+	}, 1)
+	if err != nil {
+		t.Fatalf("create output target: %v", err)
+	}
+	if target.TargetType != "opensearch" {
+		t.Fatalf("unexpected target type: %s", target.TargetType)
+	}
+
+	updated, err := svc.UpdateOutputTarget(target.ID, &OutputTargetInput{
+		Name:       "opensearch-prod",
+		FluentType: "shared",
+		TargetType: "opensearch",
+		Endpoint:   "https://os.example.com:9200",
+		Settings:   `{"match":"*","host":"os.example.com","port":9200,"index":"logs-live"}`,
+	})
+	if err != nil {
+		t.Fatalf("update output target: %v", err)
+	}
+	if updated.Endpoint != "https://os.example.com:9200" {
+		t.Fatalf("unexpected endpoint after update: %s", updated.Endpoint)
+	}
+
+	targets, err := svc.ListOutputTargets()
+	if err != nil {
+		t.Fatalf("list output targets: %v", err)
+	}
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 output target, got %d", len(targets))
 	}
 }
 
@@ -440,15 +495,15 @@ func TestAggregationGroupMetricsUseNodeTLSSupport(t *testing.T) {
 func TestPipelineAllowsNameReuseAfterSoftDelete(t *testing.T) {
 	db, svc := setupFluentOpsTest(t)
 	cluster := seedOpsCluster(t, db, "reuse")
+	outputTarget := seedOpsOutputTarget(t, db, "reuse")
 
 	pipeline, err := svc.CreatePipeline(&LogPipelineInput{
-		Name:                  "pipeline-reusable",
-		FluentType:            "fluentbit",
-		Protocol:              "http",
-		SourceClusterID:       &cluster.ID,
-		DestinationOutputName: "loki-main",
-		DestinationOutputType: "loki",
-		Enabled:               true,
+		Name:                      "pipeline-reusable",
+		FluentType:                "fluentbit",
+		Protocol:                  "http",
+		SourceClusterID:           &cluster.ID,
+		DestinationOutputTargetID: &outputTarget.ID,
+		Enabled:                   true,
 	}, 1, nil)
 	if err != nil {
 		t.Fatalf("create pipeline: %v", err)
@@ -457,13 +512,12 @@ func TestPipelineAllowsNameReuseAfterSoftDelete(t *testing.T) {
 		t.Fatalf("delete pipeline: %v", err)
 	}
 	recreated, err := svc.CreatePipeline(&LogPipelineInput{
-		Name:                  "pipeline-reusable",
-		FluentType:            "fluentbit",
-		Protocol:              "http",
-		SourceClusterID:       &cluster.ID,
-		DestinationOutputName: "loki-main",
-		DestinationOutputType: "loki",
-		Enabled:               true,
+		Name:                      "pipeline-reusable",
+		FluentType:                "fluentbit",
+		Protocol:                  "http",
+		SourceClusterID:           &cluster.ID,
+		DestinationOutputTargetID: &outputTarget.ID,
+		Enabled:                   true,
 	}, 1, nil)
 	if err != nil {
 		t.Fatalf("recreate pipeline with soft-deleted name: %v", err)
