@@ -178,6 +178,20 @@ func (h *FluentOpsHandler) LintConfig(c *gin.Context) {
 	c.JSON(http.StatusCreated, result)
 }
 
+func (h *FluentOpsHandler) ImportExistingConfig(c *gin.Context) {
+	var req services.ConfigImportInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	result, err := h.Svc.ImportExistingConfig(&req)
+	if err != nil {
+		writeFluentOpsError(c, err, "analysis")
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
 func (h *FluentOpsHandler) ReplayConfig(c *gin.Context) {
 	var req services.ConfigReplayInput
 	if err := c.ShouldBindJSON(&req); err != nil {

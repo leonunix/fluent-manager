@@ -5,6 +5,9 @@ export interface ConfigTemplate {
   fluent_type: string
   content: string
   variables: string
+  source_type: string
+  source_modules: string
+  flow_layout: string
   versions?: ConfigVersion[]
   created_by: number
   creator?: import('./auth').User
@@ -20,6 +23,9 @@ export interface ConfigVersion {
   content: string
   hash: string
   comment: string
+  source_type: string
+  source_modules: string
+  flow_layout: string
   created_by: number
   creator?: import('./auth').User
   created_at: string

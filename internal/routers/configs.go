@@ -32,6 +32,7 @@ func registerConfigRoutes(authed *gin.RouterGroup, h *allHandlers) {
 	analysis := authed.Group("/config-analysis")
 	{
 		analysis.POST("/log-sample-assistant", middleware.RequirePermission("configs", "read"), h.AI.AnalyzeLogSample)
+		analysis.POST("/import-existing", middleware.RequirePermission("configs", "read"), h.FluentOps.ImportExistingConfig)
 		analysis.POST("/lint", middleware.RequirePermission("configs", "read"), h.FluentOps.LintConfig)
 		analysis.POST("/replay", middleware.RequirePermission("configs", "read"), h.FluentOps.ReplayConfig)
 		analysis.POST("/diff", middleware.RequirePermission("configs", "read"), h.FluentOps.SemanticDiff)

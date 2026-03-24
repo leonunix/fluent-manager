@@ -20,20 +20,28 @@ func setupConfigTest(t *testing.T) (*gorm.DB, ConfigService) {
 func TestCreateTemplate(t *testing.T) {
 	_, svc := setupConfigTest(t)
 
-	tpl, err := svc.CreateTemplate("nginx-fb", "Nginx FluentBit config", "fluentbit", "[INPUT]\n  Name tail", "", 1)
+	tpl, err := svc.CreateTemplate(&ConfigTemplateInput{
+		Name:        "nginx-fb",
+		Description: "Nginx FluentBit config",
+		FluentType:  "fluentbit",
+		Content:     "[INPUT]\n  Name tail",
+	}, 1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if tpl.Name != "nginx-fb" || tpl.FluentType != "fluentbit" {
 		t.Error("template not created correctly")
 	}
+	if tpl.SourceType != "manual" {
+		t.Fatalf("expected manual source type, got %q", tpl.SourceType)
+	}
 }
 
 func TestListTemplates(t *testing.T) {
 	_, svc := setupConfigTest(t)
 
-	svc.CreateTemplate("tpl-fb", "", "fluentbit", "c1", "", 1)
-	svc.CreateTemplate("tpl-fd", "", "fluentd", "c2", "", 1)
+	svc.CreateTemplate(&ConfigTemplateInput{Name: "tpl-fb", FluentType: "fluentbit", Content: "c1"}, 1)
+	svc.CreateTemplate(&ConfigTemplateInput{Name: "tpl-fd", FluentType: "fluentd", Content: "c2"}, 1)
 
 	// All
 	templates, total, _ := svc.ListTemplates("", "", 1, 10)
@@ -57,7 +65,7 @@ func TestListTemplates(t *testing.T) {
 func TestGetTemplate(t *testing.T) {
 	_, svc := setupConfigTest(t)
 
-	created, _ := svc.CreateTemplate("tpl1", "", "fluentbit", "content", "", 1)
+	created, _ := svc.CreateTemplate(&ConfigTemplateInput{Name: "tpl1", FluentType: "fluentbit", Content: "content"}, 1)
 	got, err := svc.GetTemplate(created.ID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -78,9 +86,14 @@ func TestGetTemplate_NotFound(t *testing.T) {
 func TestUpdateTemplate(t *testing.T) {
 	_, svc := setupConfigTest(t)
 
-	tpl, _ := svc.CreateTemplate("tpl1", "old desc", "fluentbit", "old", "", 1)
+	tpl, _ := svc.CreateTemplate(&ConfigTemplateInput{Name: "tpl1", Description: "old desc", FluentType: "fluentbit", Content: "old"}, 1)
 
-	updated, err := svc.UpdateTemplate(tpl.ID, "tpl1-updated", "new desc", "fluentd", "new content", "")
+	updated, err := svc.UpdateTemplate(tpl.ID, &ConfigTemplateInput{
+		Name:        "tpl1-updated",
+		Description: "new desc",
+		FluentType:  "fluentd",
+		Content:     "new content",
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -89,10 +102,36 @@ func TestUpdateTemplate(t *testing.T) {
 	}
 }
 
+func TestCreateTemplate_WithAssemblyMetadata(t *testing.T) {
+	_, svc := setupConfigTest(t)
+
+	tpl, err := svc.CreateTemplate(&ConfigTemplateInput{
+		Name:          "edge-assembled",
+		Description:   "created from modules",
+		FluentType:    "fluentbit",
+		Content:       "[INPUT]\n  Name tail",
+		SourceType:    "module_assembly",
+		SourceModules: `[{"module_id":1,"module_name":"tail-input","module_type":"input"}]`,
+		FlowLayout:    `{"builder":"wizard","goal":"edge_collection","destinations":[{"name":"central-forward"}]}`,
+	}, 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tpl.SourceType != "module_assembly" {
+		t.Fatalf("expected module_assembly, got %q", tpl.SourceType)
+	}
+	if !strings.Contains(tpl.SourceModules, `"module_name":"tail-input"`) {
+		t.Fatalf("expected source modules to be persisted, got %s", tpl.SourceModules)
+	}
+	if !strings.Contains(tpl.FlowLayout, `"builder":"wizard"`) {
+		t.Fatalf("expected flow layout to be persisted, got %s", tpl.FlowLayout)
+	}
+}
+
 func TestDeleteTemplate(t *testing.T) {
 	db, svc := setupConfigTest(t)
 
-	tpl, _ := svc.CreateTemplate("tpl1", "", "fluentbit", "content", "", 1)
+	tpl, _ := svc.CreateTemplate(&ConfigTemplateInput{Name: "tpl1", FluentType: "fluentbit", Content: "content"}, 1)
 
 	// Add a version
 	db.Create(&models.ConfigVersion{TemplateID: tpl.ID, Version: 1, Content: "v1", Hash: "h1"})
@@ -112,7 +151,14 @@ func TestDeleteTemplate(t *testing.T) {
 func TestCreateVersion(t *testing.T) {
 	_, svc := setupConfigTest(t)
 
-	tpl, _ := svc.CreateTemplate("tpl1", "", "fluentbit", "content", "", 1)
+	tpl, _ := svc.CreateTemplate(&ConfigTemplateInput{
+		Name:          "tpl1",
+		FluentType:    "fluentbit",
+		Content:       "content",
+		SourceType:    "module_assembly",
+		SourceModules: `[{"module_id":1,"module_name":"tail-input","module_type":"input"}]`,
+		FlowLayout:    `{"builder":"wizard","goal":"edge_collection"}`,
+	}, 1)
 
 	v1, err := svc.CreateVersion(tpl.ID, 1, "config v1", "initial version")
 	if err != nil {
@@ -120,6 +166,12 @@ func TestCreateVersion(t *testing.T) {
 	}
 	if v1.Version != 1 || v1.Hash == "" {
 		t.Error("version not created correctly")
+	}
+	if v1.SourceType != "module_assembly" {
+		t.Fatalf("expected source type to be copied into version, got %q", v1.SourceType)
+	}
+	if !strings.Contains(v1.SourceModules, `"module_type":"input"`) {
+		t.Fatalf("expected source modules to be copied into version, got %s", v1.SourceModules)
 	}
 
 	v2, _ := svc.CreateVersion(tpl.ID, 1, "config v2", "second version")
@@ -139,7 +191,7 @@ func TestCreateVersion_InvalidTemplate(t *testing.T) {
 func TestListVersions(t *testing.T) {
 	_, svc := setupConfigTest(t)
 
-	tpl, _ := svc.CreateTemplate("tpl1", "", "fluentbit", "content", "", 1)
+	tpl, _ := svc.CreateTemplate(&ConfigTemplateInput{Name: "tpl1", FluentType: "fluentbit", Content: "content"}, 1)
 	svc.CreateVersion(tpl.ID, 1, "v1", "")
 	svc.CreateVersion(tpl.ID, 1, "v2", "")
 
@@ -159,7 +211,7 @@ func TestListVersions(t *testing.T) {
 func TestGetVersion(t *testing.T) {
 	_, svc := setupConfigTest(t)
 
-	tpl, _ := svc.CreateTemplate("tpl1", "", "fluentbit", "content", "", 1)
+	tpl, _ := svc.CreateTemplate(&ConfigTemplateInput{Name: "tpl1", FluentType: "fluentbit", Content: "content"}, 1)
 	v, _ := svc.CreateVersion(tpl.ID, 1, "config content", "test")
 
 	got, err := svc.GetVersion(v.ID)
@@ -174,7 +226,7 @@ func TestGetVersion(t *testing.T) {
 func TestCreateVersion_HashConsistency(t *testing.T) {
 	_, svc := setupConfigTest(t)
 
-	tpl, _ := svc.CreateTemplate("tpl1", "", "fluentbit", "content", "", 1)
+	tpl, _ := svc.CreateTemplate(&ConfigTemplateInput{Name: "tpl1", FluentType: "fluentbit", Content: "content"}, 1)
 
 	v1, _ := svc.CreateVersion(tpl.ID, 1, "same content", "")
 	v2, _ := svc.CreateVersion(tpl.ID, 1, "same content", "")

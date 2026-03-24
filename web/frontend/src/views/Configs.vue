@@ -7,6 +7,14 @@
       </div>
       <div class="d-flex gap-2">
         <button
+          v-if="activeTab === 'import'"
+          class="btn btn-success"
+          :disabled="importAnalysisLoading || !importForm.content.trim()"
+          @click="runImportAnalysis"
+        >
+          <i class="bi bi-file-earmark-arrow-up me-1"></i>{{ importAnalysisLoading ? t('configs_page.import_analyzing') : t('configs_page.import_analyze') }}
+        </button>
+        <button
           v-if="activeTab === 'wizard'"
           class="btn btn-success"
           @click="runWizardPreview"
@@ -23,10 +31,17 @@
         </button>
         <button
           v-if="activeTab === 'templates'"
-          class="btn btn-primary"
+          class="btn btn-success"
+          @click="openAssemblyTemplateBuilder"
+        >
+          <i class="bi bi-diagram-3 me-1"></i>{{ t('configs_page.create_assembly_template') }}
+        </button>
+        <button
+          v-if="activeTab === 'templates'"
+          class="btn btn-outline-secondary"
           @click="openCreateTemplate"
         >
-          <i class="bi bi-plus-lg me-1"></i>{{ t('configs_page.create_template') }}
+          <i class="bi bi-code-square me-1"></i>{{ t('configs_page.create_manual_template') }}
         </button>
         <button
           v-if="activeTab === 'modules'"
@@ -59,6 +74,13 @@
           >
             {{ t('configs_page.templates') }}
             <span class="badge rounded-pill text-bg-light ms-2">{{ templates.length }}</span>
+          </button>
+          <button
+            class="nav-link"
+            :class="{ active: activeTab === 'import' }"
+            @click="activeTab = 'import'"
+          >
+            {{ t('configs_page.import_existing') }}
           </button>
           <button
             class="nav-link"
@@ -95,12 +117,29 @@
 
     <div v-if="activeTab === 'templates'" class="card border-0 shadow-sm">
       <div class="card-body p-0">
+        <div class="border-bottom bg-light-subtle p-3">
+          <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+            <div>
+              <div class="fw-semibold">{{ t('configs_page.templates_recommended_title') }}</div>
+              <div class="small text-muted mt-1">{{ t('configs_page.templates_recommended_body') }}</div>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+              <span class="badge bg-success-subtle text-success-emphasis">
+                {{ t('configs_page.template_source_module_assembly') }} {{ assemblyTemplateCount }}
+              </span>
+              <span class="badge text-bg-light">
+                {{ t('configs_page.template_source_manual') }} {{ manualTemplateCount }}
+              </span>
+            </div>
+          </div>
+        </div>
         <div class="table-responsive">
           <table class="table table-hover align-middle mb-0">
             <thead>
               <tr>
                 <th>{{ t('common.name') }}</th>
                 <th>{{ t('common.runtime') }}</th>
+                <th>{{ t('configs_page.template_source') }}</th>
                 <th>{{ t('common.description') }}</th>
                 <th>{{ t('deploys_page.creator') }}</th>
                 <th>{{ t('deploys_page.created_at') }}</th>
@@ -115,6 +154,17 @@
                   </router-link>
                 </td>
                 <td><span class="badge bg-info-subtle text-info-emphasis">{{ runtimeLabel(tpl.fluent_type) }}</span></td>
+                <td>
+                  <span
+                    class="badge"
+                    :class="tpl.source_type === 'module_assembly' ? 'bg-success-subtle text-success-emphasis' : 'text-bg-light'"
+                  >
+                    {{ templateSourceLabel(tpl.source_type) }}
+                  </span>
+                  <div v-if="tpl.source_type === 'module_assembly'" class="small text-muted mt-1">
+                    {{ t('configs_page.assembly_module_count').replace('{count}', String(templateAssemblyModules(tpl).length)) }}
+                  </div>
+                </td>
                 <td>{{ tpl.description || '-' }}</td>
                 <td>{{ tpl.creator?.username || '-' }}</td>
                 <td>{{ formatTime(tpl.created_at) }}</td>
@@ -128,10 +178,229 @@
                 </td>
               </tr>
               <tr v-if="!templates.length">
-                <td colspan="6" class="text-center text-muted py-4">{{ t('configs_page.no_templates') }}</td>
+                <td colspan="7" class="text-center text-muted py-4">{{ t('configs_page.no_templates') }}</td>
               </tr>
             </tbody>
           </table>
+        </div>
+      </div>
+    </div>
+
+    <div v-else-if="activeTab === 'import'" class="row g-4">
+      <div class="col-xl-5">
+        <div class="card border-0 shadow-sm">
+          <div class="card-header bg-white">
+            <h6 class="mb-0">{{ t('configs_page.import_existing') }}</h6>
+          </div>
+          <div class="card-body">
+            <div class="alert alert-info py-2">
+              {{ t('configs_page.import_intro') }}
+            </div>
+            <div class="row g-3 mb-3">
+              <div class="col-md-6">
+                <label class="form-label">{{ t('common.runtime') }}</label>
+                <select v-model="importForm.fluent_type" class="form-select">
+                  <option value="fluentbit">Fluent Bit</option>
+                  <option value="fluentd">Fluentd</option>
+                </select>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">{{ t('configs_page.import_name_prefix') }}</label>
+                <input v-model="importForm.name_prefix" type="text" class="form-control" :placeholder="t('configs_page.import_name_prefix_placeholder')">
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">{{ t('configs_page.import_content') }}</label>
+              <textarea
+                v-model="importForm.content"
+                class="form-control font-monospace fm-config-textarea"
+                rows="18"
+                :placeholder="t('configs_page.import_content_placeholder')"
+              ></textarea>
+            </div>
+            <button class="btn btn-success w-100" :disabled="importAnalysisLoading || !importForm.content.trim()" @click="runImportAnalysis">
+              <i class="bi bi-file-earmark-arrow-up me-1"></i>{{ importAnalysisLoading ? t('configs_page.import_analyzing') : t('configs_page.import_analyze') }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-xl-7">
+        <div class="card border-0 shadow-sm">
+          <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <div>
+              <h6 class="mb-0">{{ t('configs_page.import_result') }}</h6>
+              <div class="small text-muted mt-1">{{ t('configs_page.import_result_hint') }}</div>
+            </div>
+            <button
+              v-if="importedConfigResult?.modules?.length"
+              class="btn btn-sm btn-outline-primary"
+              :disabled="importModulesLoading"
+              @click="importParsedModules"
+            >
+              <i class="bi bi-box-arrow-in-down-right me-1"></i>{{ importModulesLoading ? t('configs_page.import_persisting') : t('configs_page.import_persist_modules') }}
+            </button>
+          </div>
+          <div class="card-body">
+            <div v-if="importedConfigResult">
+              <div class="d-flex flex-wrap gap-2 mb-3">
+                <span class="badge bg-info-subtle text-info-emphasis">{{ runtimeLabel(importedConfigResult.fluent_type) }}</span>
+                <span class="badge text-bg-light">{{ importedConfigResult.modules.length }} {{ t('configs_page.modules') }}</span>
+                <span class="badge text-bg-light">{{ importedConfigResult.suggested_template_name }}</span>
+              </div>
+              <div class="small text-muted mb-3">{{ importedConfigResult.summary }}</div>
+
+              <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+                <div class="d-flex flex-wrap gap-2">
+                  <span class="badge text-bg-light">
+                    {{ t('configs_page.import_decision_reuse').replace('{count}', String(importReuseDecisionCount)) }}
+                  </span>
+                  <span class="badge text-bg-light">
+                    {{ t('configs_page.import_decision_create').replace('{count}', String(importCreateDecisionCount)) }}
+                  </span>
+                  <span class="badge text-bg-light">
+                    {{ t('configs_page.import_existing_matches').replace('{count}', String(importReusableMatchCount)) }}
+                  </span>
+                  <span class="badge text-bg-light">
+                    {{ t('configs_page.import_destination_matches').replace('{count}', String(importDestinationMatchCount)) }}
+                  </span>
+                </div>
+                <div class="btn-group btn-group-sm" role="group">
+                  <button
+                    type="button"
+                    class="btn btn-outline-success"
+                    :disabled="!importReusableMatchCount"
+                    @click="setAllImportedModuleActions('reuse_existing')"
+                  >
+                    {{ t('configs_page.import_apply_reuse_all') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-outline-primary"
+                    @click="setAllImportedModuleActions('create_new')"
+                  >
+                    {{ t('configs_page.import_apply_create_all') }}
+                  </button>
+                </div>
+              </div>
+              <div class="small text-muted mb-3">{{ t('configs_page.import_batch_decision_hint') }}</div>
+
+              <div v-if="importedConfigResult.warnings?.length" class="alert alert-warning py-2">
+                <div class="fw-semibold mb-1">{{ t('configs_page.import_warnings') }}</div>
+                <div v-for="(warning, index) in importedConfigResult.warnings" :key="`import-warning-${index}`">
+                  {{ warning }}
+                </div>
+              </div>
+
+              <div class="card border-0 bg-light-subtle mb-3">
+                <div class="card-body">
+                  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+                    <div>
+                      <div class="fw-semibold">{{ t('configs_page.import_validation_title') }}</div>
+                      <div class="small text-muted mt-1">{{ importedConfigResult.validation.summary }}</div>
+                    </div>
+                    <span class="badge" :class="importValidationBadgeClass(importedConfigResult.validation.verdict)">
+                      {{ importValidationLabel(importedConfigResult.validation.verdict) }}
+                    </span>
+                  </div>
+                  <div class="row g-3">
+                    <div class="col-md-6">
+                      <div class="small text-muted mb-1">{{ t('configs_page.semantic_diff') }}</div>
+                      <div class="fw-semibold">
+                        {{ importedConfigResult.validation.semantic_diff?.summary || t('configs_page.no_diff') }}
+                      </div>
+                    </div>
+                    <div class="col-md-6">
+                      <div class="small text-muted mb-1">{{ t('configs_page.analysis') }}</div>
+                      <div class="fw-semibold">
+                        {{ importedConfigResult.validation.lint_summary || '-' }}
+                      </div>
+                    </div>
+                  </div>
+                  <div class="small text-muted mt-3">
+                    {{ t('configs_page.import_semantic_change_count').replace('{count}', String(importSemanticChangeCount)) }}
+                  </div>
+                </div>
+              </div>
+
+              <ConfigAssemblyFlow
+                class="mb-3"
+                :modules="importedConfigResult.modules"
+                :destinations="importedConfigResult.destinations"
+                :path-label="importFlowPathLabel"
+              />
+
+              <div class="row g-3">
+                <div v-for="module in importedConfigResult.modules" :key="`${module.order}-${module.name}`" class="col-lg-6">
+                  <div class="fm-import-module-card h-100">
+                    <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+                      <span class="fw-semibold">{{ module.name }}</span>
+                      <span class="badge text-bg-secondary">{{ module.module_type }}</span>
+                      <span class="badge" :class="importActionBadgeClass(module.import_action)">
+                        {{ importActionLabel(module.import_action) }}
+                      </span>
+                      <span v-if="module.detected_plugin" class="badge text-bg-light">{{ module.detected_plugin }}</span>
+                    </div>
+                    <div class="small text-muted mb-2">{{ module.summary || t('common.no_description') }}</div>
+                    <div v-if="module.existing_module_name" class="small text-muted mb-2">
+                      {{ t('configs_page.import_existing_match').replace('{name}', module.existing_module_name) }}
+                    </div>
+                    <div v-if="module.output_target_name" class="small text-muted mb-2">
+                      {{ t('configs_page.import_destination_match').replace('{name}', module.output_target_name) }}
+                      <span class="badge text-bg-light ms-2">{{ importDestinationMatchLabel(module.output_target_match_type) }}</span>
+                    </div>
+                    <div class="btn-group btn-group-sm mb-2" role="group">
+                      <button
+                        type="button"
+                        class="btn"
+                        :class="module.import_action === 'create_new' ? 'btn-primary' : 'btn-outline-primary'"
+                        @click="setImportedModuleAction(module, 'create_new')"
+                      >
+                        {{ t('configs_page.import_action_create') }}
+                      </button>
+                      <button
+                        type="button"
+                        class="btn"
+                        :disabled="!module.existing_module_id"
+                        :class="module.import_action === 'reuse_existing' ? 'btn-success' : 'btn-outline-success'"
+                        @click="setImportedModuleAction(module, 'reuse_existing')"
+                      >
+                        {{ t('configs_page.import_action_reuse') }}
+                      </button>
+                    </div>
+                    <div v-if="module.variable_keys?.length" class="d-flex flex-wrap gap-2 mb-2">
+                      <span
+                        v-for="key in module.variable_keys"
+                        :key="`${module.name}-${key}`"
+                        class="badge rounded-pill text-bg-light"
+                      >
+                        {{ key }}
+                      </span>
+                    </div>
+                    <pre class="fm-module-snippet">{{ module.content }}</pre>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card border-0 bg-light-subtle mt-3">
+                <div class="card-body">
+                  <div class="fw-semibold mb-2">{{ t('configs_page.import_template_draft') }}</div>
+                  <div class="small text-muted mb-3">{{ t('configs_page.import_template_draft_hint') }}</div>
+                  <pre class="fm-render-preview">{{ importedConfigResult.template_draft_content }}</pre>
+                </div>
+              </div>
+
+              <div v-if="importedWorkspaceModules.length" class="alert alert-success py-2 mt-3 mb-0">
+                {{ t('configs_page.import_success').replace('{count}', String(importedWorkspaceModules.length)) }}
+              </div>
+              <div v-if="importedWorkspaceTemplate" class="alert alert-success py-2 mt-3 mb-0">
+                {{ t('configs_page.import_template_created').replace('{name}', importedWorkspaceTemplate.name) }}
+              </div>
+            </div>
+            <div v-else class="text-center text-muted py-5">
+              {{ t('configs_page.import_empty') }}
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -430,6 +699,12 @@
                   </div>
                 </div>
               </div>
+              <ConfigAssemblyFlow
+                class="mb-3"
+                :modules="wizardSummaryModules"
+                :destinations="wizardSelectedOutputTargets"
+                :path-label="wizardFlowPathLabel"
+              />
               <pre class="fm-render-preview">{{ renderedConfig.content }}</pre>
             </div>
             <div v-else class="text-center text-muted py-5">
@@ -868,6 +1143,12 @@
                   </div>
                 </div>
               </div>
+              <ConfigAssemblyFlow
+                class="mb-3"
+                :modules="previewSummaryModules"
+                :destinations="previewResolvedOutputTargets"
+                :path-label="previewFlowPathLabel"
+              />
               <pre class="fm-render-preview">{{ renderedConfig.content }}</pre>
             </div>
             <div v-else class="text-center text-muted py-5">
@@ -1032,12 +1313,13 @@
       <div class="modal-dialog modal-lg">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">{{ t('configs_page.create_template_title') }}</h5>
+            <h5 class="modal-title">{{ t('configs_page.create_manual_template_title') }}</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body">
-            <div class="alert alert-info py-2">
-              {{ t('configs_page.template_modal_hint') }}
+            <div class="alert alert-warning py-2">
+              <div class="fw-semibold">{{ t('configs_page.manual_template_mode_title') }}</div>
+              <div class="small mt-1">{{ t('configs_page.manual_template_mode_hint') }}</div>
             </div>
             <div v-if="aiTemplateDraftState.active" class="fm-ai-draft-panel mb-3">
               <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
@@ -1520,6 +1802,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import ConfigAssemblyFlow from '../components/ConfigAssemblyFlow.vue'
 import { useI18n } from '../i18n'
 import { buildConfigFlowSummary } from '../utils/config_flow'
 import {
@@ -1536,6 +1819,7 @@ import {
   getOutputTargets,
   getRenderedConfig,
   getTemplates,
+  importExistingConfig,
   lintConfig,
   previewRenderedConfig,
   replayConfig,
@@ -1559,6 +1843,11 @@ const selectedWizardModuleIds = ref([])
 const selectedWizardOutputTargetIds = ref([])
 const aiAssistantLoading = ref(false)
 const aiAssistantResult = ref(null)
+const importAnalysisLoading = ref(false)
+const importModulesLoading = ref(false)
+const importedConfigResult = ref(null)
+const importedWorkspaceModules = ref([])
+const importedWorkspaceTemplate = ref(null)
 const aiAssistantFeedback = reactive({
   type: '',
   message: '',
@@ -1744,6 +2033,12 @@ const previewForm = reactive({
   diff_content: '',
 })
 
+const importForm = reactive({
+  fluent_type: 'fluentbit',
+  name_prefix: 'imported-config',
+  content: '',
+})
+
 const wizardForm = reactive({
   goal: 'edge_collection',
   name: '',
@@ -1760,6 +2055,8 @@ const aiAssistantForm = reactive({
 })
 
 const visibleModules = computed(() => modules.value.filter((item) => item.module_type !== 'output'))
+const assemblyTemplateCount = computed(() => templates.value.filter((item) => item.source_type === 'module_assembly').length)
+const manualTemplateCount = computed(() => templates.value.filter((item) => item.source_type !== 'module_assembly').length)
 const sharedModuleCount = computed(() => visibleModules.value.filter((item) => item.fluent_type === 'shared').length)
 const usedModuleTypes = computed(() => [...new Set(visibleModules.value.map((item) => item.module_type))])
 const previewEligibleModules = computed(() =>
@@ -1911,12 +2208,102 @@ function shortVariables(value) {
   return value.length > 42 ? `${value.slice(0, 42)}...` : value
 }
 
+function parseJSONList(value) {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
 function formatJson(value) {
   try {
     return JSON.stringify(value || {}, null, 2)
   } catch {
     return String(value || '{}')
   }
+}
+
+function templateSourceLabel(sourceType) {
+  return sourceType === 'module_assembly'
+    ? t('configs_page.template_source_module_assembly')
+    : t('configs_page.template_source_manual')
+}
+
+function templateAssemblyModules(template) {
+  return parseJSONList(template?.source_modules)
+}
+
+function buildImportedModuleDescription(item) {
+  const details = [t('configs_page.imported_from_existing_config')]
+  if (item?.summary) {
+    details.push(item.summary)
+  }
+  return details.join(' · ')
+}
+
+function uniqueImportedModuleName(baseName, occupiedNames) {
+  const seed = normalizeName(baseName) ? String(baseName).trim() : 'imported-module'
+  if (!occupiedNames.has(normalizeName(seed))) {
+    occupiedNames.add(normalizeName(seed))
+    return seed
+  }
+
+  let index = 2
+  let candidate = `${seed}-${index}`
+  while (occupiedNames.has(normalizeName(candidate))) {
+    index += 1
+    candidate = `${seed}-${index}`
+  }
+  occupiedNames.add(normalizeName(candidate))
+  return candidate
+}
+
+function importActionLabel(action) {
+  if (action === 'reuse_existing') return t('configs_page.import_action_reuse')
+  return t('configs_page.import_action_create')
+}
+
+function setImportedModuleAction(module, action) {
+  if (!module) return
+  if (action === 'reuse_existing' && !module.existing_module_id) return
+  module.import_action = action
+}
+
+function setAllImportedModuleActions(action) {
+  if (!importedConfigResult.value?.modules?.length) return
+  for (const module of importedConfigResult.value.modules) {
+    if (action === 'reuse_existing' && !module.existing_module_id) {
+      module.import_action = 'create_new'
+      continue
+    }
+    module.import_action = action
+  }
+}
+
+function importActionBadgeClass(action) {
+  return action === 'reuse_existing'
+    ? 'bg-success-subtle text-success-emphasis'
+    : 'text-bg-light'
+}
+
+function importValidationBadgeClass(verdict) {
+  if (verdict === 'equivalent') return 'bg-success-subtle text-success-emphasis'
+  if (verdict === 'mostly_equivalent') return 'bg-warning-subtle text-warning-emphasis'
+  return 'bg-danger-subtle text-danger-emphasis'
+}
+
+function importValidationLabel(verdict) {
+  if (verdict === 'equivalent') return t('configs_page.import_validation_equivalent')
+  if (verdict === 'mostly_equivalent') return t('configs_page.import_validation_mostly_equivalent')
+  return t('configs_page.import_validation_needs_review')
+}
+
+function importDestinationMatchLabel(matchType) {
+  if (matchType === 'exact') return t('configs_page.import_destination_match_exact')
+  return t('configs_page.import_destination_match_type')
 }
 
 const wizardFlowPathLabel = computed(() =>
@@ -1931,6 +2318,20 @@ const previewFlowPathLabel = computed(() =>
   previewFlowSummary.value.path.length ? previewFlowSummary.value.path.join(' -> ') : t('configs_page.no_solution_path')
 )
 const previewDestinationChips = computed(() => previewFlowSummary.value.destinationChips || [])
+const importFlowPathLabel = computed(() =>
+  importedConfigResult.value?.flow_path?.length ? importedConfigResult.value.flow_path.join(' -> ') : t('configs_page.no_solution_path')
+)
+const importSemanticChangeCount = computed(() => importedConfigResult.value?.validation?.semantic_diff?.changes?.length || 0)
+const importReusableMatchCount = computed(() =>
+  importedConfigResult.value?.modules?.filter((module) => module.existing_module_id).length || 0
+)
+const importDestinationMatchCount = computed(() => importedConfigResult.value?.destinations?.length || 0)
+const importReuseDecisionCount = computed(() =>
+  importedConfigResult.value?.modules?.filter((module) => module.import_action === 'reuse_existing').length || 0
+)
+const importCreateDecisionCount = computed(() =>
+  importedConfigResult.value?.modules?.filter((module) => module.import_action !== 'reuse_existing').length || 0
+)
 
 function getErrorMessage(error) {
   return error?.response?.data?.user_message || error?.response?.data?.error || error?.message || t('common.request_failed')
@@ -2459,6 +2860,10 @@ function openCreateTemplate() {
   templateModal.show()
 }
 
+function openAssemblyTemplateBuilder() {
+  activeTab.value = 'wizard'
+}
+
 function applyAIModuleVariables(raw) {
   moduleForm.variables = raw || '{}'
   try {
@@ -2655,6 +3060,24 @@ async function saveWizardAsTemplate() {
     description: wizardForm.description || t('configs_page.wizard_default_description').replace('{goal}', wizardGoalLabel(wizardForm.goal)),
     fluent_type: wizardForm.fluent_type,
     content: renderedConfig.value.content,
+    variables: previewForm.variables,
+    source_type: 'module_assembly',
+    source_modules: renderedConfig.value.source_modules || '[]',
+    flow_layout: JSON.stringify({
+      builder: 'wizard',
+      goal: wizardForm.goal,
+      runtime: wizardForm.fluent_type,
+      path: wizardFlowSummary.value.path,
+      source_presets: wizardSourcePresetChips.value,
+      processors: wizardFlowSummary.value.processors,
+      destinations: wizardSelectedOutputTargets.value.map((target) => ({
+        id: target.id,
+        name: target.name,
+        target_type: target.target_type,
+        endpoint: target.endpoint,
+        fluent_type: target.fluent_type,
+      })),
+    }),
   }
 
   try {
@@ -2707,6 +3130,135 @@ async function runAIAssistant() {
     )
   } finally {
     aiAssistantLoading.value = false
+  }
+}
+
+async function runImportAnalysis() {
+  if (!importForm.content.trim()) {
+    importedConfigResult.value = null
+    return
+  }
+
+  importAnalysisLoading.value = true
+  importedWorkspaceModules.value = []
+  importedWorkspaceTemplate.value = null
+  try {
+    const { data } = await importExistingConfig({
+      fluent_type: importForm.fluent_type,
+      name_prefix: importForm.name_prefix,
+      content: importForm.content,
+    })
+    importedConfigResult.value = data
+  } catch (error) {
+    importedConfigResult.value = null
+    alert(`${t('configs_page.import_failed')}: ${getErrorMessage(error)}`)
+  } finally {
+    importAnalysisLoading.value = false
+  }
+}
+
+async function importParsedModules() {
+  if (!importedConfigResult.value?.modules?.length) return
+
+  importModulesLoading.value = true
+  try {
+    const occupiedNames = new Set(modules.value.map((item) => normalizeName(item.name)).filter(Boolean))
+    const created = []
+    const assembledModuleRefs = []
+    const assembledModules = []
+    for (const item of importedConfigResult.value.modules) {
+      if (item.import_action === 'reuse_existing' && item.existing_module_id) {
+        assembledModuleRefs.push({
+          module_id: item.existing_module_id,
+          variables: item.variables || '{}',
+        })
+        assembledModules.push({
+          id: Number(item.existing_module_id),
+          module_type: item.module_type,
+        })
+        continue
+      }
+      const name = uniqueImportedModuleName(item.name, occupiedNames)
+      const { data } = await createModule({
+        name,
+        description: buildImportedModuleDescription(item),
+        module_type: item.module_type,
+        fluent_type: item.fluent_type,
+        content: item.content,
+        variables: item.variables || '{}',
+        is_builtin: false,
+      })
+      created.push(data)
+      assembledModuleRefs.push({
+        module_id: data.id,
+        variables: item.variables || '{}',
+      })
+      assembledModules.push({
+        id: Number(data.id),
+        module_type: item.module_type,
+      })
+    }
+
+    importedWorkspaceModules.value = created
+    await loadModules()
+
+    previewForm.name = importedConfigResult.value.suggested_template_name || `${importForm.name_prefix || 'imported-config'}-assembly`
+    previewForm.fluent_type = importForm.fluent_type
+    previewForm.runtime_version = ''
+    previewForm.variables = '{}'
+    selectedPreviewOutputTargetIds.value = []
+    selectedPreviewModuleIds.value = assembledModules
+      .filter((item) => item.module_type !== 'output')
+      .map((item) => item.id)
+
+    const previewRes = await previewRenderedConfig({
+      name: previewForm.name,
+      fluent_type: previewForm.fluent_type,
+      runtime_version: previewForm.runtime_version,
+      variables: previewForm.variables,
+      modules: assembledModuleRefs,
+    })
+    const previewId = previewRes.data?.id
+    if (previewId) {
+      const detailRes = await getRenderedConfig(previewId)
+      renderedConfig.value = detailRes.data
+    } else {
+      renderedConfig.value = previewRes.data
+    }
+    analysisResult.value = null
+    compatibilityResult.value = null
+    replayResult.value = null
+    diffResult.value = null
+    const templateName = generateUniqueDraftName(
+      importedConfigResult.value.suggested_template_name || `${importForm.name_prefix || 'imported-config'}-assembly`,
+      templates.value.map((item) => item.name),
+      `${importForm.name_prefix || 'imported-config'}-assembly`
+    )
+    const matchedExistingCount = importedConfigResult.value.modules.filter((item) => item.existing_module_id).length
+    const reusedExistingCount = importedConfigResult.value.modules.filter((item) => item.import_action === 'reuse_existing').length
+    const { data: templateData } = await createTemplate({
+      name: templateName,
+      description: t('configs_page.import_template_description').replace('{prefix}', importForm.name_prefix || 'imported-config'),
+      fluent_type: previewForm.fluent_type,
+      content: renderedConfig.value?.content || importedConfigResult.value.template_draft_content || '',
+      variables: previewForm.variables,
+      source_type: 'module_assembly',
+      source_modules: renderedConfig.value?.source_modules || '[]',
+      flow_layout: JSON.stringify({
+        ...(importedConfigResult.value.flow_layout || {}),
+        matched_existing_count: matchedExistingCount,
+        reused_existing_count: reusedExistingCount,
+        destinations: importedConfigResult.value.destinations || [],
+        validation: importedConfigResult.value.validation || {},
+      }),
+    })
+    importedWorkspaceTemplate.value = templateData
+    await loadTemplates()
+    await router.push(`/configs/${templateData.id}`)
+  } catch (error) {
+    alert(`${t('configs_page.import_persist_failed')}: ${getErrorMessage(error)}`)
+  } finally {
+    importModulesLoading.value = false
   }
 }
 
@@ -3002,6 +3554,13 @@ onMounted(async () => {
   border-color: #0d9488;
   background: linear-gradient(180deg, #f0fdfa 0%, #ecfeff 100%);
   box-shadow: 0 12px 30px rgba(13, 148, 136, 0.12);
+}
+
+.fm-import-module-card {
+  padding: 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
 }
 
 .fm-module-snippet {

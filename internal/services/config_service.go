@@ -19,6 +19,10 @@ var (
 		"fluentd":   true,
 		"shared":    true,
 	}
+	validTemplateSourceTypes = map[string]bool{
+		"manual":          true,
+		"module_assembly": true,
+	}
 	validRenderedConfigTypes = map[string]bool{
 		"fluentbit": true,
 		"fluentd":   true,
@@ -41,6 +45,17 @@ var (
 	}
 )
 
+type ConfigTemplateInput struct {
+	Name          string `json:"name"`
+	Description   string `json:"description"`
+	FluentType    string `json:"fluent_type"`
+	Content       string `json:"content"`
+	Variables     string `json:"variables"`
+	SourceType    string `json:"source_type"`
+	SourceModules string `json:"source_modules"`
+	FlowLayout    string `json:"flow_layout"`
+}
+
 type ConfigModuleInput struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
@@ -54,8 +69,8 @@ type ConfigModuleInput struct {
 }
 
 type RenderModuleRef struct {
-	ModuleID  uint  `json:"module_id"`
-	VersionID *uint `json:"version_id"`
+	ModuleID  uint   `json:"module_id"`
+	VersionID *uint  `json:"version_id"`
 	Variables string `json:"variables"`
 }
 
@@ -70,8 +85,8 @@ type RenderedConfigPreviewInput struct {
 type ConfigService interface {
 	ListTemplates(fluentType, search string, page, pageSize int) ([]models.ConfigTemplate, int64, error)
 	GetTemplate(id uint) (*models.ConfigTemplate, error)
-	CreateTemplate(name, description, fluentType, content, variables string, createdBy uint) (*models.ConfigTemplate, error)
-	UpdateTemplate(id uint, name, description, fluentType, content, variables string) (*models.ConfigTemplate, error)
+	CreateTemplate(input *ConfigTemplateInput, createdBy uint) (*models.ConfigTemplate, error)
+	UpdateTemplate(id uint, input *ConfigTemplateInput) (*models.ConfigTemplate, error)
 	DeleteTemplate(id uint) error
 	ListVersions(templateID uint) ([]models.ConfigVersion, error)
 	CreateVersion(templateID, createdBy uint, content, comment string) (*models.ConfigVersion, error)
@@ -121,34 +136,39 @@ func (s *configService) GetTemplate(id uint) (*models.ConfigTemplate, error) {
 	return &tpl, nil
 }
 
-func (s *configService) CreateTemplate(name, description, fluentType, content, variables string, createdBy uint) (*models.ConfigTemplate, error) {
-	tpl := models.ConfigTemplate{
-		Name:        name,
-		Description: description,
-		FluentType:  fluentType,
-		Content:     content,
-		Variables:   variables,
-		CreatedBy:   createdBy,
+func (s *configService) CreateTemplate(input *ConfigTemplateInput, createdBy uint) (*models.ConfigTemplate, error) {
+	tpl, err := validateConfigTemplateInput(input)
+	if err != nil {
+		return nil, err
 	}
+	tpl.CreatedBy = createdBy
 	if err := s.db.Create(&tpl).Error; err != nil {
 		return nil, err
 	}
-	return &tpl, nil
+	return tpl, nil
 }
 
-func (s *configService) UpdateTemplate(id uint, name, description, fluentType, content, variables string) (*models.ConfigTemplate, error) {
+func (s *configService) UpdateTemplate(id uint, input *ConfigTemplateInput) (*models.ConfigTemplate, error) {
+	next, err := validateConfigTemplateInput(input)
+	if err != nil {
+		return nil, err
+	}
+
 	var tpl models.ConfigTemplate
 	if err := s.db.First(&tpl, id).Error; err != nil {
 		return nil, err
 	}
 	s.db.Model(&tpl).Updates(map[string]interface{}{
-		"name":        name,
-		"description": description,
-		"fluent_type": fluentType,
-		"content":     content,
-		"variables":   variables,
+		"name":           next.Name,
+		"description":    next.Description,
+		"fluent_type":    next.FluentType,
+		"content":        next.Content,
+		"variables":      next.Variables,
+		"source_type":    next.SourceType,
+		"source_modules": next.SourceModules,
+		"flow_layout":    next.FlowLayout,
 	})
-	return &tpl, nil
+	return s.GetTemplate(id)
 }
 
 func (s *configService) DeleteTemplate(id uint) error {
@@ -181,12 +201,15 @@ func (s *configService) CreateVersion(templateID, createdBy uint, content, comme
 		Select("COALESCE(MAX(version), 0)").Scan(&maxVersion)
 
 	version := models.ConfigVersion{
-		TemplateID: templateID,
-		Version:    maxVersion + 1,
-		Content:    content,
-		Hash:       models.HashConfig(content),
-		Comment:    comment,
-		CreatedBy:  createdBy,
+		TemplateID:    templateID,
+		Version:       maxVersion + 1,
+		Content:       content,
+		Hash:          models.HashConfig(content),
+		Comment:       comment,
+		SourceType:    tpl.SourceType,
+		SourceModules: tpl.SourceModules,
+		FlowLayout:    tpl.FlowLayout,
+		CreatedBy:     createdBy,
 	}
 	if err := s.db.Create(&version).Error; err != nil {
 		return nil, err
@@ -497,6 +520,56 @@ func validateConfigModuleInput(input *ConfigModuleInput) (*models.ConfigModule, 
 	}, nil
 }
 
+func validateConfigTemplateInput(input *ConfigTemplateInput) (*models.ConfigTemplate, error) {
+	if input == nil {
+		return nil, fmt.Errorf("%w: template payload is required", ErrInvalidArgument)
+	}
+
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrInvalidArgument)
+	}
+	fluentType := strings.TrimSpace(input.FluentType)
+	if fluentType != "fluentbit" && fluentType != "fluentd" {
+		return nil, fmt.Errorf("%w: unsupported fluent_type %q", ErrInvalidArgument, fluentType)
+	}
+	content := strings.TrimSpace(input.Content)
+	if content == "" {
+		return nil, fmt.Errorf("%w: content is required", ErrInvalidArgument)
+	}
+	if _, err := parseRenderVariables(input.Variables); err != nil {
+		return nil, err
+	}
+
+	sourceType := strings.TrimSpace(input.SourceType)
+	if sourceType == "" {
+		sourceType = "manual"
+	}
+	if !validTemplateSourceTypes[sourceType] {
+		return nil, fmt.Errorf("%w: unsupported source_type %q", ErrInvalidArgument, sourceType)
+	}
+
+	sourceModules, err := normalizeJSONArrayString(input.SourceModules, "source_modules")
+	if err != nil {
+		return nil, err
+	}
+	flowLayout, err := normalizeJSONObjectString(input.FlowLayout, "flow_layout")
+	if err != nil {
+		return nil, err
+	}
+
+	return &models.ConfigTemplate{
+		Name:          name,
+		Description:   strings.TrimSpace(input.Description),
+		FluentType:    fluentType,
+		Content:       content,
+		Variables:     normalizeJSONString(input.Variables),
+		SourceType:    sourceType,
+		SourceModules: sourceModules,
+		FlowLayout:    flowLayout,
+	}, nil
+}
+
 func parseRenderVariables(raw string) (map[string]interface{}, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -519,6 +592,34 @@ func normalizeJSONString(raw string) string {
 		return "{}"
 	}
 	return raw
+}
+
+func normalizeJSONArrayString(raw, field string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "[]", nil
+	}
+
+	var parsed []interface{}
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return "", fmt.Errorf("%w: %s must be a JSON array", ErrInvalidArgument, field)
+	}
+	normalized, _ := json.Marshal(parsed)
+	return string(normalized), nil
+}
+
+func normalizeJSONObjectString(raw, field string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "{}", nil
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return "", fmt.Errorf("%w: %s must be a JSON object", ErrInvalidArgument, field)
+	}
+	normalized, _ := json.Marshal(parsed)
+	return string(normalized), nil
 }
 
 func cloneRenderVariables(source map[string]interface{}) map[string]interface{} {

@@ -5,6 +5,9 @@
         <router-link to="/configs" class="text-decoration-none">&larr; {{ t('config_detail.back') }}</router-link>
         <h4 class="mt-2 mb-0">{{ template.name }}</h4>
         <span class="badge bg-info">{{ template.fluent_type }}</span>
+        <span class="badge ms-2" :class="isAssemblyTemplate ? 'bg-success-subtle text-success-emphasis' : 'text-bg-light'">
+          {{ templateSourceLabel }}
+        </span>
         <span class="text-muted ms-2">{{ template.description }}</span>
       </div>
       <button class="btn btn-primary" @click="openNewVersion">
@@ -52,6 +55,65 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div v-if="isAssemblyTemplate" class="card border-0 shadow-sm mt-4">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <div>
+          <h6 class="mb-0">{{ t('configs_page.assembly_lineage') }}</h6>
+          <div class="small text-muted mt-1">{{ t('configs_page.assembly_lineage_hint') }}</div>
+        </div>
+        <span class="badge text-bg-light">
+          {{ t('configs_page.assembly_module_count').replace('{count}', String(activeAssemblyModules.length)) }}
+        </span>
+      </div>
+      <div class="card-body">
+        <div class="d-flex flex-wrap gap-2 mb-3">
+          <span class="badge bg-success-subtle text-success-emphasis">{{ templateSourceLabel }}</span>
+          <span v-if="activeFlowLayout.goal" class="badge text-bg-light">{{ templateGoalLabel(activeFlowLayout.goal) }}</span>
+          <span v-if="activeImportMatchedExistingCount" class="badge text-bg-light">
+            {{ t('configs_page.import_existing_matches').replace('{count}', String(activeImportMatchedExistingCount)) }}
+          </span>
+          <span v-if="activeImportReusedExistingCount" class="badge text-bg-light">
+            {{ t('configs_page.import_reused_existing').replace('{count}', String(activeImportReusedExistingCount)) }}
+          </span>
+        </div>
+        <div v-if="hasImportMigrationInsights" class="row g-3 mb-3">
+          <div class="col-lg-5">
+            <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+              <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                <div>
+                  <div class="small text-muted mb-1">{{ t('configs_page.import_validation_title') }}</div>
+                  <div class="fw-semibold">{{ activeImportValidation.summary || '-' }}</div>
+                </div>
+                <span v-if="activeImportValidation.verdict" class="badge" :class="importValidationBadgeClass(activeImportValidation.verdict)">
+                  {{ importValidationLabel(activeImportValidation.verdict) }}
+                </span>
+              </div>
+              <div class="small text-muted">
+                {{ t('configs_page.import_semantic_change_count').replace('{count}', String(activeImportSemanticChangeCount)) }}
+              </div>
+            </div>
+          </div>
+          <div class="col-lg-4">
+            <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+              <div class="small text-muted mb-1">{{ t('configs_page.semantic_diff') }}</div>
+              <div class="fw-semibold">{{ activeImportSemanticSummary }}</div>
+            </div>
+          </div>
+          <div class="col-lg-3">
+            <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+              <div class="small text-muted mb-1">{{ t('configs_page.analysis') }}</div>
+              <div class="fw-semibold">{{ activeImportLintSummary }}</div>
+            </div>
+          </div>
+        </div>
+        <ConfigAssemblyFlow
+          :modules="activeAssemblyModules"
+          :destinations="activeAssemblyDestinations"
+          :path-label="activeAssemblyPathLabel"
+        />
       </div>
     </div>
 
@@ -467,6 +529,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import ConfigAssemblyFlow from '../components/ConfigAssemblyFlow.vue'
 import {
   checkCompatibility,
   createDeploy,
@@ -531,6 +594,32 @@ const currentTargetLabel = computed(() => (
     ? t('config_detail.version_label').replace('{version}', selectedVersion.value.version)
     : t('config_detail.template_content')
 ))
+const activeConfigRecord = computed(() => selectedVersion.value || template.value || null)
+const activeAssemblyModules = computed(() => parseJSONList(activeConfigRecord.value?.source_modules))
+const activeFlowLayout = computed(() => parseJSONObject(activeConfigRecord.value?.flow_layout))
+const activeAssemblyDestinations = computed(() => Array.isArray(activeFlowLayout.value.destinations) ? activeFlowLayout.value.destinations : [])
+const activeAssemblyPathLabel = computed(() => Array.isArray(activeFlowLayout.value.path) ? activeFlowLayout.value.path.join(' -> ') : '')
+const activeImportValidation = computed(() => {
+  const validation = activeFlowLayout.value.validation
+  return validation && typeof validation === 'object' && !Array.isArray(validation) ? validation : {}
+})
+const activeImportSemanticSummary = computed(() => activeImportValidation.value.semantic_diff?.summary || t('configs_page.no_diff'))
+const activeImportLintSummary = computed(() => activeImportValidation.value.lint_summary || '-')
+const activeImportSemanticChangeCount = computed(() => activeImportValidation.value.semantic_diff?.changes?.length || 0)
+const activeImportMatchedExistingCount = computed(() => Number(activeFlowLayout.value.matched_existing_count || 0))
+const activeImportReusedExistingCount = computed(() => Number(activeFlowLayout.value.reused_existing_count || 0))
+const hasImportMigrationInsights = computed(() => (
+  !!activeImportValidation.value.verdict ||
+  !!activeImportValidation.value.summary ||
+  activeImportMatchedExistingCount.value > 0 ||
+  activeImportReusedExistingCount.value > 0
+))
+const isAssemblyTemplate = computed(() => activeConfigRecord.value?.source_type === 'module_assembly')
+const templateSourceLabel = computed(() => (
+  isAssemblyTemplate.value
+    ? t('configs_page.template_source_module_assembly')
+    : t('configs_page.template_source_manual')
+))
 const compareVersionOptions = computed(() => versions.value.filter((version) => version.id !== selectedVersion.value?.id))
 const compareVersion = computed(() => compareVersionOptions.value.find((version) => version.id === analysisForm.compare_version_id) || null)
 const matchingDeployFluentType = computed(() => template.value?.fluent_type && template.value.fluent_type !== 'shared'
@@ -542,6 +631,26 @@ const allVisibleDeployNodesSelected = computed(() => (
 
 function formatTime(value) {
   return value ? new Date(value).toLocaleString(dateLocale.value) : '-'
+}
+
+function parseJSONList(value) {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function parseJSONObject(value) {
+  if (!value) return {}
+  try {
+    const parsed = JSON.parse(value)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
 }
 
 function nodeStatusClass(status) {
@@ -578,6 +687,27 @@ function formatJson(value) {
 
 function getErrorMessage(error) {
   return error?.response?.data?.user_message || error?.response?.data?.error || error?.message || t('common.request_failed')
+}
+
+function templateGoalLabel(goal) {
+  const labels = {
+    edge_collection: t('configs_page.goal_edge_collection'),
+    central_aggregation: t('configs_page.goal_central_aggregation'),
+    custom_pipeline: t('configs_page.goal_custom_pipeline'),
+  }
+  return labels[goal] || goal
+}
+
+function importValidationBadgeClass(verdict) {
+  if (verdict === 'equivalent') return 'bg-success-subtle text-success-emphasis'
+  if (verdict === 'mostly_equivalent') return 'bg-warning-subtle text-warning-emphasis'
+  return 'bg-danger-subtle text-danger-emphasis'
+}
+
+function importValidationLabel(verdict) {
+  if (verdict === 'equivalent') return t('configs_page.import_validation_equivalent')
+  if (verdict === 'mostly_equivalent') return t('configs_page.import_validation_mostly_equivalent')
+  return t('configs_page.import_validation_needs_review')
 }
 
 function findingBadgeClass(severity) {

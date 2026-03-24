@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -177,6 +178,209 @@ func TestLintConfigPersistsFindings(t *testing.T) {
 	}
 	if result.Summary == "" {
 		t.Fatal("expected summary")
+	}
+}
+
+func TestImportExistingConfigForFluentBit(t *testing.T) {
+	_, svc := setupFluentOpsTest(t)
+
+	result, err := svc.ImportExistingConfig(&ConfigImportInput{
+		FluentType: "fluentbit",
+		NamePrefix: "legacy-nginx",
+		Content: `[SERVICE]
+  Flush 1
+
+[INPUT]
+  Name tail
+  Path /var/log/nginx/access.log
+
+[FILTER]
+  Name modify
+  Match nginx.*
+
+[OUTPUT]
+  Name forward
+  Match nginx.*`,
+	})
+	if err != nil {
+		t.Fatalf("import existing config: %v", err)
+	}
+	if len(result.Modules) != 4 {
+		t.Fatalf("expected 4 imported modules, got %d", len(result.Modules))
+	}
+	if result.Modules[0].ModuleType != "service" || result.Modules[1].ModuleType != "input" {
+		t.Fatalf("unexpected module order: %#v", result.Modules)
+	}
+	if !strings.Contains(result.Modules[1].Content, "Path {{ .path }}") {
+		t.Fatalf("expected path to be extracted into variables, got %q", result.Modules[1].Content)
+	}
+	if !strings.Contains(result.Modules[1].Variables, `"path": "/var/log/nginx/access.log"`) {
+		t.Fatalf("expected extracted variables to contain path, got %q", result.Modules[1].Variables)
+	}
+	if len(result.FlowPath) == 0 {
+		t.Fatal("expected flow path to be populated")
+	}
+	if result.Validation.Verdict == "" {
+		t.Fatal("expected validation verdict")
+	}
+	if strings.TrimSpace(result.TemplateDraftContent) == "" {
+		t.Fatal("expected template draft content")
+	}
+}
+
+func TestImportExistingConfigForFluentBitMovesSectionBannerToNextBlock(t *testing.T) {
+	_, svc := setupFluentOpsTest(t)
+
+	result, err := svc.ImportExistingConfig(&ConfigImportInput{
+		FluentType: "fluentbit",
+		NamePrefix: "legacy-openstack",
+		Content: `[FILTER]
+    Name   record_modifier
+    Match vm.*
+    Record kind openstack
+    Record host ${HOSTNAME}
+    Record component libvirt
+
+# ============================================
+# OUTPUT: Syslog -> OpenSearch
+# ============================================
+[OUTPUT]
+    Name  es
+    Match vm.*`,
+	})
+	if err != nil {
+		t.Fatalf("import existing config: %v", err)
+	}
+	if len(result.Modules) != 2 {
+		t.Fatalf("expected 2 imported modules, got %d", len(result.Modules))
+	}
+	filterModule := result.Modules[0]
+	outputModule := result.Modules[1]
+	if strings.Contains(filterModule.Content, "OUTPUT: Syslog -> OpenSearch") {
+		t.Fatalf("expected output banner to stay out of filter module, got %q", filterModule.Content)
+	}
+	if !strings.Contains(outputModule.Content, "OUTPUT: Syslog -> OpenSearch") {
+		t.Fatalf("expected output banner to move with output module, got %q", outputModule.Content)
+	}
+}
+
+func TestImportExistingConfigMatchesExistingOutputTarget(t *testing.T) {
+	db, svc := setupFluentOpsTest(t)
+
+	if err := db.Create(&models.OutputTarget{
+		Name:       "openstack-opensearch",
+		FluentType: "shared",
+		TargetType: "opensearch",
+		Endpoint:   "https://opensearch.internal:9200",
+		Settings:   `{"host":"opensearch.internal","port":9200,"index":"openstack-%Y.%m.%d"}`,
+	}).Error; err != nil {
+		t.Fatalf("create output target: %v", err)
+	}
+
+	result, err := svc.ImportExistingConfig(&ConfigImportInput{
+		FluentType: "fluentbit",
+		NamePrefix: "legacy-openstack",
+		Content: `[OUTPUT]
+    Name  es
+    Match openstack.*
+    Host  opensearch.internal
+    Port  9200
+    Index openstack-%Y.%m.%d`,
+	})
+	if err != nil {
+		t.Fatalf("import existing config: %v", err)
+	}
+	if len(result.Destinations) != 1 {
+		t.Fatalf("expected 1 matched destination, got %d", len(result.Destinations))
+	}
+	if result.Destinations[0].Name != "openstack-opensearch" {
+		t.Fatalf("expected matched destination name, got %#v", result.Destinations[0])
+	}
+	if result.Destinations[0].MatchType != "exact" {
+		t.Fatalf("expected exact destination match, got %#v", result.Destinations[0])
+	}
+	if result.Modules[0].OutputTargetName != "openstack-opensearch" {
+		t.Fatalf("expected output module to carry destination metadata, got %#v", result.Modules[0])
+	}
+}
+
+func TestImportExistingConfigForFluentdRetainsNestedParseSafely(t *testing.T) {
+	_, svc := setupFluentOpsTest(t)
+
+	result, err := svc.ImportExistingConfig(&ConfigImportInput{
+		FluentType: "fluentd",
+		NamePrefix: "legacy-app",
+		Content: `<system>
+  log_level info
+</system>
+
+<source>
+  @type tail
+  path /var/log/app.log
+  <parse>
+    @type json
+  </parse>
+</source>
+
+<match app.**>
+  @type forward
+</match>`,
+	})
+	if err != nil {
+		t.Fatalf("import existing fluentd config: %v", err)
+	}
+	if len(result.Modules) != 4 {
+		t.Fatalf("expected 4 imported modules, got %d", len(result.Modules))
+	}
+	if result.Modules[1].ModuleType != "input" {
+		t.Fatalf("expected source to become input, got %s", result.Modules[1].ModuleType)
+	}
+	if !strings.Contains(result.Modules[1].Content, "<parse>") {
+		t.Fatalf("expected nested parse to remain inside source content, got %q", result.Modules[1].Content)
+	}
+	if result.Modules[2].ModuleType != "route" {
+		t.Fatalf("expected companion route module, got %s", result.Modules[2].ModuleType)
+	}
+	if !strings.Contains(result.Modules[2].Content, "Match {{ .match }}") {
+		t.Fatalf("expected route companion to expose match variable, got %q", result.Modules[2].Content)
+	}
+	if len(result.Warnings) == 0 {
+		t.Fatal("expected import warnings for baseline fluentd splitting")
+	}
+}
+
+func TestImportExistingConfigSuggestsReuseForExactModuleMatch(t *testing.T) {
+	db, svc := setupFluentOpsTest(t)
+
+	if err := db.Create(&models.ConfigModule{
+		Name:       "legacy-nginx-tail-input-01",
+		ModuleType: "input",
+		FluentType: "fluentbit",
+		Content:    "[INPUT]\n  Name tail\n  Path {{ .path }}",
+		Variables:  `{"path":"/var/log/nginx/access.log"}`,
+		CreatedBy:  1,
+	}).Error; err != nil {
+		t.Fatalf("create existing module: %v", err)
+	}
+
+	result, err := svc.ImportExistingConfig(&ConfigImportInput{
+		FluentType: "fluentbit",
+		NamePrefix: "legacy-nginx",
+		Content: `[INPUT]
+  Name tail
+  Path /var/log/nginx/access.log`,
+	})
+	if err != nil {
+		t.Fatalf("import existing config with reuse: %v", err)
+	}
+	if len(result.Modules) != 1 {
+		t.Fatalf("expected 1 module, got %d", len(result.Modules))
+	}
+	if result.Modules[0].ImportAction != "reuse_existing" {
+		t.Fatalf("expected reuse_existing, got %s", result.Modules[0].ImportAction)
+	}
+	if result.Modules[0].ExistingModuleID == nil {
+		t.Fatal("expected existing module id to be attached")
 	}
 }
 

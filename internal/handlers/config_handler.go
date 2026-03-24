@@ -50,11 +50,14 @@ func (h *ConfigHandler) GetTemplate(c *gin.Context) {
 }
 
 type CreateTemplateRequest struct {
-	Name        string `json:"name" binding:"required"`
-	Description string `json:"description"`
-	FluentType  string `json:"fluent_type" binding:"required,oneof=fluentbit fluentd"`
-	Content     string `json:"content" binding:"required"`
-	Variables   string `json:"variables"`
+	Name          string `json:"name" binding:"required"`
+	Description   string `json:"description"`
+	FluentType    string `json:"fluent_type" binding:"required,oneof=fluentbit fluentd"`
+	Content       string `json:"content" binding:"required"`
+	Variables     string `json:"variables"`
+	SourceType    string `json:"source_type"`
+	SourceModules string `json:"source_modules"`
+	FlowLayout    string `json:"flow_layout"`
 }
 
 func (h *ConfigHandler) CreateTemplate(c *gin.Context) {
@@ -65,9 +68,18 @@ func (h *ConfigHandler) CreateTemplate(c *gin.Context) {
 	}
 
 	userID := c.GetUint("user_id")
-	tpl, err := h.Svc.CreateTemplate(req.Name, req.Description, req.FluentType, req.Content, req.Variables, userID)
+	tpl, err := h.Svc.CreateTemplate(&services.ConfigTemplateInput{
+		Name:          req.Name,
+		Description:   req.Description,
+		FluentType:    req.FluentType,
+		Content:       req.Content,
+		Variables:     req.Variables,
+		SourceType:    req.SourceType,
+		SourceModules: req.SourceModules,
+		FlowLayout:    req.FlowLayout,
+	}, userID)
 	if err != nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "template name already exists"})
+		writeConfigError(c, err, "template")
 		return
 	}
 	c.JSON(http.StatusCreated, tpl)
@@ -81,9 +93,18 @@ func (h *ConfigHandler) UpdateTemplate(c *gin.Context) {
 		return
 	}
 
-	tpl, err := h.Svc.UpdateTemplate(uint(id), req.Name, req.Description, req.FluentType, req.Content, req.Variables)
+	tpl, err := h.Svc.UpdateTemplate(uint(id), &services.ConfigTemplateInput{
+		Name:          req.Name,
+		Description:   req.Description,
+		FluentType:    req.FluentType,
+		Content:       req.Content,
+		Variables:     req.Variables,
+		SourceType:    req.SourceType,
+		SourceModules: req.SourceModules,
+		FlowLayout:    req.FlowLayout,
+	})
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "template not found"})
+		writeConfigError(c, err, "template")
 		return
 	}
 	c.JSON(http.StatusOK, tpl)

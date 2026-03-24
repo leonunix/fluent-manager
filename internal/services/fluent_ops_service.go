@@ -66,6 +66,66 @@ type ConfigLintInput struct {
 	Content        string `json:"content"`
 }
 
+type ConfigImportInput struct {
+	FluentType string `json:"fluent_type"`
+	NamePrefix string `json:"name_prefix"`
+	Content    string `json:"content"`
+}
+
+type ImportedConfigModule struct {
+	Order                 int      `json:"order"`
+	Name                  string   `json:"name"`
+	Summary               string   `json:"summary"`
+	ModuleType            string   `json:"module_type"`
+	FluentType            string   `json:"fluent_type"`
+	DetectedPlugin        string   `json:"detected_plugin"`
+	Content               string   `json:"content"`
+	Variables             string   `json:"variables"`
+	VariableKeys          []string `json:"variable_keys"`
+	ImportAction          string   `json:"import_action"`
+	ExistingModuleID      *uint    `json:"existing_module_id,omitempty"`
+	ExistingModuleName    string   `json:"existing_module_name,omitempty"`
+	OutputTargetID        *uint    `json:"output_target_id,omitempty"`
+	OutputTargetName      string   `json:"output_target_name,omitempty"`
+	OutputTargetType      string   `json:"output_target_type,omitempty"`
+	OutputTargetEndpoint  string   `json:"output_target_endpoint,omitempty"`
+	OutputTargetMatchType string   `json:"output_target_match_type,omitempty"`
+}
+
+type ImportedConfigDestination struct {
+	OutputModuleName  string `json:"output_module_name"`
+	OutputModuleOrder int    `json:"output_module_order"`
+	OutputTargetID    uint   `json:"output_target_id"`
+	Name              string `json:"name"`
+	TargetType        string `json:"target_type"`
+	Endpoint          string `json:"endpoint"`
+	MatchType         string `json:"match_type"`
+}
+
+type ConfigImportValidation struct {
+	Equivalent      bool                           `json:"equivalent"`
+	Verdict         string                         `json:"verdict"`
+	Summary         string                         `json:"summary"`
+	SemanticDiff    *ConfigSemanticDiffResult      `json:"semantic_diff"`
+	LintSummary     string                         `json:"lint_summary"`
+	LintFindings    []models.ConfigAnalysisFinding `json:"lint_findings"`
+	RenderedContent string                         `json:"rendered_content"`
+}
+
+type ConfigImportResult struct {
+	FluentType            string                      `json:"fluent_type"`
+	NamePrefix            string                      `json:"name_prefix"`
+	Summary               string                      `json:"summary"`
+	SuggestedTemplateName string                      `json:"suggested_template_name"`
+	Warnings              []string                    `json:"warnings"`
+	Modules               []ImportedConfigModule      `json:"modules"`
+	Destinations          []ImportedConfigDestination `json:"destinations"`
+	FlowPath              []string                    `json:"flow_path"`
+	FlowLayout            map[string]interface{}      `json:"flow_layout"`
+	TemplateDraftContent  string                      `json:"template_draft_content"`
+	Validation            ConfigImportValidation      `json:"validation"`
+}
+
 type PipelineGraphNode struct {
 	ID          string `json:"id"`
 	Label       string `json:"label"`
@@ -129,6 +189,7 @@ type FluentOpsService interface {
 	PipelineGraph(allowedClusters []uint) (*PipelineGraph, error)
 	RuntimeHealthGraph(allowedClusters []uint) (*PipelineGraph, error)
 	LintConfig(input *ConfigLintInput, createdBy uint) (*models.ConfigAnalysisResult, error)
+	ImportExistingConfig(input *ConfigImportInput) (*ConfigImportResult, error)
 	ReplayConfig(input *ConfigReplayInput) (*ConfigReplayResult, error)
 	SemanticDiff(input *ConfigSemanticDiffInput) (*ConfigSemanticDiffResult, error)
 	CheckCompatibility(input *CompatibilityCheckInput, allowedClusters []uint) (*CompatibilityCheckResult, error)
