@@ -1,6 +1,6 @@
 .PHONY: build build-server build-server-linux build-agent build-agent-linux build-linux \
        build-all-in-one build-all-in-one-linux \
-       run clean frontend copy-frontend-dist clean-frontend-dist
+       run clean frontend frontend-package copy-frontend-dist clean-frontend-dist
 
 # ── API-only (separated mode) ───────────────────────────────────
 build: build-server
@@ -49,6 +49,11 @@ run: build-server
 # Frontend
 frontend:
 	cd web/frontend && npm install && npm run build
+
+# Package frontend dist as tarball for separated deployment (nginx etc.)
+frontend-package: frontend
+	@mkdir -p bin
+	tar -czf bin/fluent-manager-frontend.tar.gz -C web/frontend/dist .
 
 # Development
 dev:
