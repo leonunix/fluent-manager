@@ -1,4 +1,38 @@
-function parseSettings(raw) {
+import type { OutputTarget } from '../types/fluent'
+
+interface OutputSettings {
+  index?: string
+  match?: string
+  tenant_id?: string
+  labels?: string
+  topics?: string
+  format?: string
+  uri?: string
+  bucket?: string
+  path?: string
+  compression?: string
+  plugin?: string
+  tls?: boolean | string
+  scheme?: string
+  http_user?: string
+  http_password?: string
+  user?: string
+  password?: string
+  header_authorization?: string
+  sasl_username?: string
+  sasl_password?: string
+  [key: string]: unknown
+}
+
+export interface OutputSummary {
+  settings: OutputSettings
+  chips: string[]
+  endpoint: string
+  primary: string
+  secondary: string[]
+}
+
+function parseSettings(raw: string | undefined | null): OutputSettings {
   if (!raw) return {}
   try {
     const parsed = JSON.parse(raw)
@@ -8,11 +42,11 @@ function parseSettings(raw) {
   }
 }
 
-function endpointLooksTLS(endpoint) {
+function endpointLooksTLS(endpoint: string | undefined | null): boolean {
   return String(endpoint || '').toLowerCase().startsWith('https://')
 }
 
-function hasAuth(settings) {
+function hasAuth(settings: OutputSettings): boolean {
   return Boolean(
     settings.http_user ||
     settings.http_password ||
@@ -24,11 +58,11 @@ function hasAuth(settings) {
   )
 }
 
-function hasTLS(settings, endpoint) {
+function hasTLS(settings: OutputSettings, endpoint: string | undefined | null): boolean {
   return settings.tls === true || settings.tls === 'On' || settings.scheme === 'https' || endpointLooksTLS(endpoint)
 }
 
-function pushChip(chips, value) {
+function pushChip(chips: string[], value: string | undefined | null): void {
   if (!value) return
   const normalized = String(value).trim()
   if (!normalized) return
@@ -37,9 +71,9 @@ function pushChip(chips, value) {
   }
 }
 
-export function summarizeOutputTarget(target) {
+export function summarizeOutputTarget(target: OutputTarget | null | undefined): OutputSummary {
   const settings = parseSettings(target?.settings)
-  const chips = []
+  const chips: string[] = []
 
   if (target?.target_type === 'opensearch') {
     pushChip(chips, settings.index ? `index:${settings.index}` : '')
@@ -80,6 +114,6 @@ export function summarizeOutputTarget(target) {
   }
 }
 
-export function parseOutputTargetSettings(raw) {
+export function parseOutputTargetSettings(raw: string | undefined | null): OutputSettings {
   return parseSettings(raw)
 }

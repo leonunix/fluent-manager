@@ -1,20 +1,39 @@
-import { summarizeOutputTarget } from './output_targets'
+import type { OutputTarget } from '../types/fluent'
+import type { ConfigModule } from '../types/config'
+import { summarizeOutputTarget, type OutputSummary } from './output_targets'
 
-function namesFor(modules, type) {
+export interface ConfigFlowSummary {
+  service: string[]
+  inputs: string[]
+  parsers: string[]
+  filters: string[]
+  routes: string[]
+  outputs: string[]
+  processors: string[]
+  destinations: OutputSummary[]
+  path: string[]
+  inputLabel: string
+  processorLabel: string
+  outputLabel: string
+  destinationLabel: string
+  destinationChips: string[]
+}
+
+function namesFor(modules: ConfigModule[], type: string): string[] {
   return Array.from(new Set((modules || [])
     .filter((item) => item.module_type === type)
     .map((item) => item.name)))
 }
 
-function summarizeStage(items = []) {
+function summarizeStage(items: string[] = []): string {
   if (!items.length) return ''
   if (items.length === 1) return items[0]
   if (items.length === 2) return items.join(' + ')
   return `${items[0]} + ${items[1]} + ...`
 }
 
-export function buildConfigFlowSummary(modules = [], outputTarget = null) {
-  const normalizedTargets = Array.isArray(outputTarget)
+export function buildConfigFlowSummary(modules: ConfigModule[] = [], outputTarget: OutputTarget | OutputTarget[] | null = null): ConfigFlowSummary {
+  const normalizedTargets: OutputTarget[] = Array.isArray(outputTarget)
     ? outputTarget.filter(Boolean)
     : (outputTarget ? [outputTarget] : [])
   const service = namesFor(modules, 'service')
@@ -26,13 +45,13 @@ export function buildConfigFlowSummary(modules = [], outputTarget = null) {
   const processors = [...parsers, ...filters, ...routes]
   const destinations = normalizedTargets.map((target) => summarizeOutputTarget(target))
 
-  const path = []
+  const path: string[] = []
   const inputLabel = summarizeStage(inputs)
   const processorLabel = summarizeStage(processors)
   const outputLabel = summarizeStage(outputs)
   const destinationNames = normalizedTargets.map((target, index) => target?.name || destinations[index]?.primary).filter(Boolean)
   const destinationLabel = summarizeStage(Array.from(new Set(destinationNames)))
-  const destinationChips = []
+  const destinationChips: string[] = []
   for (const [index, target] of normalizedTargets.entries()) {
     const summary = destinations[index]
     if (target?.name && !destinationChips.includes(target.name)) {
