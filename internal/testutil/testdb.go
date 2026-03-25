@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 
 	"github.com/fluent-manager/fluent-manager/internal/models"
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
