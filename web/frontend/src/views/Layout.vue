@@ -87,6 +87,17 @@
         </li>
         <li v-if="auth.hasPermission('nodes', 'read')" class="nav-item">
           <router-link
+            to="/agent-upgrades"
+            class="fm-nav-link"
+            active-class="active"
+          >
+            <i class="bi bi-arrow-up-square me-2"></i>{{
+              t("nav.agent_upgrades")
+            }}
+          </router-link>
+        </li>
+        <li v-if="auth.hasPermission('nodes', 'read')" class="nav-item">
+          <router-link
             to="/bootstrap"
             class="fm-nav-link"
             active-class="active"
@@ -229,6 +240,7 @@ const pageTitleKeys = {
   ConfigDetail: "nav.configs",
   Deploys: "nav.deploys",
   BootstrapHosts: "nav.bootstrap",
+  AgentUpgrades: "nav.agent_upgrades",
   Runtime: "nav.runtime",
   AgentPolicies: "nav.agent_policies",
   AgentAccessKeys: "nav.agent_keys",

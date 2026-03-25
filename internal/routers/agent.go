@@ -15,5 +15,6 @@ func registerAgentRoutes(api *gin.RouterGroup, cfg *config.Config, h *allHandler
 		agentAPI.POST("/report", h.Agent.ReportStatus)
 		agentAPI.POST("/command-result", h.Agent.ReportCommandResult)
 		agentAPI.POST("/logs", h.Agent.UploadLogs)
+		agentAPI.GET("/artifacts/:id/download", h.AgentArtifact.DownloadForAgent)
 	}
 }

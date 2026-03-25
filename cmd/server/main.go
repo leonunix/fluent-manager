@@ -15,6 +15,7 @@ import (
 	"github.com/fluent-manager/fluent-manager/internal/auth"
 	"github.com/fluent-manager/fluent-manager/internal/cache"
 	"github.com/fluent-manager/fluent-manager/internal/config"
+	"github.com/fluent-manager/fluent-manager/internal/logwriter"
 	"github.com/fluent-manager/fluent-manager/internal/models"
 	"github.com/fluent-manager/fluent-manager/internal/routers"
 	"github.com/fluent-manager/fluent-manager/internal/services"
@@ -68,6 +69,30 @@ func main() {
 	// Cache (Redis)
 	cache.Init(&cfg.Cache)
 
+	// File logger for NodeLog / AuditLog (JSON lines → Fluent Bit collection)
+	var fileLogger *logwriter.FileLogger
+	if cfg.Log.OutputDir != "" {
+		fl, err := logwriter.New(cfg.Log.OutputDir)
+		if err != nil {
+			log.Printf("WARNING: failed to init file logger at %s: %v", cfg.Log.OutputDir, err)
+		} else {
+			fileLogger = fl
+			log.Printf("File logger enabled: %s", cfg.Log.OutputDir)
+		}
+	}
+
+	// DB log retention cleaner
+	retention, err := time.ParseDuration(cfg.Log.Retention)
+	if err != nil {
+		retention = 1 * time.Hour
+	}
+	cleaner := logwriter.NewCleaner(models.DB, retention)
+	cleaner.Start()
+	defer cleaner.Stop()
+	if fileLogger != nil {
+		defer fileLogger.Close()
+	}
+
 	// Node monitor
 	monitor := agent.NewMonitor(cfg.Agent.HeartbeatInterval)
 	monitor.Start()
@@ -115,7 +140,7 @@ func main() {
 		DefaultAgentAPIKey:     cfg.Agent.APIKey,
 		Secret:                 cfg.Auth.JWTSecret,
 		DisableHostKeyChecking: disableBootstrapHostKeyChecking,
-	})
+	}, cfg.Agent.ArtifactDir, fileLogger)
 
 	// Seed auth settings from config.yaml (only if DB has no settings yet)
 	svc.AuthSettings.SeedFromConfig(cfg.Auth)
@@ -142,6 +167,7 @@ func main() {
 		CfgPath:      cfgPath,
 		RestartCh:    restartCh,
 		FrontendFS:   frontendFS,
+		LogWriter:    fileLogger,
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

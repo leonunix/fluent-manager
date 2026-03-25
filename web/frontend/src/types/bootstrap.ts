@@ -92,6 +92,15 @@ export interface BootstrapHostInput {
   description?: string;
 }
 
+export interface BootstrapHostFilters {
+  cluster_id?: string;
+  environment_id?: string;
+  datacenter_id?: string;
+  region_id?: string;
+  auth_type?: string;
+  search?: string;
+}
+
 export interface BootstrapTaskInput {
   name?: string;
   server_url: string;
@@ -101,6 +110,8 @@ export interface BootstrapTaskInput {
   install_runtime: boolean;
   agent_binary_path?: string;
   agent_download_url?: string;
+  all_matching?: boolean;
+  filters?: BootstrapHostFilters;
   host_ids?: number[];
   hosts?: BootstrapHostInput[];
 }

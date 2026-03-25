@@ -59,6 +59,15 @@ type BootstrapHostInput struct {
 	Description    string `json:"description"`
 }
 
+type BootstrapHostFilters struct {
+	ClusterID     string `json:"cluster_id"`
+	EnvironmentID string `json:"environment_id"`
+	DataCenterID  string `json:"datacenter_id"`
+	RegionID      string `json:"region_id"`
+	AuthType      string `json:"auth_type"`
+	Search        string `json:"search"`
+}
+
 type BootstrapTaskInput struct {
 	Name             string               `json:"name"`
 	ServerURL        string               `json:"server_url"`
@@ -68,13 +77,15 @@ type BootstrapTaskInput struct {
 	InstallRuntime   bool                 `json:"install_runtime"`
 	AgentBinaryPath  string               `json:"agent_binary_path"`
 	AgentDownloadURL string               `json:"agent_download_url"`
+	AllMatching      bool                 `json:"all_matching"`
+	Filters          BootstrapHostFilters `json:"filters"`
 	HostIDs          []uint               `json:"host_ids"`
 	Hosts            []BootstrapHostInput `json:"hosts"`
 }
 
 type BootstrapService interface {
 	GetCapability() BootstrapCapability
-	ListHosts(allowedClusters []uint) ([]models.BootstrapHost, error)
+	ListHosts(filters BootstrapHostFilters, allowedClusters []uint, page, pageSize int) ([]models.BootstrapHost, int64, error)
 	CreateHost(input BootstrapHostInput, createdBy uint, allowedClusters []uint) (*models.BootstrapHost, error)
 	CreateHosts(inputs []BootstrapHostInput, createdBy uint, allowedClusters []uint) ([]models.BootstrapHost, error)
 	UpdateHost(id uint, input BootstrapHostInput, allowedClusters []uint) (*models.BootstrapHost, error)
@@ -160,14 +171,17 @@ func (s *bootstrapService) GetCapability() BootstrapCapability {
 	return capability
 }
 
-func (s *bootstrapService) ListHosts(allowedClusters []uint) ([]models.BootstrapHost, error) {
+func (s *bootstrapService) ListHosts(filters BootstrapHostFilters, allowedClusters []uint, page, pageSize int) ([]models.BootstrapHost, int64, error) {
 	var hosts []models.BootstrapHost
 	query := s.db.Preload("Cluster.Region.DataCenter").Preload("Creator")
-	query = applyAllowedClusterScope(query, "cluster_id", allowedClusters)
-	if err := query.Order("created_at DESC").Find(&hosts).Error; err != nil {
-		return nil, err
+	query = applyBootstrapHostFilters(query, filters, allowedClusters)
+
+	var total int64
+	query.Model(&models.BootstrapHost{}).Count(&total)
+	if err := query.Order("created_at DESC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&hosts).Error; err != nil {
+		return nil, 0, err
 	}
-	return hosts, nil
+	return hosts, total, nil
 }
 
 func (s *bootstrapService) CreateHost(input BootstrapHostInput, createdBy uint, allowedClusters []uint) (*models.BootstrapHost, error) {
@@ -526,7 +540,7 @@ func (s *bootstrapService) validateAndPrepareTask(input BootstrapTaskInput, allo
 		return nil, nil, err
 	}
 
-	savedHosts, savedRecords, err := s.prepareSavedHosts(input.HostIDs, clusterID, allowedClusters)
+	savedHosts, savedRecords, err := s.prepareSavedHosts(input.HostIDs, input.Filters, input.AllMatching, clusterID, allowedClusters)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -605,23 +619,17 @@ func (s *bootstrapService) prepareInlineHosts(inputs []BootstrapHostInput, sshpa
 	return hosts, records, nil
 }
 
-func (s *bootstrapService) prepareSavedHosts(hostIDs []uint, taskClusterID *uint, allowedClusters []uint) ([]preparedBootstrapHost, []models.BootstrapRecord, error) {
-	if len(hostIDs) == 0 {
+func (s *bootstrapService) prepareSavedHosts(hostIDs []uint, filters BootstrapHostFilters, allMatching bool, taskClusterID *uint, allowedClusters []uint) ([]preparedBootstrapHost, []models.BootstrapRecord, error) {
+	storedHosts, err := s.loadScopedHostsForTask(hostIDs, filters, allMatching, allowedClusters)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(storedHosts) == 0 {
 		return nil, nil, nil
 	}
-	hosts := make([]preparedBootstrapHost, 0, len(hostIDs))
-	records := make([]models.BootstrapRecord, 0, len(hostIDs))
-	seen := map[uint]struct{}{}
-	for idx, hostID := range hostIDs {
-		if _, exists := seen[hostID]; exists {
-			continue
-		}
-		seen[hostID] = struct{}{}
-
-		stored, err := s.getScopedHost(hostID, allowedClusters)
-		if err != nil {
-			return nil, nil, err
-		}
+	hosts := make([]preparedBootstrapHost, 0, len(storedHosts))
+	records := make([]models.BootstrapRecord, 0, len(storedHosts))
+	for idx, stored := range storedHosts {
 
 		password, err := s.cipher.Decrypt(stored.PasswordEncrypted)
 		if err != nil {
@@ -674,6 +682,46 @@ func (s *bootstrapService) prepareSavedHosts(hostIDs []uint, taskClusterID *uint
 		records = append(records, record)
 	}
 	return hosts, records, nil
+}
+
+func (s *bootstrapService) loadScopedHostsForTask(hostIDs []uint, filters BootstrapHostFilters, allMatching bool, allowedClusters []uint) ([]models.BootstrapHost, error) {
+	seen := map[uint]struct{}{}
+	result := make([]models.BootstrapHost, 0)
+	appendUnique := func(items []models.BootstrapHost) {
+		for _, item := range items {
+			if _, ok := seen[item.ID]; ok {
+				continue
+			}
+			seen[item.ID] = struct{}{}
+			result = append(result, item)
+		}
+	}
+
+	uniqueIDs := uniqueUintSlice(hostIDs)
+	if len(uniqueIDs) > 0 {
+		query := s.db.Preload("Cluster.Region.DataCenter").Preload("Creator")
+		query = applyAllowedClusterScope(query, "bootstrap_hosts.cluster_id", allowedClusters)
+		var explicit []models.BootstrapHost
+		if err := query.Where("bootstrap_hosts.id IN ?", uniqueIDs).Find(&explicit).Error; err != nil {
+			return nil, err
+		}
+		if len(explicit) != len(uniqueIDs) {
+			return nil, fmt.Errorf("%w: some selected hosts were not found or are outside your scope", ErrForbidden)
+		}
+		appendUnique(explicit)
+	}
+
+	if allMatching {
+		query := s.db.Preload("Cluster.Region.DataCenter").Preload("Creator")
+		query = applyBootstrapHostFilters(query, filters, allowedClusters)
+		var matched []models.BootstrapHost
+		if err := query.Find(&matched).Error; err != nil {
+			return nil, err
+		}
+		appendUnique(matched)
+	}
+
+	return result, nil
 }
 
 func prepareBootstrapHost(idx int, host BootstrapHostInput, generateAlias bool, sshpassAvailable bool, requireCredential bool) (preparedBootstrapHost, models.BootstrapRecord, error) {
@@ -1245,6 +1293,36 @@ func applyAllowedClusterScope(query *gorm.DB, field string, allowedClusters []ui
 		return query.Where("1 = 0")
 	}
 	return query.Where(field+" IN ?", allowedClusters)
+}
+
+func applyBootstrapHostFilters(query *gorm.DB, filters BootstrapHostFilters, allowedClusters []uint) *gorm.DB {
+	query = applyAllowedClusterScope(query, "bootstrap_hosts.cluster_id", allowedClusters)
+	if filters.ClusterID != "" {
+		query = query.Where("bootstrap_hosts.cluster_id = ?", filters.ClusterID)
+	}
+	if filters.EnvironmentID != "" {
+		query = query.Where("bootstrap_hosts.cluster_id IN (SELECT id FROM clusters WHERE environment_id = ?)", filters.EnvironmentID)
+	}
+	if filters.DataCenterID != "" {
+		query = query.Joins("JOIN clusters bhc2 ON bhc2.id = bootstrap_hosts.cluster_id").
+			Joins("JOIN regions bhr2 ON bhr2.id = bhc2.region_id").
+			Where("bhr2.data_center_id = ?", filters.DataCenterID)
+	}
+	if filters.RegionID != "" {
+		query = query.Joins("JOIN clusters bhc3 ON bhc3.id = bootstrap_hosts.cluster_id").
+			Where("bhc3.region_id = ?", filters.RegionID)
+	}
+	if filters.AuthType != "" {
+		query = query.Where("bootstrap_hosts.auth_type = ?", filters.AuthType)
+	}
+	if filters.Search != "" {
+		term := "%" + filters.Search + "%"
+		query = query.Where(
+			"bootstrap_hosts.hostname LIKE ? OR bootstrap_hosts.ip_address LIKE ? OR bootstrap_hosts.node_uid LIKE ? OR bootstrap_hosts.description LIKE ? OR bootstrap_hosts.labels LIKE ?",
+			term, term, term, term, term,
+		)
+	}
+	return query
 }
 
 func (s *bootstrapService) updateTask(taskID uint, updates map[string]interface{}) error {

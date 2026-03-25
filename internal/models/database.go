@@ -5,9 +5,9 @@ import (
 	"fmt"
 
 	"github.com/fluent-manager/fluent-manager/internal/config"
+	"github.com/glebarez/sqlite"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
-	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -79,6 +79,7 @@ func migrateAll(db *gorm.DB) error {
 		&AggregationGroup{},
 		&OutputTarget{},
 		&AgentAccessKey{},
+		&AgentArtifact{},
 		&Node{},
 		&NodeFluentProfile{},
 		&AgentPolicy{},
@@ -96,6 +97,8 @@ func migrateAll(db *gorm.DB) error {
 		&NodeRuntimeState{},
 		&DeployTask{},
 		&DeployRecord{},
+		&AgentUpgradeTask{},
+		&AgentUpgradeRecord{},
 		&BootstrapHost{},
 		&BootstrapTask{},
 		&BootstrapRecord{},

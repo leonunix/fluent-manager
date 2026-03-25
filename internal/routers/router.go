@@ -8,6 +8,7 @@ import (
 	"github.com/fluent-manager/fluent-manager/internal/auth"
 	"github.com/fluent-manager/fluent-manager/internal/config"
 	"github.com/fluent-manager/fluent-manager/internal/handlers"
+	"github.com/fluent-manager/fluent-manager/internal/logwriter"
 	"github.com/fluent-manager/fluent-manager/internal/middleware"
 	"github.com/fluent-manager/fluent-manager/internal/services"
 	"github.com/gin-gonic/gin"
@@ -21,7 +22,8 @@ type Deps struct {
 	SAMLProvider *auth.SAMLProvider
 	CfgPath      string
 	RestartCh    chan struct{}
-	FrontendFS   fs.FS // non-nil = embedded frontend (all-in-one), nil = API-only
+	FrontendFS   fs.FS                 // non-nil = embedded frontend (all-in-one), nil = API-only
+	LogWriter    *logwriter.FileLogger // optional file logger for audit logs
 }
 
 // SetupRouter creates the gin.Engine with all routes registered.
@@ -87,18 +89,20 @@ func SetupRouter(deps Deps) *gin.Engine {
 	authed := api.Group("")
 	authed.Use(middleware.JWTAuth(deps.JWTSvc))
 	authed.Use(middleware.ScopeFilter())
-	authed.Use(middleware.AuditLog())
+	authed.Use(middleware.AuditLog(deps.LogWriter))
 
 	registerUserRoutes(authed, h)
 	registerGroupRoutes(authed, h)
 	registerAIRoutes(authed, h)
 	registerTopologyRoutes(authed, h)
 	registerAgentAccessKeyRoutes(authed, h)
+	registerAgentArtifactRoutes(authed, h)
 	registerFluentRoutes(authed, h)
 	registerNodeRoutes(authed, h)
 	registerConfigRoutes(authed, h)
 	registerDeployRoutes(authed, h)
 	registerBootstrapRoutes(authed, h)
+	registerAgentUpgradeRoutes(authed, h)
 	registerMetricsRoutes(authed, h)
 
 	return r
@@ -119,6 +123,8 @@ type allHandlers struct {
 	Config         *handlers.ConfigHandler
 	Deploy         *handlers.DeployHandler
 	Bootstrap      *handlers.BootstrapHandler
+	AgentUpgrade   *handlers.AgentUpgradeHandler
+	AgentArtifact  *handlers.AgentArtifactHandler
 	Agent          *handlers.AgentHandler
 	AgentAccessKey *handlers.AgentAccessKeyHandler
 	AgentPolicy    *handlers.AgentPolicyHandler
@@ -147,6 +153,8 @@ func buildHandlers(deps Deps) *allHandlers {
 		Config:         &handlers.ConfigHandler{Svc: deps.Svc.Config},
 		Deploy:         &handlers.DeployHandler{Svc: deps.Svc.Deploy},
 		Bootstrap:      &handlers.BootstrapHandler{Svc: deps.Svc.Bootstrap},
+		AgentUpgrade:   &handlers.AgentUpgradeHandler{Svc: deps.Svc.AgentUpgrade},
+		AgentArtifact:  &handlers.AgentArtifactHandler{Svc: deps.Svc.AgentArtifact},
 		Agent:          &handlers.AgentHandler{Svc: deps.Svc.Agent, NodeSvc: deps.Svc.Node},
 		AgentAccessKey: &handlers.AgentAccessKeyHandler{Svc: deps.Svc.AgentAccessKey},
 		AgentPolicy:    &handlers.AgentPolicyHandler{Svc: deps.Svc.AgentPolicy, NodeSvc: deps.Svc.Node},

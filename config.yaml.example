@@ -60,6 +60,7 @@ agent:
   fluent_metrics_format: ""
   backup_dir: ""
   max_backups: 10
+  artifact_dir: "data/agent-artifacts"  # server-side uploaded agent binaries for managed upgrades
 
 fluent:
   shared_key_secret: "use-a-dedicated-secret-in-production"  # optional, falls back to auth.jwt_secret if empty

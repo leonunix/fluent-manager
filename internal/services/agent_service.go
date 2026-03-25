@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fluent-manager/fluent-manager/internal/logwriter"
 	"github.com/fluent-manager/fluent-manager/internal/models"
 	"gorm.io/gorm"
 )
@@ -74,10 +75,11 @@ type AgentService interface {
 type agentService struct {
 	db        *gorm.DB
 	policySvc AgentPolicyService
+	logWriter *logwriter.FileLogger
 }
 
-func NewAgentService(db *gorm.DB, policySvc AgentPolicyService) AgentService {
-	return &agentService{db: db, policySvc: policySvc}
+func NewAgentService(db *gorm.DB, policySvc AgentPolicyService, logWriter *logwriter.FileLogger) AgentService {
+	return &agentService{db: db, policySvc: policySvc, logWriter: logWriter}
 }
 
 func (s *agentService) Register(nodeUID, hostname, ipAddress, os, agentVersion, fluentType, fluentVersion, labels string, profile *AgentFluentProfileReport, preferredClusterID *uint, agentAccessKeyID *uint) (uint, error) {
@@ -193,6 +195,7 @@ func (s *agentService) Heartbeat(nodeUID, configHash string, metrics map[string]
 		}
 		resp.Commands = cmds
 		s.db.Model(&models.RemoteCommand{}).Where("id IN ?", ids).Update("status", "delivered")
+		s.markUpgradeCommandsDelivered(ids)
 	}
 
 	return resp, nil
@@ -466,10 +469,18 @@ func (s *agentService) updateRuntimeStateFromDeployResult(nodeID, configID uint,
 }
 
 func (s *agentService) ReportCommandResult(commandID uint, status, output string) error {
-	return s.db.Model(&models.RemoteCommand{}).Where("id = ?", commandID).Updates(map[string]interface{}{
+	var cmd models.RemoteCommand
+	if err := s.db.First(&cmd, commandID).Error; err != nil {
+		return err
+	}
+	if err := s.db.Model(&cmd).Updates(map[string]interface{}{
 		"status": status,
 		"output": output,
-	}).Error
+	}).Error; err != nil {
+		return err
+	}
+	s.updateUpgradeRecordForCommandResult(cmd.ID, status, output)
+	return nil
 }
 
 func (s *agentService) UploadLogs(nodeUID string, lines []string) error {
@@ -477,9 +488,13 @@ func (s *agentService) UploadLogs(nodeUID string, lines []string) error {
 	if err := s.db.Where("node_uid = ?", nodeUID).First(&node).Error; err != nil {
 		return err
 	}
+	joined := strings.Join(lines, "\n")
+	if s.logWriter != nil {
+		s.logWriter.WriteNodeLog(node.ID, joined, len(lines))
+	}
 	logEntry := models.NodeLog{
 		NodeID:    node.ID,
-		Lines:     strings.Join(lines, "\n"),
+		Lines:     joined,
 		LineCount: len(lines),
 	}
 	return s.db.Create(&logEntry).Error
@@ -521,4 +536,98 @@ func (s *agentService) ListNodeCommands(nodeID string) ([]models.RemoteCommand, 
 	var cmds []models.RemoteCommand
 	err := s.db.Where("node_id = ?", nodeID).Preload("Creator").Order("created_at DESC").Limit(50).Find(&cmds).Error
 	return cmds, err
+}
+
+func (s *agentService) markUpgradeCommandsDelivered(commandIDs []uint) {
+	if len(commandIDs) == 0 {
+		return
+	}
+
+	result := s.db.Model(&models.AgentUpgradeRecord{}).
+		Where("remote_command_id IN ? AND status = ?", commandIDs, "pending").
+		Updates(map[string]interface{}{
+			"status":  "running",
+			"message": "Upgrade command delivered. Waiting for the node to apply and restart.",
+		})
+	if result.Error != nil || result.RowsAffected == 0 {
+		return
+	}
+
+	var taskIDs []uint
+	s.db.Model(&models.AgentUpgradeRecord{}).
+		Where("remote_command_id IN ?", commandIDs).
+		Distinct().
+		Pluck("agent_upgrade_task_id", &taskIDs)
+	s.recalculateUpgradeTasks(taskIDs)
+}
+
+func (s *agentService) updateUpgradeRecordForCommandResult(commandID uint, status, output string) {
+	recordStatus := "failed"
+	message := strings.TrimSpace(output)
+	if status == "success" || status == "completed" {
+		recordStatus = "completed"
+		if message == "" {
+			message = "Agent upgrade completed."
+		}
+	} else if message == "" {
+		message = "Agent upgrade failed."
+	}
+
+	result := s.db.Model(&models.AgentUpgradeRecord{}).
+		Where("remote_command_id = ?", commandID).
+		Updates(map[string]interface{}{
+			"status":         recordStatus,
+			"message":        message,
+			"output_excerpt": truncateString(output, 4000),
+		})
+	if result.Error != nil || result.RowsAffected == 0 {
+		return
+	}
+
+	var taskIDs []uint
+	s.db.Model(&models.AgentUpgradeRecord{}).
+		Where("remote_command_id = ?", commandID).
+		Distinct().
+		Pluck("agent_upgrade_task_id", &taskIDs)
+	s.recalculateUpgradeTasks(taskIDs)
+}
+
+func (s *agentService) recalculateUpgradeTasks(taskIDs []uint) {
+	for _, taskID := range uniqueUintSlice(taskIDs) {
+		if taskID == 0 {
+			continue
+		}
+		var task models.AgentUpgradeTask
+		if err := s.db.First(&task, taskID).Error; err != nil {
+			continue
+		}
+
+		var pendingCount int64
+		var runningCount int64
+		var successCount int64
+		var failCount int64
+
+		s.db.Model(&models.AgentUpgradeRecord{}).Where("agent_upgrade_task_id = ? AND status = ?", taskID, "pending").Count(&pendingCount)
+		s.db.Model(&models.AgentUpgradeRecord{}).Where("agent_upgrade_task_id = ? AND status = ?", taskID, "running").Count(&runningCount)
+		s.db.Model(&models.AgentUpgradeRecord{}).Where("agent_upgrade_task_id = ? AND status = ?", taskID, "completed").Count(&successCount)
+		s.db.Model(&models.AgentUpgradeRecord{}).Where("agent_upgrade_task_id = ? AND status = ?", taskID, "failed").Count(&failCount)
+
+		status := "running"
+		switch {
+		case successCount == int64(task.TotalNodes) && task.TotalNodes > 0:
+			status = "completed"
+		case failCount == int64(task.TotalNodes) && task.TotalNodes > 0:
+			status = "failed"
+		case pendingCount == int64(task.TotalNodes) && task.TotalNodes > 0:
+			status = "pending"
+		case pendingCount == 0 && runningCount == 0 && failCount > 0 && successCount > 0:
+			status = "partial"
+		}
+
+		s.db.Model(&task).Updates(map[string]interface{}{
+			"status":        status,
+			"success_count": int(successCount),
+			"fail_count":    int(failCount),
+		})
+	}
 }

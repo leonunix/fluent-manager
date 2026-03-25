@@ -18,6 +18,8 @@ CONFIG_DIR="/etc/fluent-manager"
 CONFIG_FILE="${CONFIG_DIR}/agent.yaml"
 SERVICE_NAME="fluent-manager-agent"
 AGENT_USER="fluent-manager"
+STATE_DIR="/var/lib/fluent-manager-agent"
+RUNTIME_BIN_DIR="${STATE_DIR}/bin"
 BINARY_PATH=""
 DOWNLOAD_URL=""
 SERVER_URL=""
@@ -401,13 +403,16 @@ if ! file "$STAGING_BIN" | grep -q "ELF"; then
     exit 1
 fi
 
+mkdir -p "$RUNTIME_BIN_DIR"
 chmod 0755 "$STAGING_BIN"
-mv "$STAGING_BIN" "${INSTALL_DIR}/${SERVICE_NAME}"
+mv "$STAGING_BIN" "${RUNTIME_BIN_DIR}/${SERVICE_NAME}"
 trap - EXIT
-log_info "Installed: ${INSTALL_DIR}/${SERVICE_NAME}"
+ln -sfn "${RUNTIME_BIN_DIR}/${SERVICE_NAME}" "${INSTALL_DIR}/${SERVICE_NAME}"
+log_info "Installed: ${RUNTIME_BIN_DIR}/${SERVICE_NAME}"
+log_info "Linked: ${INSTALL_DIR}/${SERVICE_NAME}"
 
 # Verify
-INSTALLED_VER=$("${INSTALL_DIR}/${SERVICE_NAME}" --version 2>&1 || true)
+INSTALLED_VER=$("${RUNTIME_BIN_DIR}/${SERVICE_NAME}" --version 2>&1 || true)
 log_info "Agent version: ${INSTALLED_VER:-unknown}"
 
 # ============================================================================
@@ -474,9 +479,11 @@ chown root:"$AGENT_USER" "$CONFIG_FILE"
 log_info "Config written: $CONFIG_FILE"
 
 # State directory
-STATE_DIR="/var/lib/fluent-manager-agent"
 mkdir -p "$STATE_DIR"
+mkdir -p "$RUNTIME_BIN_DIR"
 chown "$AGENT_USER":"$AGENT_USER" "$STATE_DIR"
+chown "$AGENT_USER":"$AGENT_USER" "$RUNTIME_BIN_DIR"
+chown "$AGENT_USER":"$AGENT_USER" "${RUNTIME_BIN_DIR}/${SERVICE_NAME}"
 
 # ============================================================================
 # Step 6: Install systemd service (or init script)
@@ -497,7 +504,7 @@ Wants=network-online.target
 Type=simple
 User=${AGENT_USER}
 Group=${AGENT_USER}
-ExecStart=${INSTALL_DIR}/${SERVICE_NAME} --config ${CONFIG_FILE}
+ExecStart=${RUNTIME_BIN_DIR}/${SERVICE_NAME} --config ${CONFIG_FILE}
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
@@ -621,7 +628,8 @@ fi
 log_step "Installation complete"
 
 echo ""
-echo -e "  ${BOLD}Binary:${NC}       ${INSTALL_DIR}/${SERVICE_NAME}"
+echo -e "  ${BOLD}Binary:${NC}       ${RUNTIME_BIN_DIR}/${SERVICE_NAME}"
+echo -e "  ${BOLD}Link:${NC}         ${INSTALL_DIR}/${SERVICE_NAME}"
 echo -e "  ${BOLD}Config:${NC}       ${CONFIG_FILE}"
 echo -e "  ${BOLD}State dir:${NC}    ${STATE_DIR}"
 echo -e "  ${BOLD}Service:${NC}      ${SERVICE_NAME}"
@@ -635,6 +643,6 @@ if [[ "$INIT_SYSTEM" == "systemd" ]]; then
     echo "    systemctl restart ${SERVICE_NAME}"
     echo "    journalctl -u ${SERVICE_NAME} -f"
 fi
-echo "    ${INSTALL_DIR}/${SERVICE_NAME} --version"
+echo "    ${RUNTIME_BIN_DIR}/${SERVICE_NAME} --version"
 echo ""
 log_info "Done."

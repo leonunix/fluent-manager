@@ -53,6 +53,7 @@ func (h *NodeHandler) List(c *gin.Context) {
 		ClusterID:     c.Query("cluster_id"),
 		EnvironmentID: c.Query("environment_id"),
 		FluentType:    c.Query("fluent_type"),
+		AgentVersion:  c.Query("agent_version"),
 		DataCenterID:  c.Query("datacenter_id"),
 		RegionID:      c.Query("region_id"),
 		Search:        c.Query("search"),

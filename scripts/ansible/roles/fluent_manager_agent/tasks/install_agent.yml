@@ -28,13 +28,14 @@
   loop:
     - "{{ fm_config_dir }}"
     - "{{ fm_state_dir }}"
+    - "{{ fm_runtime_dir }}"
 
 - name: Install agent binary (from local file)
   ansible.builtin.copy:
     src: "{{ fm_agent_binary }}"
-    dest: "{{ fm_install_dir }}/{{ fm_service_name }}"
-    owner: root
-    group: root
+    dest: "{{ fm_runtime_dir }}/{{ fm_service_name }}"
+    owner: "{{ fm_agent_user }}"
+    group: "{{ fm_agent_group }}"
     mode: "0755"
   when: fm_agent_binary | length > 0
   notify: restart fluent-manager-agent
@@ -42,18 +43,25 @@
 - name: Install agent binary (from remote URL)
   ansible.builtin.get_url:
     url: "{{ fm_agent_download_url }}"
-    dest: "{{ fm_install_dir }}/{{ fm_service_name }}"
-    owner: root
-    group: root
+    dest: "{{ fm_runtime_dir }}/{{ fm_service_name }}"
+    owner: "{{ fm_agent_user }}"
+    group: "{{ fm_agent_group }}"
     mode: "0755"
   when:
     - fm_agent_binary | length == 0
     - fm_agent_download_url | length > 0
   notify: restart fluent-manager-agent
 
+- name: Create convenience symlink for agent binary
+  ansible.builtin.file:
+    src: "{{ fm_runtime_dir }}/{{ fm_service_name }}"
+    dest: "{{ fm_install_dir }}/{{ fm_service_name }}"
+    state: link
+    force: true
+
 - name: Verify agent binary
   ansible.builtin.command:
-    cmd: "{{ fm_install_dir }}/{{ fm_service_name }} --version"
+    cmd: "{{ fm_runtime_dir }}/{{ fm_service_name }} --version"
   register: fm_agent_version_output
   changed_when: false
   failed_when: fm_agent_version_output.rc != 0

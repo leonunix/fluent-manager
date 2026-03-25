@@ -1,6 +1,7 @@
 import api from "./client";
 import type {
   BootstrapCapability,
+  BootstrapHostFilters,
   BootstrapHost,
   BootstrapHostInput,
   BootstrapRecord,
@@ -36,7 +37,24 @@ export const createBootstrapTask = (payload: BootstrapTaskInput) =>
 
 export const getBootstrapHosts = () =>
   api
-    .get<{ data: BootstrapHost[] }>("/bootstrap/hosts")
+    .get<{
+      data: BootstrapHost[];
+      total: number;
+      page: number;
+      page_size: number;
+    }>("/bootstrap/hosts")
+    .then(({ data }) => data);
+
+export const getBootstrapHostsFiltered = (
+  params?: BootstrapHostFilters & { page?: number; page_size?: number },
+) =>
+  api
+    .get<{
+      data: BootstrapHost[];
+      total: number;
+      page: number;
+      page_size: number;
+    }>("/bootstrap/hosts", { params })
     .then(({ data }) => data);
 
 export const createBootstrapHost = (payload: BootstrapHostInput) =>

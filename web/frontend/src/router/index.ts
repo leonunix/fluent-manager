@@ -87,6 +87,12 @@ const routes: RouteRecordRaw[] = [
         meta: { permission: { resource: "nodes", action: "read" } },
       },
       {
+        path: "agent-upgrades",
+        name: "AgentUpgrades",
+        component: () => import("../views/AgentUpgrades.vue"),
+        meta: { permission: { resource: "nodes", action: "read" } },
+      },
+      {
         path: "runtime",
         name: "Runtime",
         component: () => import("../views/Runtime.vue"),

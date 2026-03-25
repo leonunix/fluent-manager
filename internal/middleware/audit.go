@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/fluent-manager/fluent-manager/internal/logwriter"
 	"github.com/fluent-manager/fluent-manager/internal/models"
 	"github.com/gin-gonic/gin"
 )
@@ -58,6 +59,8 @@ func resolveAuditResource(c *gin.Context) (string, uint) {
 		"/api/v1/deploys":           "deploy",
 		"/api/v1/bootstrap/hosts":   "bootstrap_host",
 		"/api/v1/bootstrap/tasks":   "bootstrap_task",
+		"/api/v1/agent-upgrades":    "agent_upgrade_task",
+		"/api/v1/agent-artifacts":   "agent_artifact",
 		"/api/v1/users":             "user",
 		"/api/v1/roles":             "role",
 		"/api/v1/environments":      "environment",
@@ -78,7 +81,7 @@ func resolveAuditResource(c *gin.Context) (string, uint) {
 	return "", 0
 }
 
-func AuditLog() gin.HandlerFunc {
+func AuditLog(logWriter *logwriter.FileLogger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Next()
 
@@ -102,7 +105,7 @@ func AuditLog() gin.HandlerFunc {
 			}
 		}
 
-		log := models.AuditLog{
+		entry := models.AuditLog{
 			UserID:       uid,
 			Username:     uname,
 			Action:       method,
@@ -112,6 +115,9 @@ func AuditLog() gin.HandlerFunc {
 			Detail:       detail,
 			IP:           c.ClientIP(),
 		}
-		models.DB.Create(&log)
+		if logWriter != nil {
+			logWriter.WriteAuditLog(entry)
+		}
+		models.DB.Create(&entry)
 	}
 }

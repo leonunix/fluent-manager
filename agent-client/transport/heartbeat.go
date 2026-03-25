@@ -13,7 +13,13 @@ import (
 type ConfigApplier interface {
 	CurrentConfigHash() string
 	Apply(content string, configID uint) (bool, string)
-	RunCommand(action, args string) (string, error)
+	RunCommand(action, args string) (CommandResult, error)
+	ReexecAgent() error
+}
+
+type CommandResult struct {
+	Output       string
+	RestartAgent bool
 }
 
 // HeartbeatResponse is the server's response to a heartbeat.
@@ -120,14 +126,21 @@ func (h *Heartbeat) beat() {
 	// Handle remote commands
 	for _, cmd := range result.Commands {
 		log.Printf("[heartbeat] executing remote command: %s (id=%d)", cmd.Action, cmd.ID)
-		output, err := h.applier.RunCommand(cmd.Action, cmd.Args)
+		commandResult, err := h.applier.RunCommand(cmd.Action, cmd.Args)
 		status := "success"
-		msg := output
+		msg := commandResult.Output
 		if err != nil {
 			status = "failed"
-			msg = err.Error() + ": " + output
+			msg = err.Error() + ": " + commandResult.Output
 		}
 		h.reportCommandResult(cmd.ID, status, msg)
+		if err == nil && commandResult.RestartAgent {
+			log.Printf("[heartbeat] restarting agent process to apply upgrade")
+			if err := h.applier.ReexecAgent(); err != nil {
+				log.Printf("[heartbeat] failed to re-exec upgraded agent: %v", err)
+			}
+			return
+		}
 	}
 }
 

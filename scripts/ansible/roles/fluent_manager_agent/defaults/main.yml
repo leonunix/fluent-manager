@@ -22,6 +22,7 @@ fm_labels: ""
 fm_install_dir: /usr/local/bin
 fm_config_dir: /etc/fluent-manager
 fm_state_dir: /var/lib/fluent-manager-agent
+fm_runtime_dir: "{{ fm_state_dir }}/bin"
 fm_service_name: fluent-manager-agent
 fm_agent_user: fluent-manager
 fm_agent_group: fluent-manager

@@ -8,10 +8,18 @@
         <div class="text-muted">{{ t("bootstrap_page.subtitle") }}</div>
       </div>
       <div class="d-flex gap-2">
-        <button class="btn btn-outline-primary" @click="openHostModal()">
+        <button
+          class="btn btn-outline-primary"
+          @click="openHostModal()"
+          :disabled="!canCreate"
+        >
           <i class="bi bi-plus-lg me-1"></i>{{ t("bootstrap_page.add_host") }}
         </button>
-        <button class="btn btn-outline-primary" @click="openBulkModal()">
+        <button
+          class="btn btn-outline-primary"
+          @click="openBulkModal()"
+          :disabled="!canCreate"
+        >
           <i class="bi bi-file-earmark-spreadsheet me-1"></i
           >{{ t("bootstrap_page.bulk_import") }}
         </button>
@@ -88,28 +96,16 @@
                 </li>
               </ul>
             </div>
-          </div>
-        </div>
-      </div>
 
-      <div class="col-12 col-xl-8">
-        <div class="card border-0 shadow-sm">
-          <div class="card-body">
-            <div
-              class="d-flex justify-content-between align-items-start gap-3 mb-3"
-            >
-              <div>
-                <h5 class="card-title mb-1">
-                  {{ t("bootstrap_page.create_title") }}
-                </h5>
-                <div class="text-muted small">
-                  {{ t("bootstrap_page.create_hint") }}
-                </div>
+            <hr class="my-4" />
+
+            <div class="mb-3">
+              <h5 class="card-title mb-1">
+                {{ t("bootstrap_page.create_title") }}
+              </h5>
+              <div class="text-muted small">
+                {{ t("bootstrap_page.create_hint") }}
               </div>
-              <span class="badge bg-info-subtle text-info-emphasis"
-                >{{ selectedHostIDs.length }}
-                {{ t("bootstrap_page.selected_hosts") }}</span
-              >
             </div>
 
             <div v-if="!canCreate" class="alert alert-secondary">
@@ -118,7 +114,7 @@
 
             <form @submit.prevent="submitTask">
               <div class="row g-3">
-                <div class="col-md-6">
+                <div class="col-12">
                   <label class="form-label">{{
                     t("bootstrap_page.task_name")
                   }}</label>
@@ -128,7 +124,7 @@
                     :placeholder="t('bootstrap_page.task_name_placeholder')"
                   />
                 </div>
-                <div class="col-md-6">
+                <div class="col-12">
                   <label class="form-label">{{
                     t("bootstrap_page.server_url")
                   }}</label>
@@ -151,7 +147,7 @@
                       :key="cluster.id"
                       :value="cluster.id"
                     >
-                      {{ cluster.name }}
+                      {{ cluster.alias || cluster.name }}
                     </option>
                   </select>
                 </div>
@@ -215,6 +211,49 @@
                     {{ t("bootstrap_page.agent_api_key_hint") }}
                   </div>
                 </div>
+                <div class="col-12">
+                  <label class="form-label">{{
+                    t("bootstrap_page.target_mode")
+                  }}</label>
+                  <div class="d-flex flex-column gap-2">
+                    <label class="form-check">
+                      <input
+                        v-model="useAllMatching"
+                        class="form-check-input"
+                        type="radio"
+                        :value="true"
+                      />
+                      <span class="form-check-label">{{
+                        t("bootstrap_page.all_matching")
+                      }}</span>
+                    </label>
+                    <label class="form-check">
+                      <input
+                        v-model="useAllMatching"
+                        class="form-check-input"
+                        type="radio"
+                        :value="false"
+                      />
+                      <span class="form-check-label">{{
+                        t("bootstrap_page.selected_hosts_mode")
+                      }}</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div class="alert alert-info mt-3 mb-0 small">
+                {{
+                  useAllMatching
+                    ? t("bootstrap_page.matching_count").replace(
+                        "{count}",
+                        String(hostTotal),
+                      )
+                    : t("bootstrap_page.selection_summary").replace(
+                        "{count}",
+                        String(selectedHostIDs.length),
+                      )
+                }}
               </div>
 
               <div class="d-flex flex-wrap gap-2 mt-3">
@@ -225,7 +264,7 @@
                     creatingTask ||
                     !canCreate ||
                     !capability.supported ||
-                    !selectedHostIDs.length
+                    (useAllMatching ? hostTotal === 0 : !selectedHostIDs.length)
                   "
                 >
                   <i class="bi bi-rocket-takeoff me-1"></i
@@ -246,117 +285,292 @@
           </div>
         </div>
       </div>
-    </div>
 
-    <div class="card border-0 shadow-sm mt-4">
-      <div class="card-body p-0">
-        <div
-          class="d-flex justify-content-between align-items-center p-3 border-bottom"
-        >
-          <div>
-            <h5 class="mb-1">{{ t("bootstrap_page.hosts_title") }}</h5>
-            <div class="text-muted small">
-              {{ t("bootstrap_page.hosts_hint") }}
+      <div class="col-12 col-xl-8">
+        <div class="card border-0 shadow-sm">
+          <div class="card-body">
+            <div class="mb-3">
+              <h5 class="card-title mb-1">{{ t("bootstrap_page.hosts_title") }}</h5>
+              <div class="text-muted small">
+                {{ t("bootstrap_page.hosts_hint") }}
+              </div>
             </div>
-          </div>
-          <div class="d-flex gap-2">
-            <button
-              class="btn btn-sm btn-outline-secondary"
-              @click="toggleSelectAllHosts"
-              :disabled="!hosts.length"
-            >
-              {{
-                allHostsSelected
-                  ? t("bootstrap_page.clear_selection")
-                  : t("bootstrap_page.select_all_hosts")
-              }}
-            </button>
-          </div>
-        </div>
 
-        <div class="table-responsive">
-          <table class="table table-hover align-middle mb-0">
-            <thead>
-              <tr>
-                <th style="width: 48px">
-                  <input
-                    class="form-check-input"
-                    type="checkbox"
-                    :checked="allHostsSelected"
-                    @change="toggleSelectAllHosts"
-                  />
-                </th>
-                <th>{{ t("bootstrap_page.hostname") }}</th>
-                <th>SSH</th>
-                <th>{{ t("common.cluster") }}</th>
-                <th>{{ t("bootstrap_page.auth_type") }}</th>
-                <th>{{ t("bootstrap_page.credentials") }}</th>
-                <th>{{ t("actions") }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="host in hosts" :key="host.id">
-                <td>
-                  <input
-                    class="form-check-input"
-                    type="checkbox"
-                    :checked="selectedHostIDs.includes(host.id)"
-                    @change="toggleHostSelection(host.id)"
-                  />
-                </td>
-                <td>
-                  <div class="fw-semibold">{{ host.hostname }}</div>
-                  <div class="small text-muted">
-                    {{ host.ip_address || "-" }}
-                  </div>
-                  <div v-if="host.description" class="small text-muted">
-                    {{ host.description }}
-                  </div>
-                </td>
-                <td>{{ host.ssh_user }}:{{ host.ssh_port }}</td>
-                <td>{{ host.cluster?.name || "-" }}</td>
-                <td>{{ host.auth_type }}</td>
-                <td class="small">
-                  <span
-                    v-if="host.has_password"
-                    class="badge bg-secondary-subtle text-secondary-emphasis me-1"
-                    >{{ t("bootstrap_page.password") }}</span
+            <div class="row g-3">
+              <div class="col-md-4">
+                <label class="form-label">{{
+                  t("bootstrap_page.host_search")
+                }}</label>
+                <input
+                  v-model.trim="hostFilters.search"
+                  class="form-control"
+                  :placeholder="t('bootstrap_page.host_search_placeholder')"
+                />
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">{{
+                  t("bootstrap_page.datacenter")
+                }}</label>
+                <select
+                  v-model="hostFilters.datacenter_id"
+                  class="form-select"
+                  @change="handleDatacenterChange"
+                >
+                  <option value="">
+                    {{ t("bootstrap_page.all_datacenters") }}
+                  </option>
+                  <option
+                    v-for="dc in datacenters"
+                    :key="dc.id"
+                    :value="String(dc.id)"
                   >
-                  <span
-                    v-if="host.has_private_key"
-                    class="badge bg-secondary-subtle text-secondary-emphasis me-1"
-                    >{{ t("bootstrap_page.private_key") }}</span
+                    {{ dc.alias || dc.name }}
+                  </option>
+                </select>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">{{
+                  t("bootstrap_page.region")
+                }}</label>
+                <select
+                  v-model="hostFilters.region_id"
+                  class="form-select"
+                  @change="handleRegionChange"
+                >
+                  <option value="">
+                    {{ t("bootstrap_page.all_regions") }}
+                  </option>
+                  <option
+                    v-for="region in filteredRegions"
+                    :key="region.id"
+                    :value="String(region.id)"
                   >
-                  <span
-                    v-if="host.has_become_password"
-                    class="badge bg-secondary-subtle text-secondary-emphasis"
-                    >{{ t("bootstrap_page.become_password") }}</span
+                    {{ region.alias || region.name }}
+                  </option>
+                </select>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">{{
+                  t("bootstrap_page.cluster")
+                }}</label>
+                <select v-model="hostFilters.cluster_id" class="form-select">
+                  <option value="">
+                    {{ t("bootstrap_page.all_clusters") }}
+                  </option>
+                  <option
+                    v-for="cluster in filteredClusters"
+                    :key="cluster.id"
+                    :value="String(cluster.id)"
                   >
-                </td>
-                <td>
-                  <div class="btn-group btn-group-sm">
-                    <button
-                      class="btn btn-outline-primary"
-                      @click="openHostModal(host)"
-                    >
-                      <i class="bi bi-pencil"></i>
-                    </button>
-                    <button
-                      class="btn btn-outline-danger"
-                      @click="deleteHostRow(host)"
-                    >
-                      <i class="bi bi-trash"></i>
-                    </button>
-                  </div>
-                </td>
-              </tr>
-              <tr v-if="!hosts.length">
-                <td colspan="7" class="text-center text-muted py-4">
-                  {{ t("bootstrap_page.no_hosts") }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                    {{ cluster.alias || cluster.name }}
+                  </option>
+                </select>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">{{
+                  t("bootstrap_page.environment")
+                }}</label>
+                <select
+                  v-model="hostFilters.environment_id"
+                  class="form-select"
+                >
+                  <option value="">
+                    {{ t("bootstrap_page.all_environments") }}
+                  </option>
+                  <option
+                    v-for="env in environments"
+                    :key="env.id"
+                    :value="String(env.id)"
+                  >
+                    {{ env.alias || env.name }}
+                  </option>
+                </select>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">{{
+                  t("bootstrap_page.auth_type")
+                }}</label>
+                <select v-model="hostFilters.auth_type" class="form-select">
+                  <option value="">
+                    {{ t("bootstrap_page.all_auth_types") }}
+                  </option>
+                  <option value="private_key">
+                    {{ t("bootstrap_page.private_key") }}
+                  </option>
+                  <option value="password">
+                    {{ t("bootstrap_page.password") }}
+                  </option>
+                </select>
+              </div>
+              <div class="col-12 d-flex justify-content-end">
+                <button
+                  class="btn btn-outline-secondary"
+                  @click="refreshHosts"
+                  :disabled="loadingHosts"
+                  type="button"
+                >
+                  <i class="bi bi-funnel me-1"></i>
+                  {{
+                    loadingHosts
+                      ? t("loading")
+                      : t("bootstrap_page.refresh_preview")
+                  }}
+                </button>
+              </div>
+            </div>
+
+            <div class="d-flex flex-wrap gap-2 justify-content-between mt-3">
+              <div class="small text-muted">
+                {{
+                  t("bootstrap_page.previewing_count")
+                    .replace("{shown}", String(hosts.length))
+                    .replace("{total}", String(hostTotal))
+                }}
+              </div>
+              <div class="d-flex gap-2">
+                <button
+                  class="btn btn-sm btn-outline-secondary"
+                  @click="toggleSelectAllHosts"
+                  :disabled="!hosts.length || useAllMatching"
+                  type="button"
+                >
+                  {{
+                    allHostsSelected
+                      ? t("bootstrap_page.clear_selection")
+                      : t("bootstrap_page.select_preview")
+                  }}
+                </button>
+                <button
+                  class="btn btn-sm btn-outline-secondary"
+                  @click="selectedHostIDs = []"
+                  :disabled="!selectedHostIDs.length || useAllMatching"
+                  type="button"
+                >
+                  {{ t("bootstrap_page.clear_selection") }}
+                </button>
+              </div>
+            </div>
+
+            <div class="table-responsive mt-3">
+              <table class="table table-hover align-middle mb-0">
+                <thead>
+                  <tr>
+                    <th style="width: 48px">
+                      <input
+                        class="form-check-input"
+                        type="checkbox"
+                        :checked="allHostsSelected"
+                        :disabled="useAllMatching"
+                        @change="toggleSelectAllHosts"
+                      />
+                    </th>
+                    <th>{{ t("bootstrap_page.hostname") }}</th>
+                    <th>SSH</th>
+                    <th>{{ t("common.cluster") }}</th>
+                    <th>{{ t("bootstrap_page.auth_type") }}</th>
+                    <th>{{ t("bootstrap_page.credentials") }}</th>
+                    <th>{{ t("actions") }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="host in hosts" :key="host.id">
+                    <td>
+                      <input
+                        class="form-check-input"
+                        type="checkbox"
+                        :disabled="useAllMatching"
+                        :checked="selectedHostIDs.includes(host.id)"
+                        @change="toggleHostSelection(host.id)"
+                      />
+                    </td>
+                    <td>
+                      <div class="fw-semibold">{{ host.hostname }}</div>
+                      <div class="small text-muted">
+                        {{ host.ip_address || "-" }}
+                      </div>
+                      <div v-if="host.description" class="small text-muted">
+                        {{ host.description }}
+                      </div>
+                    </td>
+                    <td>{{ host.ssh_user }}:{{ host.ssh_port }}</td>
+                    <td>{{ host.cluster?.name || "-" }}</td>
+                    <td>{{ host.auth_type }}</td>
+                    <td class="small">
+                      <span
+                        v-if="host.has_password"
+                        class="badge bg-secondary-subtle text-secondary-emphasis me-1"
+                        >{{ t("bootstrap_page.password") }}</span
+                      >
+                      <span
+                        v-if="host.has_private_key"
+                        class="badge bg-secondary-subtle text-secondary-emphasis me-1"
+                        >{{ t("bootstrap_page.private_key") }}</span
+                      >
+                      <span
+                        v-if="host.has_become_password"
+                        class="badge bg-secondary-subtle text-secondary-emphasis"
+                        >{{ t("bootstrap_page.become_password") }}</span
+                      >
+                    </td>
+                    <td>
+                      <div class="btn-group btn-group-sm">
+                        <button
+                          class="btn btn-outline-primary"
+                          @click="openHostModal(host)"
+                          :disabled="!canCreate"
+                        >
+                          <i class="bi bi-pencil"></i>
+                        </button>
+                        <button
+                          class="btn btn-outline-danger"
+                          @click="deleteHostRow(host)"
+                          :disabled="!canCreate"
+                        >
+                          <i class="bi bi-trash"></i>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr v-if="!hosts.length">
+                    <td colspan="7" class="text-center text-muted py-4">
+                      {{ t("bootstrap_page.no_matching_hosts") }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <nav v-if="hostTotal > hostPageSize" class="mt-3">
+              <ul class="pagination justify-content-center mb-0">
+                <li class="page-item" :class="{ disabled: hostPage <= 1 }">
+                  <a
+                    class="page-link"
+                    href="#"
+                    @click.prevent="changeHostPage(hostPage - 1)"
+                    >{{ t("common.previous") }}</a
+                  >
+                </li>
+                <li class="page-item disabled">
+                  <span class="page-link">{{
+                    `${hostPage} / ${Math.max(1, Math.ceil(hostTotal / hostPageSize))}`
+                  }}</span>
+                </li>
+                <li
+                  class="page-item"
+                  :class="{
+                    disabled: hostPage >= Math.ceil(hostTotal / hostPageSize),
+                  }"
+                >
+                  <a
+                    class="page-link"
+                    href="#"
+                    @click.prevent="changeHostPage(hostPage + 1)"
+                    >{{ t("common.next") }}</a
+                  >
+                </li>
+              </ul>
+            </nav>
+          </div>
         </div>
       </div>
     </div>
@@ -527,7 +741,7 @@
                     :key="cluster.id"
                     :value="cluster.id"
                   >
-                    {{ cluster.name }}
+                    {{ cluster.alias || cluster.name }}
                   </option>
                 </select>
               </div>
@@ -611,7 +825,7 @@
             <button
               class="btn btn-primary"
               @click="submitHostForm"
-              :disabled="savingHost"
+              :disabled="savingHost || !canCreate"
             >
               {{ savingHost ? t("loading") : t("save") }}
             </button>
@@ -695,7 +909,7 @@
                     :key="cluster.id"
                     :value="cluster.id"
                   >
-                    {{ cluster.name }}
+                    {{ cluster.alias || cluster.name }}
                   </option>
                 </select>
               </div>
@@ -755,7 +969,7 @@
             <button
               class="btn btn-primary"
               @click="submitBulkImport"
-              :disabled="importingHosts"
+              :disabled="importingHosts || !canCreate"
             >
               {{
                 importingHosts
@@ -853,10 +1067,13 @@ import {
   createBootstrapTask,
   deleteBootstrapHost,
   getBootstrapCapability,
-  getBootstrapHosts,
+  getBootstrapHostsFiltered,
   getBootstrapTask,
   getBootstrapTasks,
   getClusters,
+  getDataCenters,
+  getEnvironments,
+  getRegions,
   updateBootstrapHost,
 } from "../api";
 import { useI18n } from "../i18n";
@@ -875,18 +1092,47 @@ const capability = ref({
   reasons: [],
 });
 const hosts = ref([]);
+const hostTotal = ref(0);
+const hostPage = ref(1);
+const hostPageSize = 50;
 const tasks = ref([]);
 const clusters = ref([]);
+const datacenters = ref([]);
+const regions = ref([]);
+const environments = ref([]);
 const detail = ref(null);
 const selectedHostIDs = ref([]);
 const loadingAny = ref(false);
+const loadingHosts = ref(false);
 const creatingTask = ref(false);
 const savingHost = ref(false);
 const canCreate = computed(() => auth.hasPermission("nodes", "create"));
+const useAllMatching = ref(true);
 const allHostsSelected = computed(
   () =>
     hosts.value.length > 0 &&
     hosts.value.every((host) => selectedHostIDs.value.includes(host.id)),
+);
+
+const filteredRegions = computed(() =>
+  hostFilters.datacenter_id
+    ? regions.value.filter(
+        (region) =>
+          String(region.datacenter_id) === String(hostFilters.datacenter_id),
+      )
+    : regions.value,
+);
+
+const filteredClusters = computed(() =>
+  clusters.value.filter((cluster) => {
+    if (
+      hostFilters.region_id &&
+      String(cluster.region_id) !== String(hostFilters.region_id)
+    ) {
+      return false;
+    }
+    return true;
+  }),
 );
 
 let pollTimer = null;
@@ -905,6 +1151,15 @@ const taskForm = reactive({
   install_runtime: true,
   agent_binary_path: "",
   agent_download_url: "",
+});
+
+const hostFilters = reactive({
+  search: "",
+  datacenter_id: "",
+  region_id: "",
+  cluster_id: "",
+  environment_id: "",
+  auth_type: "",
 });
 
 const hostForm = reactive({
@@ -971,6 +1226,21 @@ function getErrorMessage(error) {
   );
 }
 
+function buildHostParams() {
+  const params = {
+    page: hostPage.value,
+    page_size: hostPageSize,
+  };
+  if (hostFilters.search) params.search = hostFilters.search;
+  if (hostFilters.datacenter_id) params.datacenter_id = hostFilters.datacenter_id;
+  if (hostFilters.region_id) params.region_id = hostFilters.region_id;
+  if (hostFilters.cluster_id) params.cluster_id = hostFilters.cluster_id;
+  if (hostFilters.environment_id)
+    params.environment_id = hostFilters.environment_id;
+  if (hostFilters.auth_type) params.auth_type = hostFilters.auth_type;
+  return params;
+}
+
 function resetTaskForm() {
   taskForm.name = "";
   taskForm.server_url =
@@ -985,6 +1255,7 @@ function resetTaskForm() {
     ? capability.value.default_agent_binary_path
     : "";
   taskForm.agent_download_url = "";
+  useAllMatching.value = true;
 }
 
 function resetHostForm() {
@@ -1001,6 +1272,20 @@ function resetHostForm() {
   hostForm.labels = "";
   hostForm.cluster_id = null;
   hostForm.description = "";
+}
+
+function handleDatacenterChange() {
+  hostFilters.region_id = "";
+  hostFilters.cluster_id = "";
+}
+
+function handleRegionChange() {
+  hostFilters.cluster_id = "";
+}
+
+function changeHostPage(nextPage) {
+  hostPage.value = nextPage;
+  loadHosts();
 }
 
 function openHostModal(host = null) {
@@ -1052,11 +1337,17 @@ function toggleHostSelection(id) {
 }
 
 function toggleSelectAllHosts() {
+  if (useAllMatching.value) return;
+  const pageIDs = hosts.value.map((host) => host.id);
   if (allHostsSelected.value) {
-    selectedHostIDs.value = [];
+    selectedHostIDs.value = selectedHostIDs.value.filter(
+      (id) => !pageIDs.includes(id),
+    );
     return;
   }
-  selectedHostIDs.value = hosts.value.map((host) => host.id);
+  const next = new Set(selectedHostIDs.value);
+  pageIDs.forEach((id) => next.add(id));
+  selectedHostIDs.value = Array.from(next);
 }
 
 async function loadCapability() {
@@ -1070,11 +1361,19 @@ async function loadCapability() {
 }
 
 async function loadHosts() {
-  const data = await getBootstrapHosts();
-  hosts.value = data.data || [];
-  selectedHostIDs.value = selectedHostIDs.value.filter((id) =>
-    hosts.value.some((host) => host.id === id),
-  );
+  loadingHosts.value = true;
+  try {
+    const data = await getBootstrapHostsFiltered(buildHostParams());
+    hosts.value = data.data || [];
+    hostTotal.value = data.total || 0;
+  } finally {
+    loadingHosts.value = false;
+  }
+}
+
+async function refreshHosts() {
+  hostPage.value = 1;
+  await loadHosts();
 }
 
 async function loadTasks() {
@@ -1082,9 +1381,17 @@ async function loadTasks() {
   tasks.value = data.data || [];
 }
 
-async function loadClusters() {
-  const { data } = await getClusters();
-  clusters.value = data.data || data || [];
+async function loadLookups() {
+  const [clusterRes, envRes, dcRes, regionRes] = await Promise.all([
+    getClusters(),
+    getEnvironments(),
+    getDataCenters(),
+    getRegions(),
+  ]);
+  clusters.value = clusterRes.data.data || clusterRes.data || [];
+  environments.value = envRes.data.data || envRes.data || [];
+  datacenters.value = dcRes.data.data || dcRes.data || [];
+  regions.value = regionRes.data.data || regionRes.data || [];
 }
 
 async function refreshAll() {
@@ -1094,7 +1401,7 @@ async function refreshAll() {
       loadCapability(),
       loadHosts(),
       loadTasks(),
-      loadClusters(),
+      loadLookups(),
     ]);
   } finally {
     loadingAny.value = false;
@@ -1212,7 +1519,7 @@ async function submitBulkImport() {
     const hostsPayload = parseBulkImportText();
     await createBootstrapHostsBulk({ hosts: hostsPayload });
     bulkModal?.hide();
-    await loadHosts();
+    await refreshHosts();
   } catch (error) {
     alert(getErrorMessage(error));
   } finally {
@@ -1229,6 +1536,7 @@ async function deleteHostRow(host) {
     return;
   try {
     await deleteBootstrapHost(host.id);
+    selectedHostIDs.value = selectedHostIDs.value.filter((id) => id !== host.id);
     await loadHosts();
   } catch (error) {
     alert(getErrorMessage(error));
@@ -1247,9 +1555,12 @@ async function submitTask() {
       install_runtime: taskForm.install_runtime,
       agent_binary_path: taskForm.agent_binary_path || undefined,
       agent_download_url: taskForm.agent_download_url || undefined,
-      host_ids: selectedHostIDs.value,
+      all_matching: useAllMatching.value,
+      filters: { ...hostFilters },
+      host_ids: useAllMatching.value ? [] : selectedHostIDs.value,
     });
     resetTaskForm();
+    selectedHostIDs.value = [];
     await loadTasks();
   } catch (error) {
     alert(getErrorMessage(error));
@@ -1302,28 +1613,3 @@ onUnmounted(() => {
   stopPolling();
 });
 </script>
-
-<style scoped>
-.fm-capability-list {
-  display: grid;
-  gap: 0.75rem;
-}
-
-.fm-capability-item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.fm-capability-item code {
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-code.small {
-  display: inline-block;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-width: 28rem;
-}
-</style>

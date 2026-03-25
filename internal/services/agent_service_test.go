@@ -12,7 +12,7 @@ func setupAgentTest(t *testing.T) (*gorm.DB, AgentService) {
 	t.Helper()
 	db := testutil.NewTestDB()
 	policySvc := NewAgentPolicyService(db, AgentSettings{})
-	svc := NewAgentService(db, policySvc)
+	svc := NewAgentService(db, policySvc, nil)
 	return db, svc
 }
 
@@ -20,7 +20,7 @@ func setupAgentTestWithSettings(t *testing.T, settings AgentSettings) (*gorm.DB,
 	t.Helper()
 	db := testutil.NewTestDB()
 	policySvc := NewAgentPolicyService(db, settings)
-	svc := NewAgentService(db, policySvc)
+	svc := NewAgentService(db, policySvc, nil)
 	return db, svc
 }
 

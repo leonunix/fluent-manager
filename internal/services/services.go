@@ -3,6 +3,7 @@ package services
 import (
 	"errors"
 
+	"github.com/fluent-manager/fluent-manager/internal/logwriter"
 	"gorm.io/gorm"
 )
 
@@ -31,19 +32,22 @@ type Registry struct {
 	Fluent         FluentService
 	FluentOps      FluentOpsService
 	AgentAccessKey AgentAccessKeyService
+	AgentArtifact  AgentArtifactService
 	AgentPolicy    AgentPolicyService
 	Config         ConfigService
 	Deploy         DeployService
 	Bootstrap      BootstrapService
+	AgentUpgrade   AgentUpgradeService
 	Agent          AgentService
 	Metrics        MetricsService
 	Setup          SetupService
 }
 
 // NewRegistry creates all services with the given database connection.
-func NewRegistry(db *gorm.DB, fluentSharedKeySecret string, agentSettings AgentSettings, bootstrapSettings BootstrapSettings) *Registry {
+func NewRegistry(db *gorm.DB, fluentSharedKeySecret string, agentSettings AgentSettings, bootstrapSettings BootstrapSettings, artifactDir string, logWriter *logwriter.FileLogger) *Registry {
 	agentPolicySvc := NewAgentPolicyService(db, agentSettings)
 	agentAccessKeySvc := NewAgentAccessKeyService(db)
+	agentArtifactSvc := NewAgentArtifactService(db, artifactDir)
 	authSettingsSvc := NewAuthSettingsService(db)
 	return &Registry{
 		Auth:           NewAuthService(db),
@@ -57,11 +61,13 @@ func NewRegistry(db *gorm.DB, fluentSharedKeySecret string, agentSettings AgentS
 		Fluent:         NewFluentService(db, fluentSharedKeySecret),
 		FluentOps:      NewFluentOpsService(db),
 		AgentAccessKey: agentAccessKeySvc,
+		AgentArtifact:  agentArtifactSvc,
 		AgentPolicy:    agentPolicySvc,
 		Config:         NewConfigService(db),
 		Deploy:         NewDeployService(db),
 		Bootstrap:      NewBootstrapService(db, bootstrapSettings),
-		Agent:          NewAgentService(db, agentPolicySvc),
+		AgentUpgrade:   NewAgentUpgradeService(db),
+		Agent:          NewAgentService(db, agentPolicySvc, logWriter),
 		Metrics:        NewMetricsService(db),
 		Setup:          NewSetupService(db),
 	}

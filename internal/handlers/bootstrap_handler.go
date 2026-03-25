@@ -21,12 +21,35 @@ func (h *BootstrapHandler) Capability(c *gin.Context) {
 }
 
 func (h *BootstrapHandler) ListHosts(c *gin.Context) {
-	hosts, err := h.Svc.ListHosts(middleware.GetAllowedClusters(c))
+	filters := services.BootstrapHostFilters{
+		ClusterID:     c.Query("cluster_id"),
+		EnvironmentID: c.Query("environment_id"),
+		DataCenterID:  c.Query("datacenter_id"),
+		RegionID:      c.Query("region_id"),
+		AuthType:      c.Query("auth_type"),
+		Search:        c.Query("search"),
+	}
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 200 {
+		pageSize = 50
+	}
+
+	hosts, total, err := h.Svc.ListHosts(filters, middleware.GetAllowedClusters(c), page, pageSize)
 	if err != nil {
 		writeBootstrapError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": hosts})
+	c.JSON(http.StatusOK, gin.H{
+		"data":      hosts,
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
+	})
 }
 
 func (h *BootstrapHandler) CreateHost(c *gin.Context) {

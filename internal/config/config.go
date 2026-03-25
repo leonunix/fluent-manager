@@ -65,10 +65,10 @@ type SAMLConfig struct {
 	IDPMetadata       string `yaml:"idp_metadata"` // URL or file path
 	EntityID          string `yaml:"entity_id"`
 	ACSURL            string `yaml:"acs_url"`
-	CertFile          string `yaml:"cert_file"` // file path (config.yaml)
-	KeyFile           string `yaml:"key_file"`  // file path (config.yaml)
-	CertPEM           string `yaml:"-"`         // inline PEM content (from DB)
-	KeyPEM            string `yaml:"-"`         // inline PEM content (from DB)
+	CertFile          string `yaml:"cert_file"`           // file path (config.yaml)
+	KeyFile           string `yaml:"key_file"`            // file path (config.yaml)
+	CertPEM           string `yaml:"-"`                   // inline PEM content (from DB)
+	KeyPEM            string `yaml:"-"`                   // inline PEM content (from DB)
 	GroupAttribute    string `yaml:"group_attribute"`     // SAML assertion attribute for groups
 	GroupSyncStrategy string `yaml:"group_sync_strategy"` // always, first_login
 }
@@ -97,6 +97,7 @@ type AgentConfig struct {
 	FluentMetricsFormat string   `yaml:"fluent_metrics_format"`
 	BackupDir           string   `yaml:"backup_dir"`
 	MaxBackups          int      `yaml:"max_backups"`
+	ArtifactDir         string   `yaml:"artifact_dir"` // server-side storage for uploaded agent artifacts
 }
 
 type FluentConfig struct {
@@ -104,8 +105,10 @@ type FluentConfig struct {
 }
 
 type LogConfig struct {
-	Level string `yaml:"level"` // debug, info, warn, error
-	File  string `yaml:"file"`
+	Level     string `yaml:"level"` // debug, info, warn, error
+	File      string `yaml:"file"`
+	OutputDir string `yaml:"output_dir"` // directory for JSON log files (Fluent Bit collection), default /var/log/fluent-manager/
+	Retention string `yaml:"retention"`  // how long to keep logs in DB, e.g. "1h", "30m", default "1h"
 }
 
 func Load(path string) (*Config, error) {
@@ -123,10 +126,11 @@ func Load(path string) (*Config, error) {
 			MaxRetries:        5,
 			RetryBaseDelay:    1000,
 			MaxBackups:        10,
+			ArtifactDir:       "data/agent-artifacts",
 		},
 		Fluent: FluentConfig{},
 		Cache:  CacheConfig{Addr: "localhost:6379", TTL: 30},
-		Log:    LogConfig{Level: "info"},
+		Log:    LogConfig{Level: "info", OutputDir: "/var/log/fluent-manager/", Retention: "1h"},
 	}
 
 	data, err := os.ReadFile(path)

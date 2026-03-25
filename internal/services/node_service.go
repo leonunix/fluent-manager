@@ -10,6 +10,7 @@ type NodeListFilters struct {
 	ClusterID     string
 	EnvironmentID string
 	FluentType    string
+	AgentVersion  string
 	DataCenterID  string
 	RegionID      string
 	Search        string
@@ -44,35 +45,7 @@ func (s *nodeService) List(filters NodeListFilters, allowedClusters []uint, page
 		Preload("Config.Template").
 		Preload("AggregationGroup").
 		Preload("FluentProfile")
-
-	if allowedClusters != nil {
-		query = query.Where("nodes.cluster_id IN ?", allowedClusters)
-	}
-	if filters.Status != "" {
-		query = query.Where("nodes.status = ?", filters.Status)
-	}
-	if filters.ClusterID != "" {
-		query = query.Where("nodes.cluster_id = ?", filters.ClusterID)
-	}
-	if filters.EnvironmentID != "" {
-		query = query.Where("nodes.environment_id = ? OR nodes.cluster_id IN (SELECT id FROM clusters WHERE environment_id = ?)", filters.EnvironmentID, filters.EnvironmentID)
-	}
-	if filters.FluentType != "" {
-		query = query.Where("nodes.fluent_type = ?", filters.FluentType)
-	}
-	if filters.DataCenterID != "" {
-		query = query.Joins("JOIN clusters c2 ON c2.id = nodes.cluster_id").
-			Joins("JOIN regions r2 ON r2.id = c2.region_id").
-			Where("r2.data_center_id = ?", filters.DataCenterID)
-	}
-	if filters.RegionID != "" {
-		query = query.Joins("JOIN clusters c3 ON c3.id = nodes.cluster_id").
-			Where("c3.region_id = ?", filters.RegionID)
-	}
-	if filters.Search != "" {
-		query = query.Where("nodes.hostname LIKE ? OR nodes.ip_address LIKE ? OR nodes.node_uid LIKE ?",
-			"%"+filters.Search+"%", "%"+filters.Search+"%", "%"+filters.Search+"%")
-	}
+	query = applyNodeScopeAndFilters(query, filters, allowedClusters)
 
 	var total int64
 	query.Model(&models.Node{}).Count(&total)
@@ -140,4 +113,45 @@ func (s *nodeService) Stats(allowedClusters []uint) ([]StatusCount, int64, error
 	countQuery.Count(&total)
 
 	return counts, total, nil
+}
+
+func applyNodeScopeAndFilters(query *gorm.DB, filters NodeListFilters, allowedClusters []uint) *gorm.DB {
+	if allowedClusters != nil {
+		if len(allowedClusters) == 0 {
+			return query.Where("1 = 0")
+		}
+		query = query.Where("nodes.cluster_id IN ?", allowedClusters)
+	}
+	if filters.Status != "" {
+		query = query.Where("nodes.status = ?", filters.Status)
+	}
+	if filters.ClusterID != "" {
+		query = query.Where("nodes.cluster_id = ?", filters.ClusterID)
+	}
+	if filters.EnvironmentID != "" {
+		query = query.Where("nodes.environment_id = ? OR nodes.cluster_id IN (SELECT id FROM clusters WHERE environment_id = ?)", filters.EnvironmentID, filters.EnvironmentID)
+	}
+	if filters.FluentType != "" {
+		query = query.Where("nodes.fluent_type = ?", filters.FluentType)
+	}
+	if filters.AgentVersion != "" {
+		query = query.Where("nodes.agent_version = ?", filters.AgentVersion)
+	}
+	if filters.DataCenterID != "" {
+		query = query.Joins("JOIN clusters c2 ON c2.id = nodes.cluster_id").
+			Joins("JOIN regions r2 ON r2.id = c2.region_id").
+			Where("r2.data_center_id = ?", filters.DataCenterID)
+	}
+	if filters.RegionID != "" {
+		query = query.Joins("JOIN clusters c3 ON c3.id = nodes.cluster_id").
+			Where("c3.region_id = ?", filters.RegionID)
+	}
+	if filters.Search != "" {
+		term := "%" + filters.Search + "%"
+		query = query.Where(
+			"nodes.hostname LIKE ? OR nodes.ip_address LIKE ? OR nodes.node_uid LIKE ? OR nodes.labels LIKE ?",
+			term, term, term, term,
+		)
+	}
+	return query
 }
