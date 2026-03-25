@@ -78,6 +78,17 @@ func main() {
 	if fluentSharedKeySecret == "" {
 		fluentSharedKeySecret = cfg.Auth.JWTSecret
 	}
+	disableBootstrapHostKeyChecking := !strings.EqualFold(strings.TrimSpace(cfg.Server.Mode), "release")
+	if raw, ok := os.LookupEnv("FM_BOOTSTRAP_DISABLE_HOST_KEY_CHECKING"); ok {
+		switch strings.ToLower(strings.TrimSpace(raw)) {
+		case "1", "true", "yes", "on":
+			disableBootstrapHostKeyChecking = true
+		case "0", "false", "no", "off":
+			disableBootstrapHostKeyChecking = false
+		default:
+			log.Printf("WARNING: ignoring invalid FM_BOOTSTRAP_DISABLE_HOST_KEY_CHECKING value %q", raw)
+		}
+	}
 	svc := services.NewRegistry(models.DB, fluentSharedKeySecret, services.AgentSettings{
 		HeartbeatInterval:   cfg.Agent.HeartbeatInterval,
 		MetricsInterval:     cfg.Agent.MetricsInterval,
@@ -100,6 +111,10 @@ func main() {
 		FluentMetricsFormat: cfg.Agent.FluentMetricsFormat,
 		BackupDir:           cfg.Agent.BackupDir,
 		MaxBackups:          cfg.Agent.MaxBackups,
+	}, services.BootstrapSettings{
+		DefaultAgentAPIKey:     cfg.Agent.APIKey,
+		Secret:                 cfg.Auth.JWTSecret,
+		DisableHostKeyChecking: disableBootstrapHostKeyChecking,
 	})
 
 	// Seed auth settings from config.yaml (only if DB has no settings yet)
@@ -162,6 +177,7 @@ func main() {
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Printf("Server shutdown error: %v", err)
 	}
+	svc.Bootstrap.Close()
 	log.Println("Server stopped")
 
 	if restart {

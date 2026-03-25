@@ -92,6 +92,7 @@ docker build --target runtime-agent -t fluent-manager-agent .
 Agent 是部署在每个受管节点上的轻量 Go 程序，负责心跳上报、指标采集、配置同步和远程命令执行。
 
 ```bash
+make agent                       # 构建本机平台 Agent，并复制到 scripts/ansible/files/fluent-manager-agent
 make build-agent                 # 本机平台
 make build-agent-linux           # Linux amd64 + arm64
 ```

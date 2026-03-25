@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -14,8 +15,9 @@ type Claims struct {
 }
 
 type JWTService struct {
-	secret       []byte
-	expireHours  int
+	mu          sync.RWMutex
+	secret      []byte
+	expireHours int
 }
 
 func NewJWTService(secret string, expireHours int) *JWTService {
@@ -25,26 +27,47 @@ func NewJWTService(secret string, expireHours int) *JWTService {
 	}
 }
 
+func (s *JWTService) UpdateSecret(secret string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.secret = []byte(secret)
+}
+
+func (s *JWTService) CurrentSecret() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return string(s.secret)
+}
+
 func (s *JWTService) GenerateToken(userID uint, username string) (string, error) {
+	s.mu.RLock()
+	secret := append([]byte(nil), s.secret...)
+	expireHours := s.expireHours
+	s.mu.RUnlock()
+
 	claims := Claims{
 		UserID:   userID,
 		Username: username,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(s.expireHours) * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(expireHours) * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(s.secret)
+	return token.SignedString(secret)
 }
 
 func (s *JWTService) ParseToken(tokenString string) (*Claims, error) {
+	s.mu.RLock()
+	secret := append([]byte(nil), s.secret...)
+	s.mu.RUnlock()
+
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, errors.New("unexpected signing method")
 		}
-		return s.secret, nil
+		return secret, nil
 	})
 	if err != nil {
 		return nil, err

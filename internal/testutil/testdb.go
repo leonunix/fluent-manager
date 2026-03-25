@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 
 	"github.com/fluent-manager/fluent-manager/internal/models"
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -61,6 +61,9 @@ func NewTestDB() *gorm.DB {
 		&models.NodeRuntimeState{},
 		&models.DeployTask{},
 		&models.DeployRecord{},
+		&models.BootstrapHost{},
+		&models.BootstrapTask{},
+		&models.BootstrapRecord{},
 		&models.AuditLog{},
 	); err != nil {
 		panic("failed to migrate test db: " + err.Error())

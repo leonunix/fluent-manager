@@ -95,6 +95,7 @@ type Snapshot struct {
 	MaxRetries          int
 	RetryBaseDelay      int
 	Labels              string
+	StateDir            string
 	BackupDir           string
 	MaxBackups          int
 	RuntimeProfile      RuntimeProfile
@@ -138,6 +139,9 @@ type Config struct {
 	// Labels
 	Labels string `yaml:"labels"` // JSON key-value
 
+	// State directory for persistent data (node_uid, backups, etc.)
+	StateDir string `yaml:"state_dir"`
+
 	// Backup
 	BackupDir  string `yaml:"backup_dir"`
 	MaxBackups int    `yaml:"max_backups"`
@@ -150,14 +154,14 @@ type Config struct {
 func Load(path string, bootstrap Bootstrap) (*Config, error) {
 	cfg := &Config{
 		FluentType:        "fluentbit",
-		FluentConfigPath:  "/etc/fluent-bit/fluent-bit.conf",
+		FluentConfigPath:  "",
 		FluentConfigDir:   "",
 		FluentBinary:      "",
 		FluentServiceUnit: "",
 		FluentRestartCmd:  "",
 		FluentReloadCmd:   "",
 		FluentDryRunCmd:   "",
-		FluentLogPath:     "/var/log/fluent-bit.log",
+		FluentLogPath:     "",
 		HeartbeatInterval: 30,
 		MetricsInterval:   60,
 		LogUploadInterval: 120,
@@ -165,7 +169,6 @@ func Load(path string, bootstrap Bootstrap) (*Config, error) {
 		HealthPort:        9880,
 		MaxRetries:        5,
 		RetryBaseDelay:    1000,
-		BackupDir:         filepath.Join(defaultStateDir(), "backups"),
 		MaxBackups:        10,
 		ConfigPath:        path,
 	}
@@ -185,6 +188,11 @@ func Load(path string, bootstrap Bootstrap) (*Config, error) {
 	cfg.applyBootstrap(bootstrap)
 	cfg.metricsURLExplicit = strings.TrimSpace(cfg.FluentMetricsURL) != ""
 
+	// Resolve state directory: explicit > config dir fallback > $HOME fallback
+	if strings.TrimSpace(cfg.StateDir) == "" {
+		cfg.StateDir = resolveStateDir(path)
+	}
+
 	if cfg.ServerURL == "" {
 		return nil, fmt.Errorf("server_url is required")
 	}
@@ -193,9 +201,12 @@ func Load(path string, bootstrap Bootstrap) (*Config, error) {
 	}
 
 	if cfg.NodeUID == "" {
-		cfg.NodeUID = loadOrCreateUID(resolveStateDir(path))
+		cfg.NodeUID = loadOrCreateUID(cfg.StateDir)
 	}
 
+	if strings.TrimSpace(cfg.BackupDir) == "" {
+		cfg.BackupDir = filepath.Join(cfg.StateDir, "backups")
+	}
 	if err := os.MkdirAll(cfg.BackupDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create backup dir: %w", err)
 	}
@@ -239,6 +250,7 @@ func (cfg *Config) Snapshot() Snapshot {
 		MaxRetries:          cfg.MaxRetries,
 		RetryBaseDelay:      cfg.RetryBaseDelay,
 		Labels:              cfg.Labels,
+		StateDir:            cfg.StateDir,
 		BackupDir:           cfg.BackupDir,
 		MaxBackups:          cfg.MaxBackups,
 		RuntimeProfile:      cfg.RuntimeProfile,
@@ -354,6 +366,13 @@ func (cfg *Config) resolveRuntimeLocked() error {
 	cfg.FluentType = resolvedType
 	cfg.FluentBinary = binaryPath
 	cfg.FluentConfigPath = resolvePath(cfg.FluentConfigPath, defaultConfigPathCandidates(cfg.FluentType))
+	if cfg.FluentConfigPath == "" {
+		// Fallback to the first candidate even if it doesn't exist yet;
+		// config path is required for dry-run, reload, and deploy operations.
+		if candidates := defaultConfigPathCandidates(cfg.FluentType); len(candidates) > 0 {
+			cfg.FluentConfigPath = candidates[0]
+		}
+	}
 	cfg.FluentConfigDir = resolveOptionalDir(cfg.FluentConfigDir, defaultConfigDirCandidates(cfg.FluentType, cfg.FluentConfigPath))
 	cfg.FluentLogPath = resolvePath(cfg.FluentLogPath, defaultLogPathCandidates(cfg.FluentType))
 	cfg.FluentServiceUnit = cfg.resolveServiceUnit()
@@ -538,15 +557,34 @@ func (cfg *Config) discoverPlugins(content string) []string {
 }
 
 func (cfg *Config) detectMetricsAPIEnabled(content string) bool {
-	lower := strings.ToLower(content)
 	switch cfg.FluentType {
 	case "fluentbit":
-		return strings.Contains(lower, "http_server") && strings.Contains(lower, "on")
+		return matchFluentBitDirective(content, "http_server", "on")
 	case "fluentd":
-		return strings.Contains(lower, "monitor_agent")
+		return strings.Contains(strings.ToLower(content), "monitor_agent")
 	default:
 		return false
 	}
+}
+
+// matchFluentBitDirective checks whether a Fluent Bit config contains a
+// directive like "http_server  On" (case-insensitive, whitespace-tolerant).
+// It avoids false positives such as matching "Off" as containing "on".
+func matchFluentBitDirective(content, key, value string) bool {
+	lower := strings.ToLower(content)
+	key = strings.ToLower(key)
+	value = strings.ToLower(value)
+	for _, line := range strings.Split(lower, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) == 2 && parts[0] == key && parts[1] == value {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeRuntimeType(value string) string {
@@ -702,10 +740,7 @@ func resolvePath(current string, candidates []string) string {
 			return candidate
 		}
 	}
-	if len(candidates) > 0 {
-		return candidates[0]
-	}
-	return current
+	return ""
 }
 
 func resolveOptionalDir(current string, candidates []string) string {

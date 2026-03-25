@@ -92,6 +92,7 @@ docker build --target runtime-agent -t fluent-manager-agent .
 各管理対象ノードにデプロイする軽量な Go バイナリです。ハートビート、メトリクス収集、設定同期、リモートコマンド実行を行います。
 
 ```bash
+make agent                       # ローカル向け Agent をビルドし scripts/ansible/files/fluent-manager-agent へ配置
 make build-agent                 # ローカルプラットフォーム
 make build-agent-linux           # Linux amd64 + arm64
 ```

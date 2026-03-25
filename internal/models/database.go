@@ -7,7 +7,7 @@ import (
 	"github.com/fluent-manager/fluent-manager/internal/config"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -96,6 +96,9 @@ func migrateAll(db *gorm.DB) error {
 		&NodeRuntimeState{},
 		&DeployTask{},
 		&DeployRecord{},
+		&BootstrapHost{},
+		&BootstrapTask{},
+		&BootstrapRecord{},
 		&AuditLog{},
 	); err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)

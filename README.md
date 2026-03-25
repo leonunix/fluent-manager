@@ -94,6 +94,7 @@ docker build --target runtime-agent -t fluent-manager-agent .
 The agent is a lightweight Go binary deployed on each managed node. It handles heartbeat, metrics collection, config sync, and remote command execution.
 
 ```bash
+make agent                       # local platform + copy to scripts/ansible/files/fluent-manager-agent
 make build-agent                 # local platform
 make build-agent-linux           # Linux amd64 + arm64
 ```

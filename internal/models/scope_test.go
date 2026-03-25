@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -28,7 +28,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 		&ClusterMatchRule{}, &Node{}, &NodeMetrics{},
 		&RemoteCommand{}, &NodeLog{},
 		&ConfigTemplate{}, &ConfigVersion{},
-		&DeployTask{}, &DeployRecord{}, &AuditLog{},
+		&DeployTask{}, &DeployRecord{}, &BootstrapHost{}, &BootstrapTask{}, &BootstrapRecord{}, &AuditLog{},
 	); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}

@@ -34,13 +34,14 @@ type Registry struct {
 	AgentPolicy    AgentPolicyService
 	Config         ConfigService
 	Deploy         DeployService
+	Bootstrap      BootstrapService
 	Agent          AgentService
 	Metrics        MetricsService
 	Setup          SetupService
 }
 
 // NewRegistry creates all services with the given database connection.
-func NewRegistry(db *gorm.DB, fluentSharedKeySecret string, agentSettings AgentSettings) *Registry {
+func NewRegistry(db *gorm.DB, fluentSharedKeySecret string, agentSettings AgentSettings, bootstrapSettings BootstrapSettings) *Registry {
 	agentPolicySvc := NewAgentPolicyService(db, agentSettings)
 	agentAccessKeySvc := NewAgentAccessKeyService(db)
 	authSettingsSvc := NewAuthSettingsService(db)
@@ -59,6 +60,7 @@ func NewRegistry(db *gorm.DB, fluentSharedKeySecret string, agentSettings AgentS
 		AgentPolicy:    agentPolicySvc,
 		Config:         NewConfigService(db),
 		Deploy:         NewDeployService(db),
+		Bootstrap:      NewBootstrapService(db, bootstrapSettings),
 		Agent:          NewAgentService(db, agentPolicySvc),
 		Metrics:        NewMetricsService(db),
 		Setup:          NewSetupService(db),
