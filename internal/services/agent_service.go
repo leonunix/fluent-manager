@@ -84,6 +84,15 @@ func (s *agentService) Register(nodeUID, hostname, ipAddress, os, agentVersion, 
 	now := time.Now()
 	var node models.Node
 	result := s.db.Where("node_uid = ?", nodeUID).First(&node)
+	if result.RowsAffected == 0 && strings.TrimSpace(hostname) != "" {
+		// Fallback: match by hostname to prevent duplicate registrations
+		// when the agent cannot persist its node_uid (e.g., read-only filesystem).
+		result = s.db.Where("hostname = ?", hostname).First(&node)
+		if result.RowsAffected > 0 {
+			// Adopt the new UID so future lookups use it directly.
+			s.db.Model(&node).Update("node_uid", nodeUID)
+		}
+	}
 	if result.RowsAffected == 0 {
 		clusterID := preferredClusterID
 		if clusterID == nil {

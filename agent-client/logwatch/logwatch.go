@@ -32,7 +32,12 @@ func New(cfg *config.Config, client *transport.Client) *Watcher {
 }
 
 func (w *Watcher) Start() {
-	go w.tailLoop()
+	snapshot := w.cfg.Snapshot()
+	if snapshot.FluentLogPath == "" {
+		log.Printf("[logwatch] no fluent log path configured, log tailing disabled")
+	} else {
+		go w.tailLoop()
+	}
 	go w.uploadLoop()
 }
 
