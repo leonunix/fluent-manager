@@ -1,4 +1,4 @@
-.PHONY: build build-server build-server-linux build-agent build-agent-linux build-linux \
+.PHONY: build build-server build-server-linux build-agent build-agent-linux agent build-linux \
        build-all-in-one build-all-in-one-linux \
        run clean frontend frontend-package copy-frontend-dist clean-frontend-dist
 
@@ -34,11 +34,17 @@ build-all-in-one-linux: frontend copy-frontend-dist
 
 # ── Agent ────────────────────────────────────────────────────────
 build-agent:
+	mkdir -p bin
 	cd agent-client && go build -o ../bin/fluent-manager-agent .
 
 build-agent-linux:
+	mkdir -p bin
 	cd agent-client && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../bin/fluent-manager-agent-linux-amd64 .
 	cd agent-client && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o ../bin/fluent-manager-agent-linux-arm64 .
+
+agent: build-agent
+	mkdir -p scripts/ansible/files
+	cp bin/fluent-manager-agent scripts/ansible/files/fluent-manager-agent
 
 # ── Combos ───────────────────────────────────────────────────────
 build-linux: build-server-linux build-agent-linux

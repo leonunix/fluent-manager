@@ -6,6 +6,7 @@ vendor/
 web/frontend/node_modules/
 web/frontend/dist/
 cmd/server/frontend_dist/
+scripts/ansible/files/fluent-manager-agent
 config.yaml
 .env
 *.key
