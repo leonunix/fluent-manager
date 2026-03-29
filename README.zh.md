@@ -99,6 +99,8 @@ make build-agent-linux           # Linux amd64 + arm64
 
 通过 `agent.yaml`（参考 `agent.yaml.example`）配置。必填项仅 `server_url` 和 `api_key`，其余均可通过服务端的 Agent 策略下发。
 
+使用 Ansible 角色批量部署时，`fm_agent_log_groups` 变量会根据目标 OS 自动选择日志读取所需的附加组（Debian/Ubuntu → `adm`，RHEL 系 → `systemd-journal`），无需手动配置即可读取 `/var/log` 下的系统日志。详见 [scripts/ansible/README.md](scripts/ansible/README.md)。
+
 ## 快速开始
 
 1. 启动服务端（以上任一方式）

@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -34,6 +35,29 @@ type agentUpgradeCommandArgs struct {
 	TargetVersion string `json:"target_version,omitempty"`
 	ServiceUnit   string `json:"service_unit,omitempty"`
 	BinaryPath    string `json:"binary_path,omitempty"`
+}
+
+type scanLogsArgs struct {
+	Paths []string `json:"paths"`
+}
+
+type scanLogsFileInfo struct {
+	Path    string `json:"path"`
+	Size    int64  `json:"size"`
+	ModTime string `json:"mod_time"`
+}
+
+type scanLogsResult struct {
+	Files []scanLogsFileInfo `json:"files"`
+}
+
+type fetchLogSampleArgs struct {
+	Files []string `json:"files"`
+	Lines int      `json:"lines"`
+}
+
+type fetchLogSampleResult struct {
+	Samples map[string]string `json:"samples"`
 }
 
 func New(cfg *config.Config) *Executor {
@@ -237,9 +261,263 @@ func (e *Executor) RunCommand(action, args string) (transport.CommandResult, err
 			return transport.CommandResult{}, err
 		}
 		return transport.CommandResult{Output: output, RestartAgent: true}, nil
+	case "scan_logs":
+		output, err := e.scanLogs(args)
+		if err != nil {
+			return transport.CommandResult{}, err
+		}
+		return transport.CommandResult{Output: output}, nil
+	case "fetch_log_sample":
+		output, err := e.fetchLogSample(args)
+		if err != nil {
+			return transport.CommandResult{}, err
+		}
+		return transport.CommandResult{Output: output}, nil
 	default:
 		return transport.CommandResult{}, fmt.Errorf("unknown command: %s", action)
 	}
+}
+
+const (
+	// maxOutputBytes is the hard limit stored in RemoteCommand.Output (mirrored from agent_service).
+	// Log content is sanitized (control characters replaced with space) before budget accounting,
+	// so the worst-case JSON expansion is 2× (all-quote or all-backslash printable content).
+	// Without sanitization, NUL bytes expand to \u0000 (6×), breaking the budget.
+	// Invariant: maxTotalBytes × 2 + JSON framing overhead < maxOutputBytes
+	//            250 KB × 2 + ~2 KB = ~502 KB < 512 KB ✓
+	maxOutputBytes  = 512 * 1024
+	maxBytesPerFile = 25 * 1024        // per-file raw content cap  (25 KB × 2 = 50 KB encoded)
+	maxTotalBytes   = 250 * 1024       // total raw content cap     (250 KB × 2 = 500 KB encoded < 512 KB)
+	maxCollect      = int64(512 * 1024) // tailFile internal read buffer cap
+)
+
+// allowedLogPaths returns the configured whitelist, defaulting to ["/var/log"].
+func (e *Executor) allowedLogPaths() []string {
+	if paths := e.cfg.AllowedLogPaths; len(paths) > 0 {
+		return paths
+	}
+	return []string{"/var/log"}
+}
+
+// isPathAllowed resolves ALL symlinks on both sides — the candidate path and each allowed
+// root — before comparing. This prevents two classes of escape:
+//   - intermediate-directory symlinks in the candidate path (/allowed/linkdir/f where linkdir→/etc)
+//   - allowed roots that are themselves symlinks: without resolving the root,
+//     EvalSymlinks(candidate) returns a real path that no longer matches the unresolved root prefix.
+//
+// Fails closed: unresolvable paths (non-existent) return false; unresolvable roots are skipped.
+func isPathAllowed(path string, allowed []string) bool {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return false
+	}
+	resolved = filepath.Clean(resolved)
+	for _, root := range allowed {
+		resolvedRoot, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			continue // root doesn't exist or can't be resolved; skip this entry
+		}
+		resolvedRoot = filepath.Clean(resolvedRoot)
+		if resolved == resolvedRoot || strings.HasPrefix(resolved, resolvedRoot+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *Executor) scanLogs(rawArgs string) (string, error) {
+	var args scanLogsArgs
+	if rawArgs != "" {
+		if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
+			return "", fmt.Errorf("parse scan_logs args: %w", err)
+		}
+	}
+	allowed := e.allowedLogPaths()
+	if len(args.Paths) == 0 {
+		args.Paths = allowed
+	}
+
+	const maxFiles = 2000
+	seen := map[string]bool{}
+	var files []scanLogsFileInfo
+	for _, root := range args.Paths {
+		root = filepath.Clean(root)
+		if !isPathAllowed(root, allowed) {
+			continue
+		}
+		// Resolve symlinks before walking: filepath.Walk does not follow symlink directories,
+		// so a symlink allowed root would return empty results without this step.
+		realRoot, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			continue
+		}
+		_ = filepath.Walk(realRoot, func(path string, info os.FileInfo, err error) error {
+			if len(files) >= maxFiles {
+				return filepath.SkipAll
+			}
+			if err != nil || info == nil || !info.Mode().IsRegular() || seen[path] {
+				return nil
+			}
+			ext := strings.ToLower(filepath.Ext(info.Name()))
+			if ext != "" && ext != ".log" && ext != ".txt" && ext != ".out" && ext != ".err" {
+				return nil
+			}
+			if info.Size() < 10 {
+				return nil
+			}
+			seen[path] = true
+			files = append(files, scanLogsFileInfo{
+				Path:    path,
+				Size:    info.Size(),
+				ModTime: info.ModTime().Format(time.RFC3339),
+			})
+			return nil
+		})
+	}
+
+	// RFC3339 strings are lexicographically sortable, so string comparison gives correct chronological order
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].ModTime > files[j].ModTime
+	})
+
+	data, err := json.Marshal(scanLogsResult{Files: files})
+	if err != nil {
+		return "", fmt.Errorf("marshal scan_logs result: %w", err)
+	}
+	return string(data), nil
+}
+
+// fetchLogSample reads the last N lines from each specified file and returns a JSON map.
+// Errors per file are inlined rather than failing the whole request so partial results remain usable.
+func (e *Executor) fetchLogSample(rawArgs string) (string, error) {
+	var args fetchLogSampleArgs
+	if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
+		return "", fmt.Errorf("parse fetch_log_sample args: %w", err)
+	}
+	if len(args.Files) == 0 {
+		return "", fmt.Errorf("files list is empty")
+	}
+	// Hard caps — prevent a single request from reading unbounded data
+	const maxFiles = 10
+	if len(args.Files) > maxFiles {
+		args.Files = args.Files[:maxFiles]
+	}
+	if args.Lines <= 0 {
+		args.Lines = 100
+	}
+	if args.Lines > 500 {
+		args.Lines = 500
+	}
+
+	allowed := e.allowedLogPaths()
+	samples := make(map[string]string, len(args.Files))
+	totalBytes := 0
+	for _, path := range args.Files {
+		if totalBytes >= maxTotalBytes {
+			break
+		}
+		path = filepath.Clean(path)
+		if !isPathAllowed(path, allowed) {
+			samples[path] = "[error: path not in allowed log directories]"
+			continue
+		}
+		// isPathAllowed already resolved all symlinks; os.Stat confirms the resolved target is a regular file.
+		fi, err := os.Stat(path)
+		if err != nil || !fi.Mode().IsRegular() {
+			samples[path] = "[error: not a regular file]"
+			continue
+		}
+		lines, err := tailFile(path, args.Lines)
+		if err != nil {
+			samples[path] = fmt.Sprintf("[error reading file: %v]", err)
+			continue
+		}
+		content := sanitizeLogContent(strings.Join(lines, "\n"))
+		// Trim to the per-file cap at the last complete line so content stays valid UTF-8 text.
+		if len(content) > maxBytesPerFile {
+			trimmed := content[:maxBytesPerFile]
+			if idx := strings.LastIndexByte(trimmed, '\n'); idx > 0 {
+				trimmed = trimmed[:idx]
+			}
+			content = trimmed
+		}
+		// Apply remaining total budget.
+		if totalBytes+len(content) > maxTotalBytes {
+			remaining := maxTotalBytes - totalBytes
+			trimmed := content[:remaining]
+			if idx := strings.LastIndexByte(trimmed, '\n'); idx > 0 {
+				trimmed = trimmed[:idx]
+			}
+			content = trimmed
+		}
+		samples[path] = content
+		totalBytes += len(content)
+	}
+
+	data, err := json.Marshal(fetchLogSampleResult{Samples: samples})
+	if err != nil {
+		return "", fmt.Errorf("marshal fetch_log_sample result: %w", err)
+	}
+	return string(data), nil
+}
+
+// sanitizeLogContent replaces ASCII control characters (except \t, \n, \r) with a space.
+// Control bytes such as NUL (\x00) expand to \u0000 (6 bytes) when JSON-encoded, which
+// breaks the ≤2× raw→encoded size assumption used for the content budget calculations.
+func sanitizeLogContent(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if (c < 0x20 && c != 0x09 && c != 0x0A && c != 0x0D) || c == 0x7F {
+			b[i] = ' '
+		}
+	}
+	return string(b)
+}
+
+// tailFile returns the last n lines of a file by reading backwards in 32 KB chunks,
+// stopping as soon as enough newlines are found — avoids reading GB-sized logs in full.
+func tailFile(path string, n int) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	size, err := f.Seek(0, io.SeekEnd)
+	if err != nil {
+		return nil, err
+	}
+	if size == 0 {
+		return nil, nil
+	}
+
+	const chunkSize = int64(32 * 1024)
+	var collected []byte
+	pos := size
+	for pos > 0 {
+		read := chunkSize
+		if pos < read {
+			read = pos
+		}
+		pos -= read
+		chunk := make([]byte, read)
+		if _, err := f.ReadAt(chunk, pos); err != nil {
+			return nil, err
+		}
+		collected = append(chunk, collected...)
+		if bytes.Count(collected, []byte{'\n'}) > n {
+			break
+		}
+		if int64(len(collected)) >= maxCollect {
+			break
+		}
+	}
+
+	lines := strings.Split(strings.TrimRight(string(collected), "\n"), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return lines, nil
 }
 
 func (e *Executor) ReexecAgent() error {

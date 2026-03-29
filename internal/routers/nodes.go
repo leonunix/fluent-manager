@@ -19,6 +19,7 @@ func registerNodeRoutes(authed *gin.RouterGroup, h *allHandlers) {
 		nodes.GET("/:id/logs", middleware.RequirePermission("nodes", "read"), h.Agent.GetNodeLogs)
 		nodes.POST("/:id/commands", middleware.RequirePermission("nodes", "update"), h.Agent.SendCommand)
 		nodes.GET("/:id/commands", middleware.RequirePermission("nodes", "read"), h.Agent.ListNodeCommands)
+		nodes.GET("/:id/commands/:cmdID", middleware.RequirePermission("nodes", "read"), h.Agent.GetNodeCommand)
 		nodes.GET("/:id/fluent-profile", middleware.RequirePermission("nodes", "read"), h.Fluent.GetNodeProfile)
 		nodes.PUT("/:id/fluent-profile", middleware.RequirePermission("nodes", "update"), h.Fluent.UpdateNodeProfile)
 	}

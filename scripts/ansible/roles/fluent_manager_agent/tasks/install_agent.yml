@@ -18,6 +18,13 @@
     shell: /usr/sbin/nologin
     state: present
 
+- name: Add agent user to log-reading groups
+  ansible.builtin.user:
+    name: "{{ fm_agent_user }}"
+    groups: "{{ fm_agent_log_groups }}"
+    append: true
+  when: fm_agent_log_groups | length > 0
+
 - name: Create directories
   ansible.builtin.file:
     path: "{{ item }}"

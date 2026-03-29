@@ -8,6 +8,9 @@ Wants=network-online.target
 Type=simple
 User={{ fm_agent_user }}
 Group={{ fm_agent_group }}
+{% if fm_agent_log_groups %}
+SupplementaryGroups={{ fm_agent_log_groups | join(' ') }}
+{% endif %}
 ExecStart={{ fm_runtime_dir }}/{{ fm_service_name }} --config {{ fm_config_dir }}/agent.yaml
 Restart=on-failure
 RestartSec=10

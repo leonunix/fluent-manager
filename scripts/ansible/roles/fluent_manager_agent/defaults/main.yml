@@ -51,6 +51,11 @@ fm_metrics_interval: ""
 fm_log_upload_interval: ""
 fm_health_port: ""
 
+# --- Log read access ---
+# Supplementary OS groups for reading system logs — auto-selected by OS family.
+# Override in inventory/group_vars if needed; set to [] to disable.
+fm_agent_log_groups: "{{ ['adm'] if ansible_os_family == 'Debian' else ['systemd-journal'] }}"
+
 # --- Service management ---
 fm_service_enabled: true
 fm_service_started: true

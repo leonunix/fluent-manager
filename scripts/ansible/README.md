@@ -52,6 +52,7 @@ roles/fluent_manager_agent/
 | `fm_install_fluentd` | `false` | Install Fluentd (td-agent) |
 | `fm_labels` | `""` | JSON labels for match rules |
 | `fm_node_uid` | `""` | Stable node UID (auto-generated if empty) |
+| `fm_agent_log_groups` | `["adm"]` / `["systemd-journal"]` | Supplementary OS groups for reading system logs. Auto-selected by OS family (Debian→`adm`, RedHat→`systemd-journal`). Set to `[]` to disable. |
 | `fm_extra_config` | `""` | Raw YAML appended to agent.yaml |
 
 See [defaults/main.yml](roles/fluent_manager_agent/defaults/main.yml) for all variables.

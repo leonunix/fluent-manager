@@ -70,6 +70,7 @@ type AgentService interface {
 	GetNodeLogs(nodeID string) ([]models.NodeLog, error)
 	SendCommand(nodeID string, userID uint, action, args string) (*models.RemoteCommand, error)
 	ListNodeCommands(nodeID string) ([]models.RemoteCommand, error)
+	GetCommand(nodeID, commandID string) (*models.RemoteCommand, error)
 }
 
 type agentService struct {
@@ -473,6 +474,10 @@ func (s *agentService) ReportCommandResult(commandID uint, status, output string
 	if err := s.db.First(&cmd, commandID).Error; err != nil {
 		return err
 	}
+	const maxOutputBytes = 512 * 1024
+	if len(output) > maxOutputBytes {
+		output = output[:maxOutputBytes]
+	}
 	if err := s.db.Model(&cmd).Updates(map[string]interface{}{
 		"status": status,
 		"output": output,
@@ -536,6 +541,15 @@ func (s *agentService) ListNodeCommands(nodeID string) ([]models.RemoteCommand, 
 	var cmds []models.RemoteCommand
 	err := s.db.Where("node_id = ?", nodeID).Preload("Creator").Order("created_at DESC").Limit(50).Find(&cmds).Error
 	return cmds, err
+}
+
+func (s *agentService) GetCommand(nodeID, commandID string) (*models.RemoteCommand, error) {
+	var cmd models.RemoteCommand
+	err := s.db.Where("id = ? AND node_id = ?", commandID, nodeID).Preload("Creator").First(&cmd).Error
+	if err != nil {
+		return nil, err
+	}
+	return &cmd, nil
 }
 
 func (s *agentService) markUpgradeCommandsDelivered(commandIDs []uint) {

@@ -306,7 +306,9 @@ func selectAIAccount(settings *AISettingsDTO, requestedID string) (*AIAccountDTO
 func buildSystemPrompt(custom string) string {
 	base := recommendedAISystemPrompt()
 	custom = strings.TrimSpace(custom)
-	if custom == "" {
+	// If the stored value equals the base prompt, the user never customised it —
+	// treat as empty to avoid sending the base text twice.
+	if custom == "" || custom == base {
 		return base
 	}
 	return base + "\nAdditional enterprise rules:\n" + custom
@@ -343,7 +345,7 @@ Return JSON with exactly these fields:
   "notes": ["note 1", "note 2"]
 }
 
-Log sample:
+Log sample (lines prefixed with "# /path/to/file" indicate the source file path — use the filename and directory as additional context to infer the log type, service, or component even before reading the content):
 %s
 `, input.FluentType, goal, moduleTypeHint, strings.TrimSpace(input.ExtraRequirements), strings.TrimSpace(input.Sample))
 }

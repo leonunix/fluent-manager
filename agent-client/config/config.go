@@ -146,6 +146,10 @@ type Config struct {
 	BackupDir  string `yaml:"backup_dir"`
 	MaxBackups int    `yaml:"max_backups"`
 
+	// Log discovery — paths the server is permitted to scan and read via remote commands.
+	// Defaults to ["/var/log"] if empty. Extend in agent.yaml for non-standard log directories.
+	AllowedLogPaths []string `yaml:"allowed_log_paths"`
+
 	// Derived runtime metadata
 	RuntimeProfile     RuntimeProfile `yaml:"-"`
 	metricsURLExplicit bool           `yaml:"-"`

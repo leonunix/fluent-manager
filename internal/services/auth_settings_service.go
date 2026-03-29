@@ -116,7 +116,7 @@ func NewAuthSettingsService(db *gorm.DB) AuthSettingsService {
 func defaultAISettings() AISettingsDTO {
 	return AISettingsDTO{
 		RequestTimeoutSeconds: 60,
-		SystemPrompt:          recommendedAISystemPrompt(),
+		SystemPrompt:          "", // empty = use built-in base prompt only; custom text here is appended on top
 		Accounts:              []AIAccountDTO{},
 	}
 }

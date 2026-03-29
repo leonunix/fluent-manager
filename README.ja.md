@@ -99,6 +99,8 @@ make build-agent-linux           # Linux amd64 + arm64
 
 `agent.yaml`（`agent.yaml.example` 参照）で設定します。必須項目は `server_url` と `api_key` のみ — その他はサーバーからエージェントポリシー経由で配信可能です。
 
+Ansible ロールで一括デプロイする場合、`fm_agent_log_groups` 変数がターゲット OS に応じて自動選択されます（Debian/Ubuntu → `adm`、RHEL 系 → `systemd-journal`）。設定なしで `/var/log` 配下のシステムログが読み取れます。詳細は [scripts/ansible/README.md](scripts/ansible/README.md) を参照してください。
+
 ## クイックスタート
 
 1. サーバーを起動（上記いずれかの方法）

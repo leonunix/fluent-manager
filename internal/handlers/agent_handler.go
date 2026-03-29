@@ -242,14 +242,16 @@ type SendCommandRequest struct {
 
 // allowedActions is the whitelist of permitted remote command actions.
 var allowedActions = map[string]bool{
-	"restart":     true,
-	"reload":      true,
-	"stop":        true,
-	"start":       true,
-	"status":      true,
-	"validate":    true,
-	"rollback":    true,
-	"show_config": true,
+	"restart":          true,
+	"reload":           true,
+	"stop":             true,
+	"start":            true,
+	"status":           true,
+	"validate":         true,
+	"rollback":         true,
+	"show_config":      true,
+	"scan_logs":        true,
+	"fetch_log_sample": true,
 }
 
 func (h *AgentHandler) SendCommand(c *gin.Context) {
@@ -312,4 +314,33 @@ func (h *AgentHandler) ListNodeCommands(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": cmds})
+}
+
+// --- Get Single Command Result ---
+
+func (h *AgentHandler) GetNodeCommand(c *gin.Context) {
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	cmdID, ok := parseUintParam(c, "cmdID")
+	if !ok {
+		return
+	}
+
+	node, err := h.NodeSvc.Get(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
+		return
+	}
+	if !checkNodeScope(c, node) {
+		return
+	}
+
+	cmd, err := h.Svc.GetCommand(strconv.FormatUint(uint64(id), 10), strconv.FormatUint(uint64(cmdID), 10))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "command not found"})
+		return
+	}
+	c.JSON(http.StatusOK, cmd)
 }
