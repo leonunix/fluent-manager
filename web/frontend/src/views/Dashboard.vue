@@ -58,13 +58,13 @@
       </div>
     </div>
 
-    <!-- Throughput KPIs -->
+    <!-- Throughput KPIs (24h) -->
     <div class="row g-4 mb-4">
       <div class="col-md-3">
         <div class="stat-card">
           <div class="d-flex justify-content-between align-items-center">
             <div>
-              <div class="text-muted small">{{ t('dashboard.input_records') }}</div>
+              <div class="text-muted small">{{ t('dashboard.input_records') }} <span class="badge bg-secondary ms-1" style="font-size:0.65em">24h</span></div>
               <h3 class="mb-0 mt-1">{{ formatCount(throughput.total_input_records) }}</h3>
               <div class="text-muted small mt-1">{{ formatBytes(throughput.total_input_bytes) }}</div>
             </div>
@@ -78,7 +78,7 @@
         <div class="stat-card">
           <div class="d-flex justify-content-between align-items-center">
             <div>
-              <div class="text-muted small">{{ t('dashboard.output_records') }}</div>
+              <div class="text-muted small">{{ t('dashboard.output_records') }} <span class="badge bg-secondary ms-1" style="font-size:0.65em">24h</span></div>
               <h3 class="mb-0 mt-1">{{ formatCount(throughput.total_output_records) }}</h3>
               <div class="text-muted small mt-1">{{ formatBytes(throughput.total_output_bytes) }}</div>
             </div>
@@ -92,7 +92,7 @@
         <div class="stat-card">
           <div class="d-flex justify-content-between align-items-center">
             <div>
-              <div class="text-muted small">{{ t('dashboard.nodes_reporting') }}</div>
+              <div class="text-muted small">{{ t('dashboard.nodes_reporting') }} <span class="badge bg-secondary ms-1" style="font-size:0.65em">24h</span></div>
               <h3 class="mb-0 mt-1">{{ throughput.nodes_reporting }}</h3>
               <div class="text-muted small mt-1">/ {{ stats.total || 0 }} {{ t('dashboard.total_nodes') }}</div>
             </div>

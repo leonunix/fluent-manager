@@ -84,6 +84,7 @@ func migrateAll(db *gorm.DB) error {
 		&NodeFluentProfile{},
 		&AgentPolicy{},
 		&NodeMetrics{},
+		&NodeThroughputHour{},
 		&RemoteCommand{},
 		&NodeLog{},
 		&ConfigTemplate{},

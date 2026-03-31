@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/fluent-manager/fluent-manager/internal/middleware"
 	"github.com/fluent-manager/fluent-manager/internal/services"
@@ -36,6 +37,16 @@ func (h *MetricsHandler) TopNodes(c *gin.Context) {
 func (h *MetricsHandler) Throughput(c *gin.Context) {
 	allowed := middleware.GetAllowedClusters(c)
 	resp, err := h.Svc.Throughput(allowed)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+func (h *MetricsHandler) NodeThroughput24h(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	resp, err := h.Svc.NodeThroughput24h(uint(id))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

@@ -106,6 +106,20 @@ type RemoteCommand struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// NodeThroughputHour stores hourly throughput deltas per node.
+// Each row covers one UTC hour bucket; deltas are accumulated on every heartbeat.
+// Rows older than 25 h are pruned automatically in storeMetrics.
+type NodeThroughputHour struct {
+	ID            uint      `gorm:"primaryKey" json:"id"`
+	NodeID        uint      `gorm:"uniqueIndex:idx_node_tph_hour" json:"node_id"`
+	HourBucket    time.Time `gorm:"uniqueIndex:idx_node_tph_hour" json:"hour_bucket"` // UTC, truncated to 1 h
+	InputRecords  int64     `json:"input_records"`
+	InputBytes    int64     `json:"input_bytes"`
+	OutputRecords int64     `json:"output_records"`
+	OutputBytes   int64     `json:"output_bytes"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
 // NodeLog stores log snippets uploaded by agents.
 type NodeLog struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`

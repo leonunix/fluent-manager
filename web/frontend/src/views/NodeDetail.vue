@@ -104,19 +104,21 @@
                       <div class="text-muted small mb-1">{{ t('node_detail.flush_latency') }}</div>
                       <div class="fw-semibold" :class="colorClass(metrics.flush_latency_ms, 1000, 5000)">{{ metrics.flush_latency_ms }} ms</div>
                     </div>
-                    <div class="vr mx-1"></div>
-                    <div>
-                      <div class="text-muted small mb-1">{{ t('node_detail.input_records') }}</div>
-                      <div class="fw-semibold">{{ formatCount(metrics.input_records_total) }}</div>
-                      <div class="text-muted small">{{ formatBytes(metrics.input_bytes_total) }}</div>
-                    </div>
-                    <div>
-                      <div class="text-muted small mb-1">{{ t('node_detail.output_records') }}</div>
-                      <div class="fw-semibold">{{ formatCount(metrics.output_records_total) }}</div>
-                      <div class="text-muted small">{{ formatBytes(metrics.output_bytes_total) }}</div>
-                    </div>
                   </template>
                   <span v-else class="text-muted small">{{ t('node_detail.no_api_data') }}</span>
+                  <template v-if="throughput24h">
+                    <div class="vr mx-1"></div>
+                    <div>
+                      <div class="text-muted small mb-1">{{ t('node_detail.input_records') }} <span class="badge bg-secondary" style="font-size:0.65em">24h</span></div>
+                      <div class="fw-semibold">{{ formatCount(throughput24h.total_input_records) }}</div>
+                      <div class="text-muted small">{{ formatBytes(throughput24h.total_input_bytes) }}</div>
+                    </div>
+                    <div>
+                      <div class="text-muted small mb-1">{{ t('node_detail.output_records') }} <span class="badge bg-secondary" style="font-size:0.65em">24h</span></div>
+                      <div class="fw-semibold">{{ formatCount(throughput24h.total_output_records) }}</div>
+                      <div class="text-muted small">{{ formatBytes(throughput24h.total_output_bytes) }}</div>
+                    </div>
+                  </template>
                 </div>
               </div>
             </div>
@@ -390,6 +392,7 @@ import {
   getNodeCommands,
   getNodeLogs,
   getNodeMetrics,
+  getNodeThroughput24h,
   sendNodeCommand,
   updateNodeFluentProfile,
 } from '../api'
@@ -398,6 +401,7 @@ import { useI18n } from '../i18n'
 const route = useRoute()
 const node = ref(null)
 const metrics = ref(null)
+const throughput24h = ref(null)
 const commands = ref([])
 const logs = ref([])
 const aggregationGroups = ref([])
@@ -515,13 +519,15 @@ async function loadLogs() {
 
 async function loadNodeData() {
   const id = route.params.id
-  const [nodeRes, metricsRes, groupsRes] = await Promise.all([
+  const [nodeRes, metricsRes, throughputRes, groupsRes] = await Promise.all([
     getNode(id),
     getNodeMetrics(id).catch(() => ({ data: null })),
+    getNodeThroughput24h(id).catch(() => ({ data: null })),
     getAggregationGroups().catch(() => []),
   ])
   node.value = nodeRes.data
   metrics.value = metricsRes.data
+  throughput24h.value = throughputRes.data
   aggregationGroups.value = groupsRes || []
   syncProfileForm()
 }

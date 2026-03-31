@@ -263,10 +263,15 @@ func (s *agentService) upsertFluentProfile(nodeID uint, profile *AgentFluentProf
 func (s *agentService) storeMetrics(nodeID uint, raw map[string]interface{}) {
 	var m models.NodeMetrics
 	result := s.db.Where("node_id = ?", nodeID).First(&m)
-	if result.Error != nil {
+	isNew := result.Error != nil
+	if isNew {
 		m = models.NodeMetrics{NodeID: nodeID}
 		s.db.Create(&m)
 	}
+	prevInputRecords := m.InputRecordsTotal
+	prevInputBytes := m.InputBytesTotal
+	prevOutputRecords := m.OutputRecordsTotal
+	prevOutputBytes := m.OutputBytesTotal
 
 	if v, ok := raw["cpu_usage_percent"].(float64); ok {
 		m.CPUUsagePercent = v
@@ -342,6 +347,47 @@ func (s *agentService) storeMetrics(nodeID uint, raw map[string]interface{}) {
 	}
 
 	s.db.Save(&m)
+
+	if !isNew {
+		s.accumulateThroughputHour(nodeID,
+			deltaOrReset(m.InputRecordsTotal, prevInputRecords),
+			deltaOrReset(m.InputBytesTotal, prevInputBytes),
+			deltaOrReset(m.OutputRecordsTotal, prevOutputRecords),
+			deltaOrReset(m.OutputBytesTotal, prevOutputBytes),
+		)
+	}
+}
+
+// deltaOrReset returns current-prev, or current if the counter was reset (restart).
+func deltaOrReset(current, prev int64) int64 {
+	if current >= prev {
+		return current - prev
+	}
+	return current // counter reset
+}
+
+func (s *agentService) accumulateThroughputHour(nodeID uint, inRec, inBytes, outRec, outBytes int64) {
+	if inRec == 0 && inBytes == 0 && outRec == 0 && outBytes == 0 {
+		return
+	}
+	hourBucket := time.Now().UTC().Truncate(time.Hour)
+
+	var bucket models.NodeThroughputHour
+	if err := s.db.Where("node_id = ? AND hour_bucket = ?", nodeID, hourBucket).First(&bucket).Error; err != nil {
+		bucket = models.NodeThroughputHour{NodeID: nodeID, HourBucket: hourBucket}
+		s.db.Create(&bucket)
+	}
+	s.db.Model(&bucket).Updates(map[string]interface{}{
+		"input_records":  gorm.Expr("input_records + ?", inRec),
+		"input_bytes":    gorm.Expr("input_bytes + ?", inBytes),
+		"output_records": gorm.Expr("output_records + ?", outRec),
+		"output_bytes":   gorm.Expr("output_bytes + ?", outBytes),
+		"updated_at":     time.Now(),
+	})
+
+	// Prune buckets older than 25 h
+	s.db.Where("node_id = ? AND hour_bucket < ?", nodeID, time.Now().UTC().Add(-25*time.Hour)).
+		Delete(&models.NodeThroughputHour{})
 }
 
 func (s *agentService) ReportStatus(nodeUID string, configID uint, success bool, message string) error {

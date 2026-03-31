@@ -1,6 +1,8 @@
 package services
 
 import (
+	"time"
+
 	"github.com/fluent-manager/fluent-manager/internal/cache"
 	"github.com/fluent-manager/fluent-manager/internal/models"
 	"gorm.io/gorm"
@@ -43,11 +45,19 @@ type ThroughputResult struct {
 	NodesReporting     int64 `json:"nodes_reporting"`
 }
 
+type NodeThroughput24hResult struct {
+	TotalInputRecords  int64 `json:"total_input_records"`
+	TotalInputBytes    int64 `json:"total_input_bytes"`
+	TotalOutputRecords int64 `json:"total_output_records"`
+	TotalOutputBytes   int64 `json:"total_output_bytes"`
+}
+
 type MetricsService interface {
 	Overview(allowedClusters []uint) (*OverviewResult, error)
 	TopNodes(allowedClusters []uint) ([]TopNodeResult, error)
 	ByDatacenter(allowedDCIDs []uint) ([]DCMetricsResult, error)
 	Throughput(allowedClusters []uint) (*ThroughputResult, error)
+	NodeThroughput24h(nodeID uint) (*NodeThroughput24hResult, error)
 }
 
 type metricsService struct {
@@ -155,6 +165,17 @@ func (s *metricsService) topNodesQuery(allowedClusters []uint) ([]TopNodeResult,
 	return resp, nil
 }
 
+func (s *metricsService) NodeThroughput24h(nodeID uint) (*NodeThroughput24hResult, error) {
+	var resp NodeThroughput24hResult
+	since := time.Now().UTC().Add(-24 * time.Hour)
+	row := s.db.Model(&models.NodeThroughputHour{}).
+		Select("COALESCE(SUM(input_records),0), COALESCE(SUM(input_bytes),0), COALESCE(SUM(output_records),0), COALESCE(SUM(output_bytes),0)").
+		Where("node_id = ? AND hour_bucket >= ?", nodeID, since).
+		Row()
+	row.Scan(&resp.TotalInputRecords, &resp.TotalInputBytes, &resp.TotalOutputRecords, &resp.TotalOutputBytes)
+	return &resp, nil
+}
+
 func (s *metricsService) Throughput(allowedClusters []uint) (*ThroughputResult, error) {
 	if allowedClusters == nil {
 		const cacheKey = "metrics:throughput"
@@ -174,11 +195,12 @@ func (s *metricsService) Throughput(allowedClusters []uint) (*ThroughputResult, 
 
 func (s *metricsService) throughputQuery(allowedClusters []uint) (*ThroughputResult, error) {
 	var resp ThroughputResult
+	since := time.Now().UTC().Add(-24 * time.Hour)
 
-	baseJoin := "JOIN nodes ON nodes.id = node_metrics.node_id AND nodes.status = 'online' AND nodes.deleted_at IS NULL"
-	query := s.db.Model(&models.NodeMetrics{}).
-		Select("SUM(node_metrics.input_records_total) as total_input_records, SUM(node_metrics.input_bytes_total) as total_input_bytes, SUM(node_metrics.output_records_total) as total_output_records, SUM(node_metrics.output_bytes_total) as total_output_bytes, COUNT(CASE WHEN node_metrics.input_records_total > 0 OR node_metrics.output_records_total > 0 THEN 1 END) as nodes_reporting").
-		Joins(baseJoin)
+	query := s.db.Model(&models.NodeThroughputHour{}).
+		Select("COALESCE(SUM(node_throughput_hours.input_records),0), COALESCE(SUM(node_throughput_hours.input_bytes),0), COALESCE(SUM(node_throughput_hours.output_records),0), COALESCE(SUM(node_throughput_hours.output_bytes),0), COUNT(DISTINCT node_throughput_hours.node_id)").
+		Joins("JOIN nodes ON nodes.id = node_throughput_hours.node_id AND nodes.deleted_at IS NULL").
+		Where("node_throughput_hours.hour_bucket >= ?", since)
 
 	if allowedClusters != nil {
 		query = query.Where("nodes.cluster_id IN ?", allowedClusters)

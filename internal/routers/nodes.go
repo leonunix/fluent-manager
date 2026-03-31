@@ -22,5 +22,6 @@ func registerNodeRoutes(authed *gin.RouterGroup, h *allHandlers) {
 		nodes.GET("/:id/commands/:cmdID", middleware.RequirePermission("nodes", "read"), h.Agent.GetNodeCommand)
 		nodes.GET("/:id/fluent-profile", middleware.RequirePermission("nodes", "read"), h.Fluent.GetNodeProfile)
 		nodes.PUT("/:id/fluent-profile", middleware.RequirePermission("nodes", "update"), h.Fluent.UpdateNodeProfile)
+		nodes.GET("/:id/throughput-24h", middleware.RequirePermission("nodes", "read"), h.Metrics.NodeThroughput24h)
 	}
 }
