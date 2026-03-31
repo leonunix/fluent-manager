@@ -66,6 +66,9 @@ func New(cfg *config.Config) *Executor {
 
 // CurrentConfigHash returns the SHA-256 of the current fluent config on disk.
 func (e *Executor) CurrentConfigHash() string {
+	if applied := e.readAppliedConfigHash(); applied != "" {
+		return applied
+	}
 	data, err := os.ReadFile(e.cfg.FluentConfigPath)
 	if err != nil {
 		return ""
@@ -81,13 +84,14 @@ func (e *Executor) Apply(content string, configID uint) (bool, string) {
 	defer e.mu.Unlock()
 
 	log.Printf("[executor] applying config (id=%d, size=%d bytes)", configID, len(content))
+	prepared := e.prepareManagedConfig(content)
 
 	backupPath, err := e.backup()
 	if err != nil {
 		log.Printf("[executor] backup warning: %v", err)
 	}
 
-	if err := os.WriteFile(e.cfg.FluentConfigPath, []byte(content), 0o644); err != nil {
+	if err := e.writePreparedConfig(prepared); err != nil {
 		return false, fmt.Sprintf("write config failed: %v", err)
 	}
 	e.refreshRuntimeProfile()
@@ -116,6 +120,9 @@ func (e *Executor) Apply(content string, configID uint) (bool, string) {
 	}
 
 	e.refreshRuntimeProfile()
+	if err := e.writeAppliedConfigHash(prepared.sourceHash); err != nil {
+		log.Printf("[executor] applied config hash warning: %v", err)
+	}
 	e.pruneBackups()
 	log.Printf("[executor] config applied successfully via %s", action)
 	return true, fmt.Sprintf("config applied successfully via %s", action)
@@ -148,6 +155,9 @@ func (e *Executor) backup() (string, error) {
 	if err := os.WriteFile(backupPath, data, 0o644); err != nil {
 		return "", fmt.Errorf("write backup: %w", err)
 	}
+	if err := e.writeBackupMetadata(backupPath); err != nil {
+		return "", err
+	}
 	log.Printf("[executor] backed up to %s", backupPath)
 	return backupPath, nil
 }
@@ -172,6 +182,7 @@ func (e *Executor) rollback(backupPath string) {
 		log.Printf("[executor] rollback write failed: %v", err)
 		return
 	}
+	e.restoreBackupMetadata(backupPath)
 	e.refreshRuntimeProfile()
 
 	action, output, err := e.restartOnly()
@@ -190,10 +201,20 @@ func (e *Executor) latestBackup() string {
 	if err != nil || len(entries) == 0 {
 		return ""
 	}
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Name() > entries[j].Name()
+	backups := make([]os.DirEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".bak") {
+			continue
+		}
+		backups = append(backups, entry)
+	}
+	if len(backups) == 0 {
+		return ""
+	}
+	sort.Slice(backups, func(i, j int) bool {
+		return backups[i].Name() > backups[j].Name()
 	})
-	return filepath.Join(e.cfg.BackupDir, entries[0].Name())
+	return filepath.Join(e.cfg.BackupDir, backups[0].Name())
 }
 
 // pruneBackups removes old backups exceeding MaxBackups.
@@ -202,19 +223,26 @@ func (e *Executor) pruneBackups() {
 	if err != nil {
 		return
 	}
-	if len(entries) <= e.cfg.MaxBackups {
+	backups := make([]os.DirEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".bak") {
+			continue
+		}
+		backups = append(backups, entry)
+	}
+	if len(backups) <= e.cfg.MaxBackups {
 		return
 	}
 
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Name() < entries[j].Name()
+	sort.Slice(backups, func(i, j int) bool {
+		return backups[i].Name() < backups[j].Name()
 	})
 
-	toRemove := len(entries) - e.cfg.MaxBackups
+	toRemove := len(backups) - e.cfg.MaxBackups
 	for i := 0; i < toRemove; i++ {
-		path := filepath.Join(e.cfg.BackupDir, entries[i].Name())
-		_ = os.Remove(path)
-		log.Printf("[executor] pruned old backup: %s", entries[i].Name())
+		path := filepath.Join(e.cfg.BackupDir, backups[i].Name())
+		removeBackupArtifacts(path)
+		log.Printf("[executor] pruned old backup: %s", backups[i].Name())
 	}
 }
 
@@ -286,8 +314,8 @@ const (
 	// Invariant: maxTotalBytes × 2 + JSON framing overhead < maxOutputBytes
 	//            250 KB × 2 + ~2 KB = ~502 KB < 512 KB ✓
 	maxOutputBytes  = 512 * 1024
-	maxBytesPerFile = 25 * 1024        // per-file raw content cap  (25 KB × 2 = 50 KB encoded)
-	maxTotalBytes   = 250 * 1024       // total raw content cap     (250 KB × 2 = 500 KB encoded < 512 KB)
+	maxBytesPerFile = 25 * 1024         // per-file raw content cap  (25 KB × 2 = 50 KB encoded)
+	maxTotalBytes   = 250 * 1024        // total raw content cap     (250 KB × 2 = 500 KB encoded < 512 KB)
 	maxCollect      = int64(512 * 1024) // tailFile internal read buffer cap
 )
 

@@ -28,6 +28,32 @@ func seedBuiltinConfigModules(db *gorm.DB) {
     storage.path  {{ .storage_path }}`,
 		},
 		{
+			Name:        "guided-fb-parser-nginx",
+			Description: "Built-in Fluent Bit parser definition for standard Nginx access logs.",
+			ModuleType:  "parser",
+			FluentType:  "fluentbit",
+			Variables:   `{}`,
+			Content: `[PARSER]
+    Name   nginx
+    Format regex
+    Regex ^(?<remote>[^ ]*) (?<host>[^ ]*) (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^\"]*?)(?: +\S*)?)?" (?<code>[^ ]*) (?<size>[^ ]*)(?: "(?<referer>[^\"]*)" "(?<agent>[^\"]*)")
+    Time_Key time
+    Time_Format %d/%b/%Y:%H:%M:%S %z`,
+		},
+		{
+			Name:        "guided-fb-parser-docker",
+			Description: "Built-in Fluent Bit parser definition for Docker JSON logs.",
+			ModuleType:  "parser",
+			FluentType:  "fluentbit",
+			Variables:   `{}`,
+			Content: `[PARSER]
+    Name         docker
+    Format       json
+    Time_Key     time
+    Time_Format  %Y-%m-%dT%H:%M:%S.%L
+    Time_Keep    On`,
+		},
+		{
 			Name:        "guided-fb-filter-enrich",
 			Description: "Add standard enterprise metadata before forwarding to the central pipeline.",
 			ModuleType:  "filter",

@@ -141,7 +141,7 @@
     <ConfigsTemplatesTab
       v-if="activeTab === 'templates'"
       :state="{ templates, assemblyTemplateCount, manualTemplateCount }"
-      :actions="{ handleDeleteTemplate }"
+      :actions="{ handleDeleteTemplate, openTemplateInWizard }"
       :helpers="{ runtimeLabel, templateSourceLabel, templateAssemblyModules, formatTime }"
     />
 
@@ -205,6 +205,7 @@
         renderedConfig,
         wizardAssemblyTemplates: wizardBuiltTemplates,
         wizardLoadedFromTemplate,
+        wizardSaveButtonLabel,
         wizardCompatiblePipelines,
       }"
       :actions="{
@@ -886,7 +887,7 @@
 <script setup>
 import './configs.css'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import ConfigsAssistantTab from './tabs/ConfigsAssistantTab.vue'
 import ConfigsImportTab from './tabs/ConfigsImportTab.vue'
 import ConfigsModulesTab from './tabs/ConfigsModulesTab.vue'
@@ -902,6 +903,7 @@ import {
   createModule,
   createModuleVersion,
   createOutputTarget,
+  createVersion,
   createTemplate,
   deleteModules,
   deleteModule,
@@ -916,6 +918,7 @@ import {
   lintConfig,
   previewRenderedConfig,
   replayConfig,
+  updateTemplate,
   updateModule,
 } from '../../api'
 import {
@@ -1186,6 +1189,11 @@ const wizardGlobalModuleVariables = ref({})
 const wizardPipelines = ref([])
 const activeWizardPipelineId = ref('')
 const wizardLoadedFromTemplate = ref(null)
+const wizardSaveButtonLabel = computed(() => (
+  wizardLoadedFromTemplate.value
+    ? t('configs_page.save_wizard_version')
+    : t('configs_page.save_wizard_template')
+))
 const wizardServiceSearch = ref('')
 const wizardParserSearch = ref('')
 const wizardInputSearch = ref('')
@@ -1352,13 +1360,20 @@ const wizardRenderSummary = computed(() => ({
 }))
 const wizardGlobalVariableGroups = computed(() => {
   const groups = []
+  const globalSection = {
+    key: 'global',
+    title: t('configs_page.wizard_global_resources'),
+    kind: 'global',
+  }
   if (wizardServiceModule.value) {
     groups.push(buildWizardModuleGroup(
       `wizard-service-${wizardServiceModule.value.id}`,
       wizardServiceModule.value.name,
       t('configs_page.wizard_service_baseline'),
       wizardServiceModule.value,
-      wizardGlobalModuleVariables.value[`service:${wizardServiceModule.value.id}`]
+      wizardGlobalModuleVariables.value[`service:${wizardServiceModule.value.id}`],
+      {},
+      globalSection
     ))
   }
   for (const module of wizardSelectedParserModules.value) {
@@ -1367,51 +1382,67 @@ const wizardGlobalVariableGroups = computed(() => {
       module.name,
       t('configs_page.wizard_parser_assets'),
       module,
-      wizardGlobalModuleVariables.value[`parser:${module.id}`]
+      wizardGlobalModuleVariables.value[`parser:${module.id}`],
+      {},
+      globalSection
     ))
   }
   return groups.filter(Boolean)
 })
 const wizardPipelineVariableGroups = computed(() => {
-  if (!activeWizardPipeline.value) return []
   const groups = []
-  if (activeWizardPipeline.value.input) {
-    const module = wizardEligibleModules.value.find((item) => item.id === activeWizardPipeline.value.input.module_id)
-    groups.push(buildWizardModuleGroup(
-      activeWizardPipeline.value.input.id,
-      module?.name || t('configs_page.pipeline_stage_input'),
-      t('configs_page.pipeline_stage_input'),
-      module,
-      activeWizardPipeline.value.input.variables
-    ))
-  }
-  for (const instance of activeWizardPipeline.value.filters) {
-    const module = wizardEligibleModules.value.find((item) => item.id === instance.module_id)
-    groups.push(buildWizardModuleGroup(
-      instance.id,
-      module?.name || t('configs_page.pipeline_stage_filter'),
-      t('configs_page.pipeline_stage_filter'),
-      module,
-      instance.variables
-    ))
-  }
-  for (const instance of activeWizardPipeline.value.outputs) {
-    const target = wizardAvailableOutputTargets.value.find((item) => item.id === instance.target_id)
-    const module = matchingOutputModuleForTarget(target, wizardEligibleModules.value, wizardForm.fluent_type)
-    const defaults = {
-      ...moduleVariablesForWizard(module),
-      ...parseVariablesMap(target?.settings),
-      output_target_name: target?.name || '',
-      output_target_type: target?.target_type || '',
+  for (const [pipelineIndex, pipeline] of wizardPipelines.value.entries()) {
+    const pipelineLabel = wizardPipelineDisplayName(pipeline, pipelineIndex)
+    const pipelineSection = {
+      key: `pipeline:${pipeline.id}`,
+      title: pipelineLabel,
+      kind: 'pipeline',
+      ref: pipeline.id,
     }
-    groups.push(buildWizardModuleGroup(
-      instance.id,
-      target?.name || t('configs_page.pipeline_stage_output'),
-      t('configs_page.pipeline_stage_output'),
-      module,
-      instance.variables,
-      defaults
-    ))
+
+    if (pipeline.input) {
+      const module = wizardEligibleModules.value.find((item) => item.id === pipeline.input.module_id)
+      groups.push(buildWizardModuleGroup(
+        pipeline.input.id,
+        module?.name || t('configs_page.pipeline_stage_input'),
+        `${pipelineLabel} · ${t('configs_page.pipeline_stage_input')}`,
+        module,
+        pipeline.input.variables,
+        wizardPipelineModuleDefaults(module, pipeline),
+        pipelineSection
+      ))
+    }
+
+    pipeline.filters.forEach((instance, filterIndex) => {
+      const module = wizardEligibleModules.value.find((item) => item.id === instance.module_id)
+      groups.push(buildWizardModuleGroup(
+        instance.id,
+        module?.name || t('configs_page.pipeline_stage_filter'),
+        `${pipelineLabel} · ${t('configs_page.pipeline_stage_filter')} ${filterIndex + 1}`,
+        module,
+        instance.variables,
+        wizardPipelineModuleDefaults(module, pipeline),
+        pipelineSection
+      ))
+    })
+
+    pipeline.outputs.forEach((instance, outputIndex) => {
+      const target = wizardAvailableOutputTargets.value.find((item) => item.id === instance.target_id)
+      const module = matchingOutputModuleForTarget(target, wizardEligibleModules.value, wizardForm.fluent_type)
+      groups.push(buildWizardModuleGroup(
+        instance.id,
+        target?.name || t('configs_page.pipeline_stage_output'),
+        `${pipelineLabel} · ${t('configs_page.pipeline_stage_output')} ${outputIndex + 1}`,
+        module,
+        instance.variables,
+        wizardPipelineModuleDefaults(module, pipeline, {
+          ...parseVariablesMap(target?.settings),
+          output_target_name: target?.name || '',
+          output_target_type: target?.target_type || '',
+        }),
+        pipelineSection
+      ))
+    })
   }
   return groups.filter(Boolean)
 })
@@ -1549,6 +1580,7 @@ let templateModal = null
 let moduleModal = null
 let moduleVersionsModal = null
 let pipelineModal = null
+const route = useRoute()
 const router = useRouter()
 const { t, dateLocale } = useI18n()
 
@@ -2391,6 +2423,104 @@ function moduleVariablesForWizard(module) {
   return parseVariablesMap(module?.variables)
 }
 
+function parserNamesProvidedByModule(module) {
+  const names = []
+  let parserSection = false
+  for (const rawLine of String(module?.content || '').split('\n')) {
+    const trimmed = rawLine.trim()
+    if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith(';')) continue
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      const section = trimmed.slice(1, -1).trim().toUpperCase()
+      parserSection = section === 'PARSER' || section === 'MULTILINE_PARSER'
+      continue
+    }
+    if (!parserSection) continue
+    const parts = trimmed.split(/\s+/)
+    if (parts.length < 2 || parts[0].toLowerCase() !== 'name') continue
+    const name = trimmed.slice(parts[0].length).trim()
+    if (name && !name.includes('{{')) {
+      names.push(name)
+    }
+  }
+  return uniqueSorted(names)
+}
+
+function parserReferencesForInputModule(module, draft = null) {
+  const names = []
+  const merged = {
+    ...moduleVariablesForWizard(module),
+    ...(draft || {}),
+  }
+  for (const [key, value] of Object.entries(merged)) {
+    const normalizedKey = String(key || '').trim().toLowerCase()
+    if (!(normalizedKey === 'parser' || normalizedKey === 'parser_firstline' || normalizedKey === 'multiline.parser' || normalizedKey.startsWith('parser_'))) {
+      continue
+    }
+    const name = String(value || '').trim()
+    if (name && !name.includes('{{')) {
+      names.push(name)
+    }
+  }
+  return uniqueSorted(names)
+}
+
+function matchingWizardParserModules(parserNames) {
+  const wanted = new Set((parserNames || []).map((item) => normalizeSearchText(item)).filter(Boolean))
+  if (!wanted.size) return []
+  return wizardEligibleModules.value.filter((item) => {
+    if (item.module_type !== 'parser') return false
+    return parserNamesProvidedByModule(item).some((name) => wanted.has(normalizeSearchText(name)))
+  })
+}
+
+function autoAttachWizardParsersForInputModule(module, draft = null) {
+  for (const parserModule of matchingWizardParserModules(parserReferencesForInputModule(module, draft))) {
+    if (!wizardParserModuleIds.value.includes(parserModule.id)) {
+      toggleWizardParserModule(parserModule.id)
+    }
+  }
+}
+
+function wizardPipelineInputTag(pipeline) {
+  const inputModuleID = pipeline?.input?.module_id
+  if (!inputModuleID) return ''
+  const module = wizardEligibleModules.value.find((item) => item.id === inputModuleID && item.module_type === 'input')
+  const merged = {
+    ...moduleVariablesForWizard(module),
+    ...(pipeline?.input?.variables || {}),
+  }
+  return String(merged.tag || '').trim()
+}
+
+function wizardPipelineModuleDefaults(module, pipeline, extraDefaults = {}) {
+  const defaults = {
+    ...moduleVariablesForWizard(module),
+    ...(extraDefaults || {}),
+  }
+  const inputTag = wizardPipelineInputTag(pipeline)
+  if (inputTag && Object.prototype.hasOwnProperty.call(defaults, 'match')) {
+    defaults.match = inputTag
+  }
+  return defaults
+}
+
+function shouldAutoSyncWizardMatch(currentValue, previousTag) {
+  const current = String(currentValue ?? '').trim()
+  return !current || current === '*' || current === '**' || (!!previousTag && current === previousTag)
+}
+
+function buildWizardPipelineDraft(key, module, pipeline, existingDraft = null, extraDefaults = {}, previousTag = '') {
+  const defaults = wizardPipelineModuleDefaults(module, pipeline, extraDefaults)
+  if (!existingDraft || !Object.keys(existingDraft).length) {
+    return buildWizardVariableDraft(defaults)
+  }
+  const nextDraft = { ...existingDraft }
+  if (Object.prototype.hasOwnProperty.call(defaults, 'match') && shouldAutoSyncWizardMatch(nextDraft.match, previousTag)) {
+    nextDraft.match = stringifyVariableValue(defaults.match)
+  }
+  return nextDraft
+}
+
 function normalizeWizardDraftValues(draft, defaults) {
   const normalized = {}
   const mergedDefaults = { ...(defaults || {}) }
@@ -2401,7 +2531,7 @@ function normalizeWizardDraftValues(draft, defaults) {
   return normalized
 }
 
-function buildWizardModuleGroup(key, title, subtitle, module, model, extraDefaults = {}) {
+function buildWizardModuleGroup(key, title, subtitle, module, model, extraDefaults = {}, section = null) {
   if (!module || !model) return null
   const defaults = {
     ...moduleVariablesForWizard(module),
@@ -2417,6 +2547,10 @@ function buildWizardModuleGroup(key, title, subtitle, module, model, extraDefaul
     key,
     title,
     subtitle,
+    sectionKey: section?.key || 'default',
+    sectionTitle: section?.title || '',
+    sectionKind: section?.kind || 'default',
+    sectionRef: section?.ref || '',
     fields,
     model,
   }
@@ -2678,14 +2812,42 @@ function updateWizardPipeline(pipelineId, updater) {
 function setWizardPipelineInput(pipelineId, moduleId) {
   const module = wizardEligibleModules.value.find((item) => item.id === moduleId && item.module_type === 'input')
   if (!module) return
-  updateWizardPipeline(pipelineId, (pipeline) => ({
-    ...pipeline,
-    input: {
-      id: createWizardInstanceID('wizard-input'),
-      module_id: module.id,
-      variables: ensureWizardModuleDraft(`input:${module.id}`, module),
-    },
-  }))
+  const currentPipeline = wizardPipelines.value.find((item) => item.id === pipelineId) || null
+  const previousTag = wizardPipelineInputTag(currentPipeline)
+  const draft = ensureWizardModuleDraft(
+    `input:${module.id}`,
+    module,
+    currentPipeline?.input?.module_id === module.id ? currentPipeline?.input?.variables : null
+  )
+  const nextInput = {
+    id: createWizardInstanceID('wizard-input'),
+    module_id: module.id,
+    variables: draft,
+  }
+  updateWizardPipeline(pipelineId, (pipeline) => {
+    const nextPipeline = {
+      ...pipeline,
+      input: nextInput,
+    }
+    return {
+      ...nextPipeline,
+      filters: pipeline.filters.map((instance) => {
+        const filterModule = wizardEligibleModules.value.find((item) => item.id === instance.module_id && item.module_type === 'filter')
+        return {
+          ...instance,
+          variables: buildWizardPipelineDraft(`filter:${instance.module_id}`, filterModule, nextPipeline, instance.variables, {}, previousTag),
+        }
+      }),
+      outputs: pipeline.outputs.map((instance) => {
+        const target = wizardAvailableOutputTargets.value.find((item) => item.id === instance.target_id)
+        return {
+          ...instance,
+          variables: buildWizardOutputDraft(target, wizardForm.fluent_type, nextPipeline, instance.variables, previousTag),
+        }
+      }),
+    }
+  })
+  autoAttachWizardParsersForInputModule(module, draft)
 }
 
 function addWizardFilter(pipelineId, moduleId) {
@@ -2698,7 +2860,7 @@ function addWizardFilter(pipelineId, moduleId) {
       {
         id: createWizardInstanceID('wizard-filter'),
         module_id: module.id,
-        variables: ensureWizardModuleDraft(`filter:${module.id}`, module),
+        variables: buildWizardPipelineDraft(`filter:${module.id}`, module, pipeline),
       },
     ],
   }))
@@ -2724,15 +2886,14 @@ function moveWizardFilter(pipelineId, instanceId, direction) {
   })
 }
 
-function buildWizardOutputDraft(target, fluentType, existingDraft = null) {
+function buildWizardOutputDraft(target, fluentType, pipeline = null, existingDraft = null, previousTag = '') {
   const outputModule = matchingOutputModuleForTarget(target, wizardEligibleModules.value, fluentType)
   const defaults = {
-    ...moduleVariablesForWizard(outputModule),
     ...parseVariablesMap(target?.settings),
     output_target_name: target?.name || '',
     output_target_type: target?.target_type || '',
   }
-  return ensureWizardModuleDraft(`output:${target?.id}`, outputModule, existingDraft, defaults)
+  return buildWizardPipelineDraft(`output:${target?.id}`, outputModule, pipeline, existingDraft, defaults, previousTag)
 }
 
 function addWizardOutputTarget(pipelineId, targetId) {
@@ -2745,7 +2906,7 @@ function addWizardOutputTarget(pipelineId, targetId) {
       {
         id: createWizardInstanceID('wizard-output'),
         target_id: target.id,
-        variables: buildWizardOutputDraft(target, wizardForm.fluent_type),
+        variables: buildWizardOutputDraft(target, wizardForm.fluent_type, pipeline),
       },
     ],
   }))
@@ -2796,7 +2957,7 @@ function pruneWizardStateForRuntime() {
         const target = wizardAvailableOutputTargets.value.find((item) => item.id === instance.target_id)
         return {
           ...instance,
-          variables: buildWizardOutputDraft(target, wizardForm.fluent_type, instance.variables),
+          variables: buildWizardOutputDraft(target, wizardForm.fluent_type, pipeline, instance.variables),
         }
       }),
   }))
@@ -3199,6 +3360,18 @@ function openAssemblyTemplateBuilder() {
   activeTab.value = 'wizard'
 }
 
+function openTemplateInWizard(template, options = {}) {
+  if (!template) return
+  activeTab.value = 'wizard'
+  loadWizardFromTemplate(template)
+  if (!options.suppressRouteSync) {
+    router.replace({
+      path: '/configs',
+      query: { tab: 'wizard' },
+    })
+  }
+}
+
 function applyAIModuleVariables(raw) {
   moduleForm.variables = raw || '{}'
   try {
@@ -3513,9 +3686,11 @@ async function runWizardPreview() {
 
 async function saveWizardAsTemplate() {
   if (!renderedConfig.value?.content) {
-    alert(t('configs_page.require_preview').replace('{action}', t('configs_page.save_wizard_template')))
+    alert(t('configs_page.require_preview').replace('{action}', wizardSaveButtonLabel.value))
     return
   }
+
+  const pipelineStateByID = new Map(wizardPipelines.value.map((pipeline) => [pipeline.id, pipeline]))
 
   const payload = {
     name: wizardForm.name || renderedConfig.value.name || `wizard-${wizardForm.goal}`,
@@ -3531,30 +3706,90 @@ async function saveWizardAsTemplate() {
       runtime: wizardForm.fluent_type,
       global: {
         service_module_id: wizardServiceModule.value?.id || null,
+        service_module: wizardServiceModule.value
+          ? {
+              id: wizardServiceModule.value.id,
+              variables: normalizeWizardDraftValues(
+                wizardGlobalModuleVariables.value[`service:${wizardServiceModule.value.id}`],
+                moduleVariablesForWizard(wizardServiceModule.value)
+              ),
+            }
+          : null,
         parser_module_ids: wizardSelectedParserModules.value.map((item) => item.id),
-      },
-      pipelines: wizardPipelineCards.value.map((card) => ({
-        name: wizardPipelineDisplayName(card, card.index),
-        complete: card.complete,
-        input_module_id: card.inputModule?.id || null,
-        filter_module_ids: card.filterModules.map((item) => item.id),
-        output_targets: card.outputTargets.map((target) => ({
-          id: target.id,
-          name: target.name,
-          target_type: target.target_type,
-          endpoint: target.endpoint,
-          fluent_type: target.fluent_type,
+        parser_modules: wizardSelectedParserModules.value.map((item) => ({
+          id: item.id,
+          variables: normalizeWizardDraftValues(
+            wizardGlobalModuleVariables.value[`parser:${item.id}`],
+            moduleVariablesForWizard(item)
+          ),
         })),
-      })),
+      },
+      pipelines: wizardPipelineCards.value.map((card) => {
+        const pipelineState = pipelineStateByID.get(card.id)
+        return {
+          name: wizardPipelineDisplayName(card, card.index),
+          complete: card.complete,
+          input_module_id: card.inputModule?.id || null,
+          input: card.inputModule
+            ? {
+                module_id: card.inputModule.id,
+                variables: normalizeWizardDraftValues(
+                  pipelineState?.input?.variables,
+                  moduleVariablesForWizard(card.inputModule)
+                ),
+              }
+            : null,
+          filter_module_ids: card.filterModules.map((item) => item.id),
+          filters: (pipelineState?.filters || []).map((instance) => {
+            const module = wizardEligibleModules.value.find((item) => item.id === instance.module_id)
+            return {
+              module_id: instance.module_id,
+              variables: normalizeWizardDraftValues(instance.variables, moduleVariablesForWizard(module)),
+            }
+          }),
+          output_targets: card.outputTargets.map((target) => {
+            const instance = (pipelineState?.outputs || []).find((output) => output.target_id === target.id)
+            return {
+              id: target.id,
+              name: target.name,
+              target_type: target.target_type,
+              endpoint: target.endpoint,
+              fluent_type: target.fluent_type,
+              variables: normalizeWizardDraftValues(
+                instance?.variables,
+                {
+                  ...moduleVariablesForWizard(matchingOutputModuleForTarget(target, wizardEligibleModules.value, wizardForm.fluent_type)),
+                  ...parseVariablesMap(target?.settings),
+                  output_target_name: target?.name || '',
+                  output_target_type: target?.target_type || '',
+                }
+              ),
+            }
+          }),
+        }
+      }),
     }),
   }
 
   try {
+    if (wizardLoadedFromTemplate.value?.id) {
+      const templateID = Number(wizardLoadedFromTemplate.value.id)
+      const { data: updatedTemplate } = await updateTemplate(templateID, payload)
+      await createVersion(templateID, {
+        content: renderedConfig.value.content,
+        comment: t('configs_page.wizard_version_comment').replace('{goal}', wizardGoalLabel(wizardForm.goal)),
+      })
+      wizardLoadedFromTemplate.value = updatedTemplate || wizardLoadedFromTemplate.value
+      await loadTemplates()
+      await router.push(`/configs/${templateID}`)
+      return
+    }
+
     await createTemplate(payload)
     await loadTemplates()
     activeTab.value = 'templates'
   } catch (error) {
-    alert(`${t('configs_page.create_template_failed')}: ${getErrorMessage(error)}`)
+    alert(`${wizardLoadedFromTemplate.value ? t('configs_page.create_version_failed') : t('configs_page.create_template_failed')}: ${getErrorMessage(error)}`)
   }
 }
 
@@ -3603,30 +3838,85 @@ function loadWizardFromTemplate(template) {
   wizardForm.description = template.description || ''
 
   // Restore global resources
-  if (layout.global?.service_module_id) {
-    selectWizardServiceModule(layout.global.service_module_id)
+  const restoredServiceModuleID = layout.global?.service_module?.id || layout.global?.service_module_id
+  if (restoredServiceModuleID) {
+    selectWizardServiceModule(restoredServiceModuleID)
+    const module = wizardEligibleModules.value.find((item) => item.id === restoredServiceModuleID && item.module_type === 'service')
+    const restoredVariables = layout.global?.service_module?.variables
+    if (module && restoredVariables && typeof restoredVariables === 'object') {
+      wizardGlobalModuleVariables.value = {
+        ...wizardGlobalModuleVariables.value,
+        [`service:${restoredServiceModuleID}`]: ensureWizardModuleDraft(
+          `service:${restoredServiceModuleID}`,
+          module,
+          restoredVariables
+        ),
+      }
+    }
   }
-  for (const mid of layout.global?.parser_module_ids || []) {
-    toggleWizardParserModule(mid)
+  const restoredParserModules = Array.isArray(layout.global?.parser_modules)
+    ? layout.global.parser_modules
+    : (layout.global?.parser_module_ids || []).map((id) => ({ id }))
+  for (const parserEntry of restoredParserModules) {
+    const moduleID = Number(parserEntry?.id || parserEntry)
+    if (!moduleID) continue
+    toggleWizardParserModule(moduleID)
+    const module = wizardEligibleModules.value.find((item) => item.id === moduleID && item.module_type === 'parser')
+    const restoredVariables = parserEntry?.variables
+    if (module && restoredVariables && typeof restoredVariables === 'object') {
+      wizardGlobalModuleVariables.value = {
+        ...wizardGlobalModuleVariables.value,
+        [`parser:${moduleID}`]: ensureWizardModuleDraft(`parser:${moduleID}`, module, restoredVariables),
+      }
+    }
   }
 
   // Restore pipelines
   const restored = (layout.pipelines || []).map((p) => {
     const pid = createWizardInstanceID('wizard-pipeline')
+    const inputModuleID = p.input?.module_id || p.input_module_id
+    const inputModule = wizardEligibleModules.value.find((item) => item.id === inputModuleID && item.module_type === 'input')
     return {
       id: pid,
       name: p.name || '',
-      input: p.input_module_id
-        ? { id: createWizardInstanceID('wizard-input'), module_id: p.input_module_id }
+      input: inputModuleID
+        ? {
+            id: createWizardInstanceID('wizard-input'),
+            module_id: inputModuleID,
+            variables: ensureWizardModuleDraft(`input:${inputModuleID}`, inputModule, p.input?.variables),
+          }
         : null,
-      filters: (p.filter_module_ids || []).map((mid) => ({
-        id: createWizardInstanceID('wizard-filter'),
-        module_id: mid,
-      })),
-      outputs: (p.output_targets || []).map((ot) => ({
-        id: createWizardInstanceID('wizard-output'),
-        target_id: ot.id,
-      })),
+      filters: (Array.isArray(p.filters) ? p.filters : (p.filter_module_ids || []).map((mid) => ({ module_id: mid })))
+        .map((entry) => {
+          const moduleID = Number(entry?.module_id || entry)
+          const module = wizardEligibleModules.value.find((item) => item.id === moduleID && item.module_type === 'filter')
+          if (!moduleID) return null
+          return {
+            id: createWizardInstanceID('wizard-filter'),
+            module_id: moduleID,
+            variables: ensureWizardModuleDraft(`filter:${moduleID}`, module, entry?.variables),
+          }
+        })
+        .filter(Boolean),
+      outputs: (p.output_targets || [])
+        .map((ot) => {
+          const targetID = Number(ot?.id)
+          const target = wizardAvailableOutputTargets.value.find((item) => item.id === targetID)
+          if (!targetID) return null
+          return {
+            id: createWizardInstanceID('wizard-output'),
+            target_id: targetID,
+            variables: buildWizardOutputDraft(target, wizardForm.fluent_type, {
+              input: inputModuleID
+                ? {
+                    module_id: inputModuleID,
+                    variables: p.input?.variables,
+                  }
+                : null,
+            }, ot?.variables),
+          }
+        })
+        .filter(Boolean),
     }
   })
   wizardPipelines.value = restored.length ? restored : [createWizardPipeline()]
@@ -4397,5 +4687,21 @@ onMounted(async () => {
   resetWizardForm()
   await Promise.all([loadTemplates(), loadModules(), loadModuleTable(), loadOutputTargets(), loadPipelines()])
   ensureWizardBaselineModules()
+
+  if (route.query.tab === 'wizard') {
+    activeTab.value = 'wizard'
+  }
+
+  const loadTemplateID = Number(route.query.load_template || 0)
+  if (loadTemplateID) {
+    const template = templates.value.find((item) => item.id === loadTemplateID)
+    if (template) {
+      openTemplateInWizard(template, { suppressRouteSync: true })
+      await router.replace({
+        path: '/configs',
+        query: { tab: 'wizard' },
+      })
+    }
+  }
 })
 </script>

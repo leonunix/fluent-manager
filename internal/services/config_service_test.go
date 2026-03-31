@@ -226,13 +226,33 @@ func TestCreateTemplatePurgesLegacySoftDeletedName(t *testing.T) {
 func TestCreateVersion(t *testing.T) {
 	_, svc := setupConfigTest(t)
 
+	inputModule, err := svc.CreateModule(&ConfigModuleInput{
+		Name:       "tail-input",
+		ModuleType: "input",
+		FluentType: "fluentbit",
+		Content:    "[INPUT]\n  Name tail\n  Path /var/log/app.log\n  Parser nginx_json",
+	}, 1)
+	if err != nil {
+		t.Fatalf("create input module: %v", err)
+	}
+	parserModule, err := svc.CreateModule(&ConfigModuleInput{
+		Name:       "nginx-parser",
+		ModuleType: "parser",
+		FluentType: "fluentbit",
+		Content:    "[PARSER]\n  Name nginx_json\n  Format json",
+	}, 1)
+	if err != nil {
+		t.Fatalf("create parser module: %v", err)
+	}
+
 	tpl, _ := svc.CreateTemplate(&ConfigTemplateInput{
-		Name:          "tpl1",
-		FluentType:    "fluentbit",
-		Content:       "content",
-		SourceType:    "module_assembly",
-		SourceModules: `[{"module_id":1,"module_name":"tail-input","module_type":"input"}]`,
-		FlowLayout:    `{"builder":"wizard","goal":"edge_collection"}`,
+		Name:       "tpl1",
+		FluentType: "fluentbit",
+		Content:    "stale content without parser",
+		SourceType: "module_assembly",
+		SourceModules: fmt.Sprintf(`[{"module_id":%d,"module_name":"%s","module_type":"input"},{"module_id":%d,"module_name":"%s","module_type":"parser"}]`,
+			inputModule.ID, inputModule.Name, parserModule.ID, parserModule.Name),
+		FlowLayout: `{"builder":"wizard","goal":"edge_collection"}`,
 	}, 1)
 
 	v1, err := svc.CreateVersion(tpl.ID, 1, "config v1", "initial version")
@@ -247,6 +267,9 @@ func TestCreateVersion(t *testing.T) {
 	}
 	if !strings.Contains(v1.SourceModules, `"module_type":"input"`) {
 		t.Fatalf("expected source modules to be copied into version, got %s", v1.SourceModules)
+	}
+	if !strings.Contains(v1.Content, "[PARSER]") || !strings.Contains(v1.Content, "Name nginx_json") {
+		t.Fatalf("expected rendered version content to include parser module, got %s", v1.Content)
 	}
 
 	v2, _ := svc.CreateVersion(tpl.ID, 1, "config v2", "second version")

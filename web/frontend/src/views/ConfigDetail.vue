@@ -10,9 +10,14 @@
         </span>
         <span class="text-muted ms-2">{{ template.description }}</span>
       </div>
-      <button class="btn btn-primary" @click="openNewVersion">
-        <i class="bi bi-plus-lg me-1"></i>{{ t('config_detail.create_version') }}
-      </button>
+      <div class="d-flex gap-2">
+        <button v-if="isAssemblyTemplate" class="btn btn-outline-secondary" @click="openInWizard">
+          <i class="bi bi-diagram-3 me-1"></i>{{ t('configs_page.edit_in_wizard') }}
+        </button>
+        <button class="btn btn-primary" @click="openNewVersion">
+          <i class="bi bi-plus-lg me-1"></i>{{ t('config_detail.create_version') }}
+        </button>
+      </div>
     </div>
 
     <div class="row g-4">
@@ -764,6 +769,16 @@ async function saveVersion() {
   await createVersion(route.params.id, versionForm)
   versionModal.hide()
   await loadData()
+}
+
+function openInWizard() {
+  router.push({
+    path: '/configs',
+    query: {
+      tab: 'wizard',
+      load_template: String(route.params.id),
+    },
+  })
 }
 
 function openDeploy() {

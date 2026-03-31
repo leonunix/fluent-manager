@@ -175,11 +175,12 @@ func (s *agentService) Heartbeat(nodeUID, configHash string, metrics map[string]
 	effectiveConfigID := node.EffectiveConfigID()
 	if effectiveConfigID != nil {
 		var cv models.ConfigVersion
-		if err := s.db.First(&cv, *effectiveConfigID).Error; err == nil {
-			if cv.Hash != configHash {
+		if err := s.db.Preload("Template").First(&cv, *effectiveConfigID).Error; err == nil {
+			deliveredContent, deliveredHash := s.resolveDeliveredConfig(&cv, node.FluentType)
+			if deliveredHash != configHash {
 				resp.Status = "update_config"
-				resp.ConfigHash = cv.Hash
-				resp.ConfigContent = cv.Content
+				resp.ConfigHash = deliveredHash
+				resp.ConfigContent = deliveredContent
 				resp.ConfigID = cv.ID
 				// Mark stale pending deploy records as failed so they don't stay pending forever.
 				// This covers cases where the agent reported failure but the HTTP call was lost,
@@ -377,8 +378,8 @@ func (s *agentService) updateRuntimeStateFromHeartbeat(node *models.Node, config
 	effectiveConfigID := node.EffectiveConfigID()
 	if effectiveConfigID != nil {
 		var version models.ConfigVersion
-		if err := s.db.First(&version, *effectiveConfigID).Error; err == nil {
-			desiredHash = version.Hash
+		if err := s.db.Preload("Template").First(&version, *effectiveConfigID).Error; err == nil {
+			_, desiredHash = s.resolveDeliveredConfig(&version, node.FluentType)
 		}
 	}
 
@@ -443,8 +444,8 @@ func (s *agentService) updateRuntimeStateFromDeployResult(nodeID, configID uint,
 	desiredHash := ""
 	if configID != 0 {
 		var version models.ConfigVersion
-		if err := s.db.First(&version, configID).Error; err == nil {
-			desiredHash = version.Hash
+		if err := s.db.Preload("Template").First(&version, configID).Error; err == nil {
+			_, desiredHash = s.resolveDeliveredConfig(&version, "")
 		}
 	}
 
@@ -475,6 +476,43 @@ func (s *agentService) updateRuntimeStateFromDeployResult(nodeID, configID uint,
 		updates["last_error"] = message
 	}
 	_ = s.db.Model(&existing).Updates(updates).Error
+}
+
+func (s *agentService) resolveDeliveredConfig(version *models.ConfigVersion, fallbackFluentType string) (string, string) {
+	if version == nil {
+		return "", ""
+	}
+
+	content := version.Content
+	hash := version.Hash
+	if version.SourceType != "module_assembly" || strings.TrimSpace(version.SourceModules) == "" {
+		return content, hash
+	}
+
+	refs, err := parseStoredRenderModuleRefs(version.SourceModules)
+	if err != nil || len(refs) == 0 {
+		return content, hash
+	}
+
+	fluentType := strings.TrimSpace(fallbackFluentType)
+	baseVariables := "{}"
+	if version.Template != nil {
+		if strings.TrimSpace(version.Template.FluentType) != "" {
+			fluentType = strings.TrimSpace(version.Template.FluentType)
+		}
+		if strings.TrimSpace(version.Template.Variables) != "" {
+			baseVariables = version.Template.Variables
+		}
+	}
+	if fluentType == "" {
+		return content, hash
+	}
+
+	renderedContent, _, err := (&configService{db: s.db}).renderModulesForRuntime(fluentType, refs, baseVariables)
+	if err != nil || strings.TrimSpace(renderedContent) == "" {
+		return content, hash
+	}
+	return renderedContent, models.HashConfig(renderedContent)
 }
 
 func (s *agentService) ReportCommandResult(commandID uint, status, output string) error {

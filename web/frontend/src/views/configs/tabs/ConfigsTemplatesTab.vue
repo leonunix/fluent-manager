@@ -56,6 +56,13 @@
                 <router-link :to="`/configs/${tpl.id}`" class="btn btn-sm btn-outline-primary me-1">
                   <i class="bi bi-eye"></i>
                 </router-link>
+                <button
+                  v-if="tpl.source_type === 'module_assembly'"
+                  class="btn btn-sm btn-outline-secondary me-1"
+                  @click="actions.openTemplateInWizard(tpl)"
+                >
+                  <i class="bi bi-diagram-3"></i>
+                </button>
                 <button class="btn btn-sm btn-outline-danger" @click="actions.handleDeleteTemplate(tpl)">
                   <i class="bi bi-trash"></i>
                 </button>

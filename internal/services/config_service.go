@@ -84,12 +84,12 @@ type RenderedConfigPreviewInput struct {
 
 // ConfigPipelineInput is the DTO for creating or updating a ConfigPipeline.
 type ConfigPipelineInput struct {
-	Name            string  `json:"name"`
-	Description     string  `json:"description"`
-	FluentType      string  `json:"fluent_type"`
-	InputModuleID   *uint   `json:"input_module_id"`
-	FilterModuleIDs []uint  `json:"filter_module_ids"`
-	OutputTargetIDs []uint  `json:"output_target_ids"`
+	Name            string `json:"name"`
+	Description     string `json:"description"`
+	FluentType      string `json:"fluent_type"`
+	InputModuleID   *uint  `json:"input_module_id"`
+	FilterModuleIDs []uint `json:"filter_module_ids"`
+	OutputTargetIDs []uint `json:"output_target_ids"`
 }
 
 // ConfigPipelineDetail extends ConfigPipeline with resolved related objects.
@@ -248,6 +248,18 @@ func (s *configService) CreateVersion(templateID, createdBy uint, content, comme
 		return nil, err
 	}
 
+	renderedContent := content
+	if tpl.SourceType == "module_assembly" && strings.TrimSpace(tpl.SourceModules) != "" {
+		refs, err := parseStoredRenderModuleRefs(tpl.SourceModules)
+		if err != nil {
+			return nil, err
+		}
+		renderedContent, _, err = s.renderModulesForRuntime(tpl.FluentType, refs, tpl.Variables)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	var maxVersion int
 	s.db.Model(&models.ConfigVersion{}).
 		Where("template_id = ?", templateID).
@@ -256,8 +268,8 @@ func (s *configService) CreateVersion(templateID, createdBy uint, content, comme
 	version := models.ConfigVersion{
 		TemplateID:    templateID,
 		Version:       maxVersion + 1,
-		Content:       content,
-		Hash:          models.HashConfig(content),
+		Content:       renderedContent,
+		Hash:          models.HashConfig(renderedContent),
 		Comment:       comment,
 		SourceType:    tpl.SourceType,
 		SourceModules: tpl.SourceModules,
@@ -660,81 +672,15 @@ func (s *configService) PreviewRenderedConfig(input *RenderedConfigPreviewInput,
 	if len(input.Modules) == 0 {
 		return nil, fmt.Errorf("%w: at least one module is required", ErrInvalidArgument)
 	}
-
-	variables, err := parseRenderVariables(input.Variables)
+	content, sourcePayload, err := s.renderModulesForRuntime(fluentType, input.Modules, input.Variables)
 	if err != nil {
 		return nil, err
 	}
-
-	type renderPart struct {
-		module  models.ConfigModule
-		version *models.ConfigModuleVersion
-		content string
-		ref     RenderModuleRef
-	}
-
-	parts := make([]renderPart, 0, len(input.Modules))
-	sourceRefs := make([]map[string]interface{}, 0, len(input.Modules))
-
-	for _, ref := range input.Modules {
-		module, version, content, err := s.resolveRenderModule(ref, fluentType)
-		if err != nil {
-			return nil, err
-		}
-		parts = append(parts, renderPart{
-			module:  *module,
-			version: version,
-			content: content,
-			ref:     ref,
-		})
-
-		sourceRef := map[string]interface{}{
-			"module_id":   module.ID,
-			"module_name": module.Name,
-			"module_type": module.ModuleType,
-		}
-		if strings.TrimSpace(ref.Variables) != "" {
-			sourceRef["variables"] = normalizeJSONString(ref.Variables)
-		}
-		if version != nil {
-			sourceRef["version_id"] = version.ID
-			sourceRef["version"] = version.Version
-		}
-		sourceRefs = append(sourceRefs, sourceRef)
-	}
-
-	sort.SliceStable(parts, func(i, j int) bool {
-		left := moduleTypeOrder[parts[i].module.ModuleType]
-		right := moduleTypeOrder[parts[j].module.ModuleType]
-		return left < right
-	})
-
-	var sections []string
-	for _, part := range parts {
-		moduleVariables := cloneRenderVariables(variables)
-		overrideVariables, err := parseRenderVariables(part.ref.Variables)
-		if err != nil {
-			return nil, err
-		}
-		for key, value := range overrideVariables {
-			moduleVariables[key] = value
-		}
-
-		rendered, err := renderModuleTemplate(part.content, moduleVariables)
-		if err != nil {
-			return nil, fmt.Errorf("%w: render module %q failed: %v", ErrInvalidArgument, part.module.Name, err)
-		}
-		header := fmt.Sprintf("# module:%s name:%s runtime:%s", part.module.ModuleType, part.module.Name, fluentType)
-		sections = append(sections, header+"\n"+strings.TrimSpace(rendered))
-	}
-
-	sourcePayload, _ := json.Marshal(sourceRefs)
-	content := strings.Join(sections, "\n\n")
 	rendered := &models.RenderedConfig{
 		Name:           strings.TrimSpace(input.Name),
 		FluentType:     fluentType,
 		RuntimeVersion: strings.TrimSpace(input.RuntimeVersion),
-		SourceModules:  string(sourcePayload),
+		SourceModules:  sourcePayload,
 		Variables:      normalizeJSONString(input.Variables),
 		Content:        content,
 		Hash:           models.HashConfig(content),
@@ -775,6 +721,91 @@ func (s *configService) resolveRenderModule(ref RenderModuleRef, fluentType stri
 	}
 
 	return &module, version, content, nil
+}
+
+func parseStoredRenderModuleRefs(raw string) ([]RenderModuleRef, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "[]" {
+		return nil, nil
+	}
+
+	var refs []RenderModuleRef
+	if err := json.Unmarshal([]byte(raw), &refs); err != nil {
+		return nil, fmt.Errorf("%w: source_modules must contain renderable module refs", ErrInvalidArgument)
+	}
+	return refs, nil
+}
+
+func (s *configService) renderModulesForRuntime(fluentType string, refs []RenderModuleRef, variablesRaw string) (string, string, error) {
+	variables, err := parseRenderVariables(variablesRaw)
+	if err != nil {
+		return "", "", err
+	}
+
+	type renderPart struct {
+		module  models.ConfigModule
+		version *models.ConfigModuleVersion
+		content string
+		ref     RenderModuleRef
+	}
+
+	parts := make([]renderPart, 0, len(refs))
+	sourceRefs := make([]map[string]interface{}, 0, len(refs))
+
+	for _, ref := range refs {
+		module, version, content, err := s.resolveRenderModule(ref, fluentType)
+		if err != nil {
+			return "", "", err
+		}
+		parts = append(parts, renderPart{
+			module:  *module,
+			version: version,
+			content: content,
+			ref:     ref,
+		})
+
+		sourceRef := map[string]interface{}{
+			"module_id":   module.ID,
+			"module_name": module.Name,
+			"module_type": module.ModuleType,
+		}
+		if strings.TrimSpace(ref.Variables) != "" {
+			sourceRef["variables"] = normalizeJSONString(ref.Variables)
+		}
+		if version != nil {
+			sourceRef["version_id"] = version.ID
+			sourceRef["version"] = version.Version
+		}
+		sourceRefs = append(sourceRefs, sourceRef)
+	}
+
+	sort.SliceStable(parts, func(i, j int) bool {
+		left := moduleTypeOrder[parts[i].module.ModuleType]
+		right := moduleTypeOrder[parts[j].module.ModuleType]
+		return left < right
+	})
+
+	sections := make([]string, 0, len(parts))
+	for _, part := range parts {
+		moduleVariables := cloneRenderVariables(variables)
+		overrideVariables, err := parseRenderVariables(part.ref.Variables)
+		if err != nil {
+			return "", "", err
+		}
+		for key, value := range overrideVariables {
+			moduleVariables[key] = value
+		}
+
+		rendered, err := renderModuleTemplate(part.content, moduleVariables)
+		if err != nil {
+			return "", "", fmt.Errorf("%w: render module %q failed: %v", ErrInvalidArgument, part.module.Name, err)
+		}
+		header := fmt.Sprintf("# module:%s name:%s runtime:%s", part.module.ModuleType, part.module.Name, fluentType)
+		sections = append(sections, header+"\n"+strings.TrimSpace(rendered))
+	}
+
+	sourcePayload, _ := json.Marshal(sourceRefs)
+	return strings.Join(sections, "\n\n"), string(sourcePayload), nil
 }
 
 func validateConfigModuleInput(input *ConfigModuleInput) (*models.ConfigModule, error) {

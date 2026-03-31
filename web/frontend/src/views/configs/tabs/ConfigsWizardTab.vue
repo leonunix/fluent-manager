@@ -20,32 +20,112 @@
           </div>
 
           <!-- Load from existing template -->
-          <div class="border rounded p-3 mb-3 bg-light-subtle">
-            <div class="d-flex align-items-center gap-2 flex-wrap">
-              <label class="form-label mb-0 text-nowrap">{{ t('configs_page.wizard_load_from_template') }}</label>
-              <div class="flex-grow-1">
-                <select
-                  v-model="selectedLoadTemplateId"
-                  class="form-select form-select-sm"
-                >
-                  <option value="">— {{ t('common.none') }} —</option>
-                  <option
-                    v-for="tpl in state.wizardAssemblyTemplates"
+          <div class="border rounded-4 p-3 mb-3 bg-light-subtle fm-template-picker">
+            <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+              <div>
+                <div class="fw-semibold">{{ t('configs_page.wizard_load_from_template') }}</div>
+                <div class="small text-muted mt-1">{{ t('configs_page.wizard_load_templates_hint') }}</div>
+              </div>
+              <span class="badge text-bg-light">{{ filteredLoadTemplates.length }} / {{ loadableTemplateTotal }}</span>
+            </div>
+
+            <div v-if="!loadableTemplateTotal" class="small text-muted">
+              {{ t('configs_page.wizard_no_assembly_templates') }}
+            </div>
+
+            <div v-else class="row g-3">
+              <div class="col-lg-5">
+                <div class="input-group input-group-sm mb-3">
+                  <span class="input-group-text"><i class="bi bi-search"></i></span>
+                  <input
+                    v-model="loadTemplateSearch"
+                    type="text"
+                    class="form-control"
+                    :placeholder="t('configs_page.wizard_template_search_placeholder')"
+                  >
+                </div>
+
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                  <button
+                    type="button"
+                    class="btn btn-sm"
+                    :class="loadRuntimeFilter === 'current' ? 'btn-primary' : 'btn-outline-secondary'"
+                    @click="loadRuntimeFilter = 'current'"
+                  >
+                    {{ t('configs_page.wizard_template_filter_current') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-sm"
+                    :class="loadRuntimeFilter === 'all' ? 'btn-primary' : 'btn-outline-secondary'"
+                    @click="loadRuntimeFilter = 'all'"
+                  >
+                    {{ t('configs_page.wizard_template_filter_all') }}
+                  </button>
+                  <button
+                    v-for="runtime in runtimeFilters"
+                    :key="runtime"
+                    type="button"
+                    class="btn btn-sm"
+                    :class="loadRuntimeFilter === runtime ? 'btn-primary' : 'btn-outline-secondary'"
+                    @click="loadRuntimeFilter = runtime"
+                  >
+                    {{ helpers.runtimeLabel(runtime) }}
+                  </button>
+                </div>
+
+                <div v-if="!filteredLoadTemplates.length" class="fm-template-picker__empty border rounded-3 bg-white">
+                  {{ t('configs_page.wizard_template_empty_search') }}
+                </div>
+
+                <div v-else class="fm-template-picker__list d-grid gap-2">
+                  <button
+                    v-for="tpl in filteredLoadTemplates"
                     :key="tpl.id"
-                    :value="tpl.id"
-                  >{{ tpl.name }}</option>
-                </select>
-                <div v-if="!state.wizardAssemblyTemplates || !state.wizardAssemblyTemplates.length" class="small text-muted mt-1">
-                  {{ t('configs_page.wizard_no_assembly_templates') }}
+                    type="button"
+                    class="btn text-start fm-template-picker__item"
+                    :class="String(selectedLoadTemplateId) === String(tpl.id) ? 'btn-primary' : 'btn-outline-secondary'"
+                    @click="selectedLoadTemplateId = tpl.id"
+                  >
+                    <div class="d-flex justify-content-between align-items-start gap-2">
+                      <div class="min-w-0">
+                        <div class="fw-semibold text-truncate">{{ tpl.name }}</div>
+                        <div class="small opacity-75 fm-template-picker__description">
+                          {{ tpl.description || t('common.no_description') }}
+                        </div>
+                      </div>
+                      <span class="badge" :class="String(selectedLoadTemplateId) === String(tpl.id) ? 'text-bg-light' : 'text-bg-secondary'">
+                        {{ helpers.runtimeLabel(tpl.fluent_type) }}
+                      </span>
+                    </div>
+                  </button>
                 </div>
               </div>
-              <button
-                class="btn btn-sm btn-primary text-nowrap"
-                :disabled="!selectedLoadTemplateId"
-                @click="doLoadFromTemplate"
-              >
-                <i class="bi bi-box-arrow-in-down-right me-1"></i>{{ t('configs_page.wizard_load_button') }}
-              </button>
+
+              <div class="col-lg-7">
+                <div v-if="selectedLoadTemplate" class="fm-template-picker__detail border rounded-3 bg-white p-3 h-100">
+                  <div class="d-flex justify-content-between align-items-start gap-2 mb-3">
+                    <div>
+                      <div class="fw-semibold">{{ selectedLoadTemplate.name }}</div>
+                      <div class="small text-muted mt-1">{{ selectedLoadTemplate.description || t('common.no_description') }}</div>
+                    </div>
+                    <span class="badge text-bg-light">{{ helpers.runtimeLabel(selectedLoadTemplate.fluent_type) }}</span>
+                  </div>
+                  <div class="small text-muted mb-3">
+                    {{ t('configs_page.wizard_loaded_from') }} ID #{{ selectedLoadTemplate.id }}
+                  </div>
+                  <button
+                    class="btn btn-sm btn-primary text-nowrap"
+                    @click="doLoadFromTemplate"
+                  >
+                    <i class="bi bi-box-arrow-in-down-right me-1"></i>{{ t('configs_page.wizard_load_button') }}
+                  </button>
+                </div>
+
+                <div v-else class="fm-template-picker__empty border rounded-3 bg-white">
+                  {{ t('configs_page.wizard_template_select_prompt') }}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -193,40 +273,61 @@
           <div class="alert alert-info py-2">
             {{ t('configs_page.wizard_variable_scope_hint') }}
           </div>
-          <div v-if="allVariableGroups.length" class="row g-3">
-            <div v-for="group in allVariableGroups" :key="group.key" class="col-12">
-              <div class="border rounded-3 p-3 bg-light-subtle">
-                <div class="d-flex justify-content-between align-items-center gap-2 mb-3 flex-wrap">
-                  <div>
-                    <div class="fw-semibold">{{ group.title }}</div>
-                    <div class="small text-muted">{{ group.subtitle }}</div>
-                  </div>
-                  <span class="badge text-bg-light">{{ group.fields.length }}</span>
+          <div v-if="variableSections.length" class="d-grid gap-3">
+            <details
+              v-for="section in variableSections"
+              :key="section.key"
+              class="fm-variable-section border rounded-3 bg-light-subtle"
+            >
+              <summary class="fm-variable-section__summary">
+                <div>
+                  <div class="fw-semibold">{{ section.title }}</div>
+                  <div class="small text-muted">{{ section.groups.length }}</div>
                 </div>
-                <div class="row g-3">
-                  <div v-for="field in group.fields" :key="`${group.key}-${field.key}`" class="col-12">
-                    <label class="form-label">{{ field.key }}</label>
-                    <select v-if="field.kind === 'boolean'" v-model="group.model[field.key]" class="form-select">
-                      <option value="true">true</option>
-                      <option value="false">false</option>
-                    </select>
-                    <textarea
-                      v-else-if="field.kind === 'json'"
-                      v-model="group.model[field.key]"
-                      class="form-control font-monospace"
-                      rows="4"
-                    ></textarea>
-                    <input
-                      v-else
-                      v-model="group.model[field.key]"
-                      type="text"
-                      class="form-control"
-                    >
-                    <div v-if="field.description" class="small text-muted mt-1">{{ field.description }}</div>
+                <span class="badge text-bg-light">{{ section.fieldCount }}</span>
+              </summary>
+
+              <div class="fm-variable-section__body d-grid gap-3">
+                <details
+                  v-for="(group, groupIndex) in section.groups"
+                  :key="group.key"
+                  class="fm-variable-group border rounded-3 bg-white"
+                >
+                  <summary class="fm-variable-group__summary">
+                    <div>
+                      <div class="fw-semibold">{{ group.title }}</div>
+                      <div class="small text-muted">{{ group.subtitle }}</div>
+                    </div>
+                    <span class="badge text-bg-light">{{ group.fields.length }}</span>
+                  </summary>
+
+                  <div class="p-3 pt-0">
+                    <div class="row g-3">
+                      <div v-for="field in group.fields" :key="`${group.key}-${field.key}`" class="col-12">
+                        <label class="form-label">{{ field.key }}</label>
+                        <select v-if="field.kind === 'boolean'" v-model="group.model[field.key]" class="form-select">
+                          <option value="true">true</option>
+                          <option value="false">false</option>
+                        </select>
+                        <textarea
+                          v-else-if="field.kind === 'json'"
+                          v-model="group.model[field.key]"
+                          class="form-control font-monospace"
+                          rows="4"
+                        ></textarea>
+                        <input
+                          v-else
+                          v-model="group.model[field.key]"
+                          type="text"
+                          class="form-control"
+                        >
+                        <div v-if="field.description" class="small text-muted mt-1">{{ field.description }}</div>
+                      </div>
+                    </div>
                   </div>
-                </div>
+                </details>
               </div>
-            </div>
+            </details>
           </div>
           <div v-else class="text-center text-muted py-4">
             {{ t('configs_page.wizard_no_variables') }}
@@ -534,7 +635,7 @@
               <i class="bi bi-magic me-1"></i>{{ t('configs_page.generate_wizard_preview') }}
             </button>
             <button class="btn btn-outline-primary" :disabled="!state.renderedConfig" @click="actions.saveWizardAsTemplate">
-              <i class="bi bi-file-earmark-plus me-1"></i>{{ t('configs_page.save_wizard_template') }}
+              <i class="bi bi-file-earmark-plus me-1"></i>{{ state.wizardSaveButtonLabel || t('configs_page.save_wizard_template') }}
             </button>
             <button class="btn btn-outline-secondary" @click="actions.openAdvancedPreviewFromWizard">
               <i class="bi bi-sliders me-1"></i>{{ t('configs_page.open_advanced_preview') }}
@@ -614,13 +715,56 @@ const { t } = useI18n()
 
 const selectedLoadTemplateId = ref('')
 const selectedFromSavedPipelineId = ref('')
+const loadTemplateSearch = ref('')
+const loadRuntimeFilter = ref('current')
+
+const runtimeFilters = computed(() => {
+  const runtimes = new Set(
+    (unref(props.state.wizardAssemblyTemplates) || [])
+      .map((tpl) => String(tpl?.fluent_type || '').trim())
+      .filter(Boolean)
+  )
+  return Array.from(runtimes)
+})
+
+const loadableTemplateTotal = computed(() => (unref(props.state.wizardAssemblyTemplates) || []).length)
+
+const filteredLoadTemplates = computed(() => {
+  const templates = unref(props.state.wizardAssemblyTemplates) || []
+  const keyword = String(loadTemplateSearch.value || '').trim().toLowerCase()
+  const currentRuntime = String(unref(props.state.wizardForm)?.fluent_type || '').trim().toLowerCase()
+
+  return templates.filter((tpl) => {
+    const runtime = String(tpl?.fluent_type || '').trim().toLowerCase()
+    if (loadRuntimeFilter.value === 'current' && currentRuntime && runtime !== currentRuntime) {
+      return false
+    }
+    if (loadRuntimeFilter.value !== 'current' && loadRuntimeFilter.value !== 'all' && runtime !== String(loadRuntimeFilter.value).trim().toLowerCase()) {
+      return false
+    }
+    if (!keyword) return true
+    const haystack = [
+      tpl?.name,
+      tpl?.description,
+      tpl?.fluent_type,
+    ]
+      .filter(Boolean)
+      .join('\n')
+      .toLowerCase()
+    return haystack.includes(keyword)
+  })
+})
+
+const selectedLoadTemplate = computed(() =>
+  (unref(props.state.wizardAssemblyTemplates) || []).find((item) => String(item.id) === String(selectedLoadTemplateId.value)) || null
+)
 
 function doLoadFromTemplate() {
-  // eslint-disable-next-line eqeqeq
-  const tpl = (unref(props.state.wizardAssemblyTemplates) || []).find((item) => item.id == selectedLoadTemplateId.value)
+  const tpl = selectedLoadTemplate.value
   if (!tpl) return
   props.actions.loadWizardFromTemplate(tpl)
   selectedLoadTemplateId.value = ''
+  loadTemplateSearch.value = ''
 }
 
 function doAddFromSavedPipeline() {
@@ -633,6 +777,32 @@ const allVariableGroups = computed(() => [
   ...(unref(props.state.wizardGlobalVariableGroups) || []),
   ...(unref(props.state.wizardPipelineVariableGroups) || []),
 ])
+
+const variableSections = computed(() => {
+  const sections = []
+  const sectionMap = new Map()
+
+  for (const group of allVariableGroups.value) {
+    const key = group.sectionKey || 'default'
+    if (!sectionMap.has(key)) {
+      const section = {
+        key,
+        title: group.sectionTitle || t('configs_page.wizard_variables'),
+        kind: group.sectionKind || 'default',
+        ref: group.sectionRef || '',
+        groups: [],
+        fieldCount: 0,
+      }
+      sectionMap.set(key, section)
+      sections.push(section)
+    }
+    const section = sectionMap.get(key)
+    section.groups.push(group)
+    section.fieldCount += group.fields.length
+  }
+
+  return sections
+})
 
 const variableGroupCount = computed(() =>
   allVariableGroups.value.reduce((total, group) => total + group.fields.length, 0)
@@ -663,3 +833,56 @@ function outputName(targetId) {
   return target?.name || t('configs_page.pipeline_stage_output')
 }
 </script>
+
+<style scoped>
+.fm-template-picker__list {
+  max-height: 18rem;
+  overflow: auto;
+}
+
+.fm-template-picker__item {
+  border-width: 1px;
+}
+
+.fm-template-picker__description {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.fm-template-picker__detail,
+.fm-template-picker__empty {
+  min-height: 100%;
+}
+
+.fm-template-picker__empty {
+  min-height: 10rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--bs-secondary-color);
+  padding: 1rem;
+}
+
+.fm-variable-section__summary,
+.fm-variable-group__summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  cursor: pointer;
+  padding: 1rem;
+}
+
+.fm-variable-section__summary::-webkit-details-marker,
+.fm-variable-group__summary::-webkit-details-marker {
+  display: none;
+}
+
+.fm-variable-section__body {
+  padding: 0 1rem 1rem;
+}
+</style>

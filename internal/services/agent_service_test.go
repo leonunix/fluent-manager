@@ -1,6 +1,8 @@
 package services
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/fluent-manager/fluent-manager/internal/models"
@@ -263,6 +265,74 @@ func TestHeartbeat_ConfigUpdate(t *testing.T) {
 	}
 	if resp.ConfigContent != "new config" {
 		t.Error("should include new config content")
+	}
+}
+
+func TestHeartbeat_ConfigUpdateRendersAssemblyParsers(t *testing.T) {
+	db, svc := setupAgentTest(t)
+
+	configSvc := NewConfigService(db)
+	inputModule, err := configSvc.CreateModule(&ConfigModuleInput{
+		Name:       "heartbeat-tail-input",
+		ModuleType: "input",
+		FluentType: "fluentbit",
+		Content:    "[INPUT]\n  Name tail\n  Path /var/log/app.log\n  Parser nginx_json",
+	}, 1)
+	if err != nil {
+		t.Fatalf("create input module: %v", err)
+	}
+	parserModule, err := configSvc.CreateModule(&ConfigModuleInput{
+		Name:       "heartbeat-nginx-parser",
+		ModuleType: "parser",
+		FluentType: "fluentbit",
+		Content:    "[PARSER]\n  Name nginx_json\n  Format json",
+	}, 1)
+	if err != nil {
+		t.Fatalf("create parser module: %v", err)
+	}
+	template, err := configSvc.CreateTemplate(&ConfigTemplateInput{
+		Name:       "heartbeat-assembly-template",
+		FluentType: "fluentbit",
+		Content:    "stale template content",
+		SourceType: "module_assembly",
+		SourceModules: fmt.Sprintf(
+			`[{"module_id":%d,"module_name":"%s","module_type":"input"},{"module_id":%d,"module_name":"%s","module_type":"parser"}]`,
+			inputModule.ID, inputModule.Name, parserModule.ID, parserModule.Name,
+		),
+	}, 1)
+	if err != nil {
+		t.Fatalf("create template: %v", err)
+	}
+
+	cv := models.ConfigVersion{
+		TemplateID:    template.ID,
+		Version:       1,
+		Content:       "stale version content",
+		Hash:          models.HashConfig("stale version content"),
+		SourceType:    "module_assembly",
+		SourceModules: template.SourceModules,
+	}
+	if err := db.Create(&cv).Error; err != nil {
+		t.Fatalf("create stale config version: %v", err)
+	}
+
+	node := models.Node{NodeUID: "uid-assembly-001", Hostname: "assembly-node", FluentType: "fluentbit", ConfigID: &cv.ID}
+	if err := db.Create(&node).Error; err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+
+	resp, err := svc.Heartbeat("uid-assembly-001", "old-hash", nil, nil)
+	if err != nil {
+		t.Fatalf("heartbeat error: %v", err)
+	}
+	if resp.Status != "update_config" {
+		t.Fatalf("expected update_config, got %s", resp.Status)
+	}
+	if !strings.Contains(resp.ConfigContent, "[PARSER]") || !strings.Contains(resp.ConfigContent, "Name nginx_json") {
+		t.Fatalf("expected delivered config to include parser definition, got %s", resp.ConfigContent)
+	}
+	if resp.ConfigHash != models.HashConfig(resp.ConfigContent) {
+		t.Fatalf("expected delivered hash to match rendered content, got hash=%s content=%s", resp.ConfigHash, resp.ConfigContent)
 	}
 }
 
