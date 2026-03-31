@@ -1,6 +1,7 @@
 package services
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/fluent-manager/fluent-manager/internal/models"
@@ -44,7 +45,7 @@ func TestDeployCreate_ByNodeIDs(t *testing.T) {
 	db, svc := setupDeployTest(t)
 	cv, _, nodes := seedDeployData(t, db)
 
-	task, err := svc.Create(cv.ID, []uint{nodes[0].ID}, nil, nil, nil, nil, 1, nil)
+	task, err := svc.Create(cv.ID, []uint{nodes[0].ID}, nil, nil, nil, nil, 1, nil, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -57,7 +58,7 @@ func TestDeployCreate_ByCluster(t *testing.T) {
 	db, svc := setupDeployTest(t)
 	cv, cluster, _ := seedDeployData(t, db)
 
-	task, err := svc.Create(cv.ID, nil, &cluster.ID, nil, nil, nil, 1, nil)
+	task, err := svc.Create(cv.ID, nil, &cluster.ID, nil, nil, nil, 1, nil, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -73,7 +74,7 @@ func TestDeployCreate_ByRegion(t *testing.T) {
 	var region models.Region
 	db.First(&region)
 
-	task, err := svc.Create(cv.ID, nil, nil, &region.ID, nil, nil, 1, nil)
+	task, err := svc.Create(cv.ID, nil, nil, &region.ID, nil, nil, 1, nil, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -89,7 +90,7 @@ func TestDeployCreate_ByDatacenter(t *testing.T) {
 	var dc models.DataCenter
 	db.First(&dc)
 
-	task, err := svc.Create(cv.ID, nil, nil, nil, &dc.ID, nil, 1, nil)
+	task, err := svc.Create(cv.ID, nil, nil, nil, &dc.ID, nil, 1, nil, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -103,7 +104,7 @@ func TestDeployCreate_NoTargets(t *testing.T) {
 	cv, _, _ := seedDeployData(t, db)
 	_ = db
 
-	_, err := svc.Create(cv.ID, nil, nil, nil, nil, nil, 1, nil)
+	_, err := svc.Create(cv.ID, nil, nil, nil, nil, nil, 1, nil, false)
 	if err == nil {
 		t.Error("expected error when no target nodes")
 	}
@@ -112,7 +113,7 @@ func TestDeployCreate_NoTargets(t *testing.T) {
 func TestDeployCreate_InvalidConfigVersion(t *testing.T) {
 	_, svc := setupDeployTest(t)
 
-	_, err := svc.Create(999, []uint{1}, nil, nil, nil, nil, 1, nil)
+	_, err := svc.Create(999, []uint{1}, nil, nil, nil, nil, 1, nil, false)
 	if err == nil {
 		t.Error("expected error for non-existent config version")
 	}
@@ -127,7 +128,7 @@ func TestDeployCreate_ScopeCheck(t *testing.T) {
 	db.Create(&c2)
 
 	// Nodes are in c1 but user is scoped to c2 only
-	_, err := svc.Create(cv.ID, []uint{nodes[0].ID}, nil, nil, nil, nil, 1, []uint{c2.ID})
+	_, err := svc.Create(cv.ID, []uint{nodes[0].ID}, nil, nil, nil, nil, 1, []uint{c2.ID}, false)
 	if err == nil {
 		t.Error("expected scope violation error")
 	}
@@ -138,7 +139,7 @@ func TestDeployCreate_ScopeCheckPasses(t *testing.T) {
 	cv, cluster, nodes := seedDeployData(t, db)
 
 	// User scoped to c1 where nodes are
-	task, err := svc.Create(cv.ID, []uint{nodes[0].ID}, nil, nil, nil, nil, 1, []uint{cluster.ID})
+	task, err := svc.Create(cv.ID, []uint{nodes[0].ID}, nil, nil, nil, nil, 1, []uint{cluster.ID}, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -152,7 +153,7 @@ func TestDeployCreate_Dedup(t *testing.T) {
 	cv, cluster, nodes := seedDeployData(t, db)
 
 	// Both cluster scope and explicit node IDs target same nodes
-	task, err := svc.Create(cv.ID, []uint{nodes[0].ID, nodes[1].ID}, &cluster.ID, nil, nil, nil, 1, nil)
+	task, err := svc.Create(cv.ID, []uint{nodes[0].ID, nodes[1].ID}, &cluster.ID, nil, nil, nil, 1, nil, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -165,7 +166,7 @@ func TestDeployList_Global(t *testing.T) {
 	db, svc := setupDeployTest(t)
 	cv, cluster, _ := seedDeployData(t, db)
 
-	svc.Create(cv.ID, nil, &cluster.ID, nil, nil, nil, 1, nil)
+	svc.Create(cv.ID, nil, &cluster.ID, nil, nil, nil, 1, nil, false)
 
 	tasks, total, err := svc.List(1, 10, nil)
 	if err != nil {
@@ -180,7 +181,7 @@ func TestDeployList_Scoped(t *testing.T) {
 	db, svc := setupDeployTest(t)
 	cv, cluster, _ := seedDeployData(t, db)
 
-	svc.Create(cv.ID, nil, &cluster.ID, nil, nil, nil, 1, nil)
+	svc.Create(cv.ID, nil, &cluster.ID, nil, nil, nil, 1, nil, false)
 
 	// User scoped to non-existent cluster
 	tasks, total, _ := svc.List(1, 10, []uint{999})
@@ -193,7 +194,7 @@ func TestDeployGet(t *testing.T) {
 	db, svc := setupDeployTest(t)
 	cv, cluster, _ := seedDeployData(t, db)
 
-	task, _ := svc.Create(cv.ID, nil, &cluster.ID, nil, nil, nil, 1, nil)
+	task, _ := svc.Create(cv.ID, nil, &cluster.ID, nil, nil, nil, 1, nil, false)
 
 	gotTask, records, total, err := svc.Get(task.ID, 1, 20, nil)
 	if err != nil {
@@ -214,7 +215,7 @@ func TestDeployGet_PaginatesRecords(t *testing.T) {
 	db, svc := setupDeployTest(t)
 	cv, cluster, _ := seedDeployData(t, db)
 
-	task, _ := svc.Create(cv.ID, nil, &cluster.ID, nil, nil, nil, 1, nil)
+	task, _ := svc.Create(cv.ID, nil, &cluster.ID, nil, nil, nil, 1, nil, false)
 
 	_, firstPage, total, err := svc.Get(task.ID, 1, 1, nil)
 	if err != nil {
@@ -254,6 +255,69 @@ func TestGetAuditLogs(t *testing.T) {
 	}
 	if total != 2 || len(logs) != 2 {
 		t.Errorf("expected 2 audit logs, got total=%d len=%d", total, len(logs))
+	}
+}
+
+func TestDeployCreate_ConflictDetected(t *testing.T) {
+	db, svc := setupDeployTest(t)
+	cv, cluster, _ := seedDeployData(t, db)
+
+	// First deploy succeeds
+	_, err := svc.Create(cv.ID, nil, &cluster.ID, nil, nil, nil, 1, nil, false)
+	if err != nil {
+		t.Fatalf("first deploy unexpected error: %v", err)
+	}
+
+	// Second deploy to same cluster without force should return DeployConflictError
+	_, err = svc.Create(cv.ID, nil, &cluster.ID, nil, nil, nil, 1, nil, false)
+	if err == nil {
+		t.Fatal("expected conflict error, got nil")
+	}
+	var conflictErr *DeployConflictError
+	if !errors.As(err, &conflictErr) {
+		t.Fatalf("expected DeployConflictError, got %T: %v", err, err)
+	}
+	if conflictErr.Count != 1 {
+		t.Errorf("expected conflict count=1, got %d", conflictErr.Count)
+	}
+}
+
+func TestDeployCreate_ConflictForced(t *testing.T) {
+	db, svc := setupDeployTest(t)
+	cv, cluster, _ := seedDeployData(t, db)
+
+	_, err := svc.Create(cv.ID, nil, &cluster.ID, nil, nil, nil, 1, nil, false)
+	if err != nil {
+		t.Fatalf("first deploy unexpected error: %v", err)
+	}
+
+	// force=true should bypass the conflict check
+	task, err := svc.Create(cv.ID, nil, &cluster.ID, nil, nil, nil, 1, nil, true)
+	if err != nil {
+		t.Fatalf("forced deploy unexpected error: %v", err)
+	}
+	if task.TotalNodes != 2 {
+		t.Errorf("expected 2 nodes, got %d", task.TotalNodes)
+	}
+}
+
+func TestDeployCreate_ConflictNodeScope(t *testing.T) {
+	db, svc := setupDeployTest(t)
+	cv, _, nodes := seedDeployData(t, db)
+
+	_, err := svc.Create(cv.ID, []uint{nodes[0].ID}, nil, nil, nil, nil, 1, nil, false)
+	if err != nil {
+		t.Fatalf("first deploy unexpected error: %v", err)
+	}
+
+	// Second deploy targeting overlapping node without force should conflict
+	_, err = svc.Create(cv.ID, []uint{nodes[0].ID}, nil, nil, nil, nil, 1, nil, false)
+	if err == nil {
+		t.Fatal("expected conflict error, got nil")
+	}
+	var conflictErr *DeployConflictError
+	if !errors.As(err, &conflictErr) {
+		t.Fatalf("expected DeployConflictError, got %T: %v", err, err)
 	}
 }
 
