@@ -181,6 +181,14 @@ func (s *agentService) Heartbeat(nodeUID, configHash string, metrics map[string]
 				resp.ConfigHash = cv.Hash
 				resp.ConfigContent = cv.Content
 				resp.ConfigID = cv.ID
+				// Mark stale pending deploy records as failed so they don't stay pending forever.
+				// This covers cases where the agent reported failure but the HTTP call was lost,
+				// or where the agent keeps failing to apply the config across heartbeats.
+				s.expireStalePendingDeployRecords(node.ID, cv.ID, now)
+			} else {
+				// Hash matches — config is confirmed applied. Close any lingering pending records
+				// that were not resolved by the /report endpoint (e.g. agent restarted mid-flight).
+				s.resolveDeployRecordsOnHashMatch(node.ID, cv.ID)
 			}
 		}
 	}
@@ -604,6 +612,66 @@ func (s *agentService) updateUpgradeRecordForCommandResult(commandID uint, statu
 		Distinct().
 		Pluck("agent_upgrade_task_id", &taskIDs)
 	s.recalculateUpgradeTasks(taskIDs)
+}
+
+// resolveDeployRecordsOnHashMatch closes pending deploy records with "success" when the
+// agent's reported config hash already matches the desired hash (config confirmed applied).
+// This handles cases where the agent applied the config but the /report call was lost.
+func (s *agentService) resolveDeployRecordsOnHashMatch(nodeID, configVersionID uint) {
+	s.settleDeployRecords(nodeID, configVersionID, "success", "config confirmed via heartbeat")
+}
+
+// expireStalePendingDeployRecords marks pending deploy records as failed when the agent
+// keeps reporting a mismatched hash, meaning it has not successfully applied the config.
+// Only records older than two heartbeat cycles (60s) are expired to avoid racing with
+// an in-flight apply+report sequence.
+func (s *agentService) expireStalePendingDeployRecords(nodeID, configVersionID uint, now time.Time) {
+	cutoff := now.Add(-60 * time.Second)
+	s.db.Model(&models.DeployRecord{}).
+		Where("node_id = ? AND status = 'pending' AND created_at < ? AND deploy_task_id IN (SELECT id FROM deploy_tasks WHERE config_id = ?)",
+			nodeID, cutoff, configVersionID).
+		Updates(map[string]interface{}{
+			"status":  "failed",
+			"message": "config not applied after multiple heartbeats",
+		})
+	s.recalculateDeployTasksForNode(nodeID, configVersionID)
+}
+
+func (s *agentService) settleDeployRecords(nodeID, configVersionID uint, status, message string) {
+	result := s.db.Model(&models.DeployRecord{}).
+		Where("node_id = ? AND status = 'pending' AND deploy_task_id IN (SELECT id FROM deploy_tasks WHERE config_id = ?)",
+			nodeID, configVersionID).
+		Updates(map[string]interface{}{
+			"status":  status,
+			"message": message,
+		})
+	if result.RowsAffected == 0 {
+		return
+	}
+	s.recalculateDeployTasksForNode(nodeID, configVersionID)
+}
+
+func (s *agentService) recalculateDeployTasksForNode(nodeID, configVersionID uint) {
+	var taskIDs []uint
+	s.db.Model(&models.DeployRecord{}).
+		Where("node_id = ? AND deploy_task_id IN (SELECT id FROM deploy_tasks WHERE config_id = ?)", nodeID, configVersionID).
+		Distinct().Pluck("deploy_task_id", &taskIDs)
+
+	for _, taskID := range taskIDs {
+		var successCount, failCount, totalPending int64
+		s.db.Model(&models.DeployRecord{}).Where("deploy_task_id = ? AND status = ?", taskID, "success").Count(&successCount)
+		s.db.Model(&models.DeployRecord{}).Where("deploy_task_id = ? AND status = ?", taskID, "failed").Count(&failCount)
+		s.db.Model(&models.DeployRecord{}).Where("deploy_task_id = ? AND status = ?", taskID, "pending").Count(&totalPending)
+
+		updates := map[string]interface{}{
+			"success_count": successCount,
+			"fail_count":    failCount,
+		}
+		if totalPending == 0 {
+			updates["status"] = "completed"
+		}
+		s.db.Model(&models.DeployTask{}).Where("id = ?", taskID).Updates(updates)
+	}
 }
 
 func (s *agentService) recalculateUpgradeTasks(taskIDs []uint) {
