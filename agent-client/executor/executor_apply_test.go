@@ -165,6 +165,171 @@ func TestApplyFluentBitConfigAddsDefaultParsersFileWhenOnlyParserReferenceExists
 	}
 }
 
+func TestInjectFluentBitHTTPServerNoServiceBlock(t *testing.T) {
+	content := `[INPUT]
+    Name cpu`
+	result := injectFluentBitHTTPServer(content, "2020")
+	if !strings.Contains(result, "[SERVICE]") {
+		t.Fatalf("expected [SERVICE] block to be injected, got:\n%s", result)
+	}
+	if !strings.Contains(result, "HTTP_Server On") {
+		t.Fatalf("expected HTTP_Server On, got:\n%s", result)
+	}
+	if !strings.Contains(result, "HTTP_Port   2020") {
+		t.Fatalf("expected HTTP_Port 2020, got:\n%s", result)
+	}
+	// INPUT block must still be present
+	if !strings.Contains(result, "[INPUT]") {
+		t.Fatalf("expected [INPUT] block to be preserved, got:\n%s", result)
+	}
+}
+
+func TestInjectFluentBitHTTPServerExistingServiceNoHTTP(t *testing.T) {
+	content := `[SERVICE]
+    Flush 1
+
+[INPUT]
+    Name cpu`
+	result := injectFluentBitHTTPServer(content, "2020")
+	if !strings.Contains(result, "HTTP_Server On") {
+		t.Fatalf("expected HTTP_Server On injected into SERVICE block, got:\n%s", result)
+	}
+	if !strings.Contains(result, "HTTP_Port   2020") {
+		t.Fatalf("expected HTTP_Port injected, got:\n%s", result)
+	}
+	if strings.Count(result, "[SERVICE]") != 1 {
+		t.Fatalf("expected exactly one [SERVICE] block, got:\n%s", result)
+	}
+}
+
+func TestInjectFluentBitHTTPServerAlreadyEnabled(t *testing.T) {
+	content := `[SERVICE]
+    Flush 1
+    HTTP_Server On
+    HTTP_Port   2020
+
+[INPUT]
+    Name cpu`
+	result := injectFluentBitHTTPServer(content, "2020")
+	if result != content {
+		t.Fatalf("expected content unchanged when HTTP_Server already On, got:\n%s", result)
+	}
+}
+
+func TestInjectFluentBitHTTPServerOffReplacedWithOn(t *testing.T) {
+	content := `[SERVICE]
+    Flush 1
+    HTTP_Server Off
+
+[INPUT]
+    Name cpu`
+	result := injectFluentBitHTTPServer(content, "2020")
+	if strings.Contains(result, "HTTP_Server Off") {
+		t.Fatalf("expected HTTP_Server Off to be replaced, got:\n%s", result)
+	}
+	if !strings.Contains(result, "HTTP_Server On") {
+		t.Fatalf("expected HTTP_Server On after replacement, got:\n%s", result)
+	}
+}
+
+func TestInjectFluentBitHTTPServerPreservesExistingPort(t *testing.T) {
+	content := `[SERVICE]
+    Flush 1
+    HTTP_Port   9999
+
+[INPUT]
+    Name cpu`
+	result := injectFluentBitHTTPServer(content, "2020")
+	if strings.Contains(result, "HTTP_Port   2020") {
+		t.Fatalf("expected existing HTTP_Port 9999 to be preserved, got:\n%s", result)
+	}
+	if !strings.Contains(result, "HTTP_Port   9999") {
+		t.Fatalf("expected HTTP_Port 9999 preserved, got:\n%s", result)
+	}
+}
+
+func TestInjectFluentdMonitorAgentNotPresent(t *testing.T) {
+	content := `<source>
+  @type tail
+  path /var/log/app.log
+</source>`
+	result := injectFluentdMonitorAgent(content, "24220")
+	if !strings.Contains(result, "monitor_agent") {
+		t.Fatalf("expected monitor_agent to be injected, got:\n%s", result)
+	}
+	if !strings.Contains(result, "port 24220") {
+		t.Fatalf("expected port 24220 in injected block, got:\n%s", result)
+	}
+}
+
+func TestInjectFluentdMonitorAgentAlreadyPresent(t *testing.T) {
+	content := `<source>
+  @type monitor_agent
+  bind 0.0.0.0
+  port 24220
+</source>`
+	result := injectFluentdMonitorAgent(content, "24220")
+	if result != content {
+		t.Fatalf("expected content unchanged when monitor_agent already present, got:\n%s", result)
+	}
+}
+
+func TestMetricsPortFromURL(t *testing.T) {
+	cases := []struct{ rawURL, fallback, want string }{
+		{"http://127.0.0.1:2020/api/v1/metrics/prometheus", "2020", "2020"},
+		{"http://127.0.0.1:24220/api/plugins.json", "24220", "24220"},
+		{"http://127.0.0.1:9999/metrics", "2020", "9999"},
+		{"", "2020", "2020"},
+		{"not-a-url", "2020", "2020"},
+	}
+	for _, c := range cases {
+		got := metricsPortFromURL(c.rawURL, c.fallback)
+		if got != c.want {
+			t.Errorf("metricsPortFromURL(%q, %q) = %q, want %q", c.rawURL, c.fallback, got, c.want)
+		}
+	}
+}
+
+func TestPrepareManagedConfigInjectsHTTPServer(t *testing.T) {
+	exec, _ := newApplyTestExecutor(t)
+	exec.cfg.FluentMetricsURL = "http://127.0.0.1:2020/api/v1/metrics/prometheus"
+
+	content := `[SERVICE]
+    Flush 1
+
+[INPUT]
+    Name cpu`
+
+	prepared := exec.prepareManagedConfig(content)
+	if !strings.Contains(prepared.mainContent, "HTTP_Server On") {
+		t.Fatalf("expected HTTP_Server On in prepared config, got:\n%s", prepared.mainContent)
+	}
+	if prepared.sourceHash != hashConfigContent(content) {
+		t.Fatalf("sourceHash should reflect original content, not injected content")
+	}
+}
+
+func TestPrepareManagedConfigInjectsFluentdMonitorAgent(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := tempDir + "/fluentd.conf"
+	if err := os.WriteFile(configPath, []byte("<source>\n  @type tail\n</source>\n"), 0o644); err != nil {
+		t.Fatalf("write initial config: %v", err)
+	}
+
+	cfg := &config.Config{
+		FluentType:       "fluentd",
+		FluentConfigPath: configPath,
+		FluentMetricsURL: "http://127.0.0.1:24220/api/plugins.json",
+	}
+	exec := New(cfg)
+
+	content := "<source>\n  @type tail\n  path /var/log/app.log\n</source>"
+	prepared := exec.prepareManagedConfig(content)
+	if !strings.Contains(prepared.mainContent, "monitor_agent") {
+		t.Fatalf("expected monitor_agent injected for fluentd, got:\n%s", prepared.mainContent)
+	}
+}
+
 func newApplyTestExecutor(t *testing.T) (*Executor, string) {
 	t.Helper()
 

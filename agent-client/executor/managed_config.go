@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -53,20 +54,30 @@ func (e *Executor) prepareManagedConfig(content string) preparedConfig {
 		mainContent: normalizeTrailingNewline(content),
 		sourceHash:  hashConfigContent(content),
 	}
-	if e.cfg.FluentType != "fluentbit" {
-		return prepared
+
+	if e.cfg.FluentType == "fluentbit" {
+		parserPath := e.managedFluentBitParserPath()
+		if parserPath != "" {
+			parserFiles := e.fluentBitDefaultParserFiles()
+			mainContent, parserContent := rewriteFluentBitConfigForManagedParsers(content, parserPath, parserFiles)
+			prepared.mainContent = normalizeTrailingNewline(mainContent)
+			prepared.managedParserPath = parserPath
+			prepared.managedParserContent = normalizeTrailingNewline(parserContent)
+		}
 	}
 
-	parserPath := e.managedFluentBitParserPath()
-	if parserPath == "" {
-		return prepared
+	// Inject metrics API directives so the agent can always collect metrics.
+	if metricsURL := strings.TrimSpace(e.cfg.FluentMetricsURL); metricsURL != "" {
+		switch e.cfg.FluentType {
+		case "fluentbit":
+			port := metricsPortFromURL(metricsURL, "2020")
+			prepared.mainContent = normalizeTrailingNewline(injectFluentBitHTTPServer(prepared.mainContent, port))
+		case "fluentd":
+			port := metricsPortFromURL(metricsURL, "24220")
+			prepared.mainContent = normalizeTrailingNewline(injectFluentdMonitorAgent(prepared.mainContent, port))
+		}
 	}
 
-	parserFiles := e.fluentBitDefaultParserFiles()
-	mainContent, parserContent := rewriteFluentBitConfigForManagedParsers(content, parserPath, parserFiles)
-	prepared.mainContent = normalizeTrailingNewline(mainContent)
-	prepared.managedParserPath = parserPath
-	prepared.managedParserContent = normalizeTrailingNewline(parserContent)
 	return prepared
 }
 
@@ -495,4 +506,137 @@ func uniqueNonEmptyStrings(values []string) []string {
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
+}
+
+// metricsPortFromURL extracts the port from a URL string.
+// Returns fallback if the URL is empty, unparseable, or has no explicit port.
+func metricsPortFromURL(rawURL, fallback string) string {
+	if u, err := url.Parse(strings.TrimSpace(rawURL)); err == nil {
+		if port := u.Port(); port != "" {
+			return port
+		}
+	}
+	return fallback
+}
+
+// injectFluentBitHTTPServer ensures [SERVICE] contains HTTP_Server On and HTTP_Port.
+// Idempotent: skips if HTTP_Server is already On.
+// Replaces HTTP_Server Off with On.
+// If no [SERVICE] block exists, a minimal one is prepended.
+func injectFluentBitHTTPServer(content, port string) string {
+	chunks := splitFluentBitChunks(content)
+	serviceIdx := -1
+	for i, chunk := range chunks {
+		if chunk.isBlock && chunk.kind == "SERVICE" {
+			serviceIdx = i
+			break
+		}
+	}
+
+	if serviceIdx >= 0 {
+		if fluentBitHTTPServerEnabled(chunks[serviceIdx].lines) {
+			return content
+		}
+		chunks[serviceIdx].lines = rewriteServiceBlockHTTPServer(chunks[serviceIdx].lines, port)
+	} else {
+		insertAt := 0
+		if len(chunks) > 0 && !chunks[0].isBlock {
+			insertAt = 1
+		}
+		newChunk := fluentBitChunk{
+			kind:    "SERVICE",
+			isBlock: true,
+			lines:   []string{"[SERVICE]", "    HTTP_Server On", "    HTTP_Port   " + port, ""},
+		}
+		merged := make([]fluentBitChunk, 0, len(chunks)+1)
+		merged = append(merged, chunks[:insertAt]...)
+		merged = append(merged, newChunk)
+		merged = append(merged, chunks[insertAt:]...)
+		chunks = merged
+	}
+
+	out := make([]string, 0)
+	for _, chunk := range chunks {
+		out = append(out, chunk.lines...)
+	}
+	return strings.TrimRight(strings.Join(out, "\n"), "\n")
+}
+
+// fluentBitHTTPServerEnabled returns true when the SERVICE block lines contain HTTP_Server On.
+func fluentBitHTTPServerEnabled(lines []string) bool {
+	for i, line := range lines {
+		if i == 0 {
+			continue
+		}
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, ";") {
+			continue
+		}
+		fields := strings.Fields(trimmed)
+		if len(fields) >= 2 && strings.EqualFold(fields[0], "http_server") {
+			return strings.EqualFold(fields[1], "on")
+		}
+	}
+	return false
+}
+
+// rewriteServiceBlockHTTPServer sets HTTP_Server On in the SERVICE block lines.
+// Replaces an existing HTTP_Server directive, or appends one.
+// Appends HTTP_Port if not already present.
+func rewriteServiceBlockHTTPServer(lines []string, port string) []string {
+	out := make([]string, 0, len(lines)+2)
+	httpServerSet := false
+	hasHTTPPort := false
+
+	for i, line := range lines {
+		if i == 0 {
+			out = append(out, line)
+			continue
+		}
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, ";") {
+			out = append(out, line)
+			continue
+		}
+		fields := strings.Fields(trimmed)
+		if len(fields) >= 2 {
+			if strings.EqualFold(fields[0], "http_server") {
+				out = append(out, "    HTTP_Server On")
+				httpServerSet = true
+				continue
+			}
+			if strings.EqualFold(fields[0], "http_port") {
+				hasHTTPPort = true
+			}
+		}
+		out = append(out, line)
+	}
+
+	insertAt := len(out)
+	for insertAt > 1 && strings.TrimSpace(out[insertAt-1]) == "" {
+		insertAt--
+	}
+
+	toInsert := make([]string, 0, 2)
+	if !httpServerSet {
+		toInsert = append(toInsert, "    HTTP_Server On")
+	}
+	if !hasHTTPPort {
+		toInsert = append(toInsert, "    HTTP_Port   "+port)
+	}
+
+	result := make([]string, 0, len(out)+len(toInsert))
+	result = append(result, out[:insertAt]...)
+	result = append(result, toInsert...)
+	result = append(result, out[insertAt:]...)
+	return result
+}
+
+// injectFluentdMonitorAgent appends a <source> block for monitor_agent if not already present.
+func injectFluentdMonitorAgent(content, port string) string {
+	if strings.Contains(strings.ToLower(content), "monitor_agent") {
+		return content
+	}
+	block := fmt.Sprintf("\n<source>\n  @type monitor_agent\n  bind 0.0.0.0\n  port %s\n</source>", port)
+	return strings.TrimRight(content, "\n") + block
 }
