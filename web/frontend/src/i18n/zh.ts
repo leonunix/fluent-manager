@@ -951,6 +951,7 @@ export default {
     select_datacenter_required: "请选择目标数据中心",
     load_nodes_failed: "加载节点候选失败",
     deploy_failed: "创建部署任务失败",
+    deploy_conflict_warning: "当前目标存在 {count} 个未完成的部署任务（ID：{ids}），是否强制创建新任务？",
     confirm_deploy: "确认部署",
     analysis_workspace: "版本分析工作台",
     compare_version: "对比版本",

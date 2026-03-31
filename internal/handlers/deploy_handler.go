@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -20,6 +21,7 @@ type CreateDeployRequest struct {
 	RegionID        *uint  `json:"region_id"`
 	DataCenterID    *uint  `json:"datacenter_id"`
 	EnvironmentID   *uint  `json:"environment_id"`
+	Force           bool   `json:"force"`
 }
 
 func (h *DeployHandler) Create(c *gin.Context) {
@@ -31,8 +33,17 @@ func (h *DeployHandler) Create(c *gin.Context) {
 
 	userID := c.GetUint("user_id")
 	allowed := middleware.GetAllowedClusters(c)
-	task, err := h.Svc.Create(req.ConfigVersionID, req.NodeIDs, req.ClusterID, req.RegionID, req.DataCenterID, req.EnvironmentID, userID, allowed)
+	task, err := h.Svc.Create(req.ConfigVersionID, req.NodeIDs, req.ClusterID, req.RegionID, req.DataCenterID, req.EnvironmentID, userID, allowed, req.Force)
 	if err != nil {
+		var conflictErr *services.DeployConflictError
+		if errors.As(err, &conflictErr) {
+			c.JSON(http.StatusConflict, gin.H{
+				"error":            conflictErr.Error(),
+				"conflict_count":   conflictErr.Count,
+				"conflict_task_ids": conflictErr.TaskIDs,
+			})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}

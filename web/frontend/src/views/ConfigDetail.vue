@@ -884,6 +884,21 @@ async function submitDeploy() {
     deployModal.hide()
     router.push({ path: '/deploys', query: { task: String(createdTask.id) } })
   } catch (error) {
+    if (error?.response?.status === 409) {
+      const { conflict_count, conflict_task_ids } = error.response.data
+      const msg = t('config_detail.deploy_conflict_warning')
+        .replace('{count}', conflict_count)
+        .replace('{ids}', (conflict_task_ids || []).join(', '))
+      if (!window.confirm(msg)) return
+      try {
+        const { data: createdTask } = await createDeploy({ ...data, force: true })
+        deployModal.hide()
+        router.push({ path: '/deploys', query: { task: String(createdTask.id) } })
+      } catch (forceError) {
+        alert(`${t('config_detail.deploy_failed')}: ${getErrorMessage(forceError)}`)
+      }
+      return
+    }
     alert(`${t('config_detail.deploy_failed')}: ${getErrorMessage(error)}`)
   }
 }

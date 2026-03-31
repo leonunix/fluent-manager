@@ -2,14 +2,25 @@ package services
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/fluent-manager/fluent-manager/internal/models"
 	"gorm.io/gorm"
 )
 
+// DeployConflictError is returned when active deploy tasks exist for the same target and force=false.
+type DeployConflictError struct {
+	Count    int
+	TaskIDs  []uint
+}
+
+func (e *DeployConflictError) Error() string {
+	return fmt.Sprintf("there are %d active deploy task(s) targeting the same scope", e.Count)
+}
+
 type DeployService interface {
-	Create(configVersionID uint, nodeIDs []uint, clusterID, regionID, dataCenterID, environmentID *uint, userID uint, allowedClusters []uint) (*models.DeployTask, error)
+	Create(configVersionID uint, nodeIDs []uint, clusterID, regionID, dataCenterID, environmentID *uint, userID uint, allowedClusters []uint, force bool) (*models.DeployTask, error)
 	List(page, pageSize int, allowedClusters []uint) ([]models.DeployTask, int64, error)
 	Get(id uint, page, pageSize int, allowedClusters []uint) (*models.DeployTask, []models.DeployRecord, int64, error)
 	GetAuditLogs(page, pageSize int, allowedClusters []uint) ([]models.AuditLog, int64, error)
@@ -23,7 +34,7 @@ func NewDeployService(db *gorm.DB) DeployService {
 	return &deployService{db: db}
 }
 
-func (s *deployService) Create(configVersionID uint, nodeIDs []uint, clusterID, regionID, dataCenterID, environmentID *uint, userID uint, allowedClusters []uint) (*models.DeployTask, error) {
+func (s *deployService) Create(configVersionID uint, nodeIDs []uint, clusterID, regionID, dataCenterID, environmentID *uint, userID uint, allowedClusters []uint, force bool) (*models.DeployTask, error) {
 	var configVersion models.ConfigVersion
 	if err := s.db.First(&configVersion, configVersionID).Error; err != nil {
 		return nil, errors.New("config version not found")
@@ -102,6 +113,28 @@ func (s *deployService) Create(configVersionID uint, nodeIDs []uint, clusterID, 
 			if n.ClusterID != nil && !allowedSet[*n.ClusterID] {
 				return nil, errors.New("some target nodes are not in your scope")
 			}
+		}
+	}
+
+	// Conflict check: warn if there are already pending/running tasks for the same target.
+	if !force {
+		var conflictTasks []models.DeployTask
+		if scopeID != 0 {
+			s.db.Where("scope = ? AND scope_id = ? AND status IN ('pending','running')", scope, scopeID).
+				Find(&conflictTasks)
+		} else {
+			// node scope: check if any target nodes appear in active deploy records
+			s.db.Joins("JOIN deploy_records ON deploy_records.deploy_task_id = deploy_tasks.id").
+				Where("deploy_tasks.status IN ('pending','running') AND deploy_records.node_id IN ?", uniqueIDs).
+				Distinct("deploy_tasks.id").
+				Find(&conflictTasks)
+		}
+		if len(conflictTasks) > 0 {
+			ids := make([]uint, len(conflictTasks))
+			for i, t := range conflictTasks {
+				ids[i] = t.ID
+			}
+			return nil, &DeployConflictError{Count: len(conflictTasks), TaskIDs: ids}
 		}
 	}
 

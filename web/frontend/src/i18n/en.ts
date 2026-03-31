@@ -990,6 +990,7 @@ export default {
     select_datacenter_required: "Please select a target datacenter",
     load_nodes_failed: "Failed to load node candidates",
     deploy_failed: "Failed to create deployment task",
+    deploy_conflict_warning: "There are {count} active deploy task(s) targeting the same scope (ID: {ids}). Force create anyway?",
     confirm_deploy: "Confirm Deploy",
     analysis_workspace: "Version Analysis Workspace",
     compare_version: "Compare Against",

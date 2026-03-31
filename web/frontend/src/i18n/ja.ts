@@ -650,6 +650,7 @@ export default {
     select_datacenter_required: "対象データセンターを選択してください",
     load_nodes_failed: "ノード候補の読み込みに失敗しました",
     deploy_failed: "デプロイタスクの作成に失敗しました",
+    deploy_conflict_warning: "同じ対象に {count} 件の未完了デプロイタスクがあります（ID：{ids}）。強制的に新規タスクを作成しますか？",
     confirm_deploy: "デプロイを確認",
     analysis_workspace: "バージョン分析ワークスペース",
     compare_version: "比較対象バージョン",
