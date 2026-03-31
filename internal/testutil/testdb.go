@@ -16,10 +16,12 @@ var dbCounter atomic.Int64
 
 // NewTestDB creates an isolated SQLite database with all tables migrated.
 // Uses temp files to avoid SQLite in-memory multi-connection issues.
+// The filename includes the OS PID so that parallel test binary processes
+// (launched by "go test ./...") each have their own namespace.
 // It also sets models.DB so scope.go functions work correctly.
 func NewTestDB() *gorm.DB {
 	n := dbCounter.Add(1)
-	dsn := filepath.Join(os.TempDir(), fmt.Sprintf("fluent_test_%d.db", n))
+	dsn := filepath.Join(os.TempDir(), fmt.Sprintf("fluent_test_%d_%d.db", os.Getpid(), n))
 	// Clean up any leftover file
 	os.Remove(dsn)
 
@@ -55,6 +57,7 @@ func NewTestDB() *gorm.DB {
 		&models.ConfigVersion{},
 		&models.ConfigModule{},
 		&models.ConfigModuleVersion{},
+		&models.ConfigPipeline{},
 		&models.RenderedConfig{},
 		&models.LogPipeline{},
 		&models.ConfigAnalysisResult{},

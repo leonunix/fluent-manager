@@ -37,7 +37,18 @@ func seedAISettingsForTest(t *testing.T, provider, baseURL string) AuthSettingsS
 	return settingsSvc
 }
 
+// newModulesResponse builds a minimal valid AI JSON response with the new modules+pipelines schema.
+func newModulesResponse(modules, pipelines string) string {
+	return fmt.Sprintf(
+		`{"detected_format":"json line","summary":"tail input","modules":[%s],"pipelines":[%s],"assembly_steps":["step1"],"notes":["note1"]}`,
+		modules, pipelines,
+	)
+}
+
 func TestAnalyzeLogSampleWithOpenAICompatibleProvider(t *testing.T) {
+	moduleJSON := `{"name":"nginx-input","module_type":"input","variables_json":"{\"path\":\"/var/log/nginx/access.log\"}","content":"[INPUT]\n    Name tail","note":""}`
+	pipelineJSON := `{"name":"nginx-pipeline","description":"nginx access log pipeline","module_names":["nginx-input"],"template_content":"[INPUT]\n    Name tail","note":""}`
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/chat/completions" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
@@ -46,7 +57,8 @@ func TestAnalyzeLogSampleWithOpenAICompatibleProvider(t *testing.T) {
 			t.Fatalf("unexpected authorization header: %s", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"detected_format\":\"json line\",\"summary\":\"tail input with parser\",\"recommended_module_name\":\"nginx_input\",\"recommended_template_name\":\"nginx_pipeline\",\"module_type\":\"input\",\"variables_json\":\"{\\\"path\\\":\\\"/var/log/nginx/access.log\\\"}\",\"module_content\":\"[INPUT]\\n    Name tail\",\"template_content\":\"# template\",\"assembly_steps\":[\"Create input module\"],\"notes\":[\"Review parser fields\"]}"}}]}`)
+		body := fmt.Sprintf(`{"choices":[{"message":{"content":%q}}]}`, newModulesResponse(moduleJSON, pipelineJSON))
+		fmt.Fprint(w, body)
 	}))
 	defer server.Close()
 
@@ -68,18 +80,30 @@ func TestAnalyzeLogSampleWithOpenAICompatibleProvider(t *testing.T) {
 	if result.AccountID != "openai-primary" {
 		t.Fatalf("expected account openai-primary, got %q", result.AccountID)
 	}
-	if result.RecommendedModuleName != "nginx_input" {
-		t.Fatalf("expected recommended module name, got %q", result.RecommendedModuleName)
+	if len(result.Modules) != 1 {
+		t.Fatalf("expected 1 module, got %d", len(result.Modules))
 	}
-	if result.ModuleType != "input" {
-		t.Fatalf("expected module type input, got %q", result.ModuleType)
+	if result.Modules[0].Name != "nginx-input" {
+		t.Fatalf("expected module name nginx-input, got %q", result.Modules[0].Name)
 	}
-	if result.VariablesJSON == "" {
+	if result.Modules[0].ModuleType != "input" {
+		t.Fatalf("expected module type input, got %q", result.Modules[0].ModuleType)
+	}
+	if result.Modules[0].VariablesJSON == "" {
 		t.Fatal("expected variables json to be populated")
+	}
+	if len(result.Pipelines) != 1 {
+		t.Fatalf("expected 1 pipeline, got %d", len(result.Pipelines))
+	}
+	if result.Pipelines[0].Name != "nginx-pipeline" {
+		t.Fatalf("expected pipeline name nginx-pipeline, got %q", result.Pipelines[0].Name)
 	}
 }
 
 func TestAnalyzeLogSampleWithClaudeProvider(t *testing.T) {
+	moduleJSON := `{"name":"app-parser","module_type":"parser","variables_json":"{\"format\":\"regex\"}","content":"<parse>\n  @type regexp\n</parse>","note":""}`
+	pipelineJSON := `{"name":"app-pipeline","description":"app log pipeline","module_names":["app-parser"],"template_content":"<source>\n  @type tail\n</source>","note":""}`
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/messages" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
@@ -91,7 +115,11 @@ func TestAnalyzeLogSampleWithClaudeProvider(t *testing.T) {
 			t.Fatal("expected anthropic-version header to be set")
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"id":"msg_1","type":"message","role":"assistant","model":"test-model","content":[{"type":"text","text":"{\"detected_format\":\"plain text\",\"summary\":\"use parser module\",\"recommended_module_name\":\"app_parser\",\"recommended_template_name\":\"app_pipeline\",\"module_type\":\"parser\",\"variables_json\":\"{\\\"format\\\":\\\"regex\\\"}\",\"module_content\":\"<parse>\\n  @type regexp\\n</parse>\",\"template_content\":\"# template\",\"assembly_steps\":[\"Create parser module\"],\"notes\":[\"Verify regex fields\"]}"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`)
+		body := fmt.Sprintf(
+			`{"id":"msg_1","type":"message","role":"assistant","model":"test-model","content":[{"type":"text","text":%q}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`,
+			newModulesResponse(moduleJSON, pipelineJSON),
+		)
+		fmt.Fprint(w, body)
 	}))
 	defer server.Close()
 
@@ -110,15 +138,18 @@ func TestAnalyzeLogSampleWithClaudeProvider(t *testing.T) {
 	if result.Provider != "claude" {
 		t.Fatalf("expected provider claude, got %q", result.Provider)
 	}
-	if result.ModuleType != "parser" {
-		t.Fatalf("expected parser module type, got %q", result.ModuleType)
+	if len(result.Modules) != 1 || result.Modules[0].ModuleType != "parser" {
+		t.Fatalf("expected parser module, got %+v", result.Modules)
 	}
-	if !strings.Contains(result.ModuleContent, "@type regexp") {
-		t.Fatalf("expected parser content, got %q", result.ModuleContent)
+	if !strings.Contains(result.Modules[0].Content, "@type regexp") {
+		t.Fatalf("expected parser content, got %q", result.Modules[0].Content)
 	}
 }
 
 func TestAnalyzeLogSampleWithGeminiProvider(t *testing.T) {
+	moduleJSON := `{"name":"json-input","module_type":"input","variables_json":"{\"path\":\"/var/log/app.json\"}","content":"[INPUT]\n    Name tail","note":""}`
+	pipelineJSON := `{"name":"json-pipeline","description":"json log pipeline","module_names":["json-input"],"template_content":"[INPUT]\n    Name tail","note":""}`
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.URL.Path, ":generateContent") {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
@@ -127,7 +158,11 @@ func TestAnalyzeLogSampleWithGeminiProvider(t *testing.T) {
 			t.Fatalf("unexpected api key header: %s", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"candidates":[{"content":{"parts":[{"text":"{\"detected_format\":\"json\",\"summary\":\"json logs can be tailed directly\",\"recommended_module_name\":\"json_input\",\"recommended_template_name\":\"json_pipeline\",\"module_type\":\"input\",\"variables_json\":\"{\\\"path\\\":\\\"/var/log/app.json\\\"}\",\"module_content\":\"[INPUT]\\n    Name tail\",\"template_content\":\"[INPUT]\\n    Name tail\",\"assembly_steps\":[\"Create tail input\"],\"notes\":[\"Confirm file path\"]}"}],"role":"model"}}]}`)
+		body := fmt.Sprintf(
+			`{"candidates":[{"content":{"parts":[{"text":%q}],"role":"model"}}]}`,
+			newModulesResponse(moduleJSON, pipelineJSON),
+		)
+		fmt.Fprint(w, body)
 	}))
 	defer server.Close()
 
@@ -146,11 +181,11 @@ func TestAnalyzeLogSampleWithGeminiProvider(t *testing.T) {
 	if result.Provider != "gemini" {
 		t.Fatalf("expected provider gemini, got %q", result.Provider)
 	}
-	if result.RecommendedTemplateName != "json_pipeline" {
-		t.Fatalf("expected template recommendation, got %q", result.RecommendedTemplateName)
+	if len(result.Pipelines) != 1 || result.Pipelines[0].Name != "json-pipeline" {
+		t.Fatalf("expected json-pipeline, got %+v", result.Pipelines)
 	}
-	if !strings.Contains(result.VariablesJSON, "/var/log/app.json") {
-		t.Fatalf("expected normalized variables json, got %q", result.VariablesJSON)
+	if !strings.Contains(result.Modules[0].VariablesJSON, "/var/log/app.json") {
+		t.Fatalf("expected normalized variables json, got %q", result.Modules[0].VariablesJSON)
 	}
 }
 

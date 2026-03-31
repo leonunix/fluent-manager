@@ -44,6 +44,13 @@
           <i class="bi bi-code-square me-1"></i>{{ t('configs_page.create_manual_template') }}
         </button>
         <button
+          v-if="activeTab === 'pipelines'"
+          class="btn btn-primary"
+          @click="openCreatePipeline"
+        >
+          <i class="bi bi-plus-lg me-1"></i>{{ t('configs_page.create_pipeline') }}
+        </button>
+        <button
           v-if="activeTab === 'modules'"
           class="btn btn-outline-danger"
           :disabled="!selectedDeletableModuleCount"
@@ -103,6 +110,14 @@
             @click="activeTab = 'assistant'"
           >
             {{ t('configs_page.ai_assistant') }}
+          </button>
+          <button
+            class="nav-link"
+            :class="{ active: activeTab === 'pipelines' }"
+            @click="activeTab = 'pipelines'"
+          >
+            {{ t('configs_page.pipelines') }}
+            <span class="badge rounded-pill text-bg-light ms-2">{{ pipelines.length }}</span>
           </button>
           <button
             class="nav-link"
@@ -188,6 +203,9 @@
         wizardIncompletePipelineLabels,
         wizardRenderSummary,
         renderedConfig,
+        wizardAssemblyTemplates: wizardBuiltTemplates,
+        wizardLoadedFromTemplate,
+        wizardCompatiblePipelines,
       }"
       :actions="{
         selectWizardServiceModule,
@@ -207,15 +225,25 @@
         runWizardPreview,
         saveWizardAsTemplate,
         openAdvancedPreviewFromWizard,
+        loadWizardFromTemplate,
+        clearWizardLoadedTemplate,
+        addWizardPipelineFromSaved,
       }"
       :helpers="{ runtimeLabel, wizardGoalLabel, wizardPipelineDisplayName, matchingOutputModuleForTarget }"
     />
 
     <ConfigsAssistantTab
       v-else-if="activeTab === 'assistant'"
-      :state="{ aiAssistantForm, aiAssistantLoading, aiAssistantResult, aiAssistantFeedback, moduleTypes }"
-      :actions="{ runAIAssistant, useAIModuleDraft, useAITemplateDraft }"
+      :state="{ aiAssistantForm, aiAssistantLoading, aiAssistantResult, aiAssistantFeedback, moduleTypes, aiAssistantModules, aiAssistantModulesSaving }"
+      :actions="{ runAIAssistant, useAIModuleDraft, useAITemplateDraft, saveAIModules, saveAIPipelineAsConfigPipeline, sendAIPipelineToWizard }"
       :helpers="{ runtimeLabel }"
+    />
+
+    <ConfigsPipelinesTab
+      v-else-if="activeTab === 'pipelines'"
+      :state="{ pipelines }"
+      :actions="{ openEditPipeline, handleDeletePipeline, openCreatePipeline }"
+      :helpers="{ runtimeLabel, runtimeBadgeClass, formatTime }"
     />
 
     <ConfigsModulesTab
@@ -709,6 +737,95 @@
       </div>
     </div>
 
+    <div class="modal fade" id="pipelineModal" tabindex="-1">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">{{ editingPipelineId ? t('configs_page.edit_pipeline_title') : t('configs_page.create_pipeline') }}</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="row g-3 mb-3">
+              <div class="col-md-6">
+                <label class="form-label">{{ t('common.name') }} <span class="text-danger">*</span></label>
+                <input v-model="pipelineForm.name" type="text" class="form-control" :placeholder="t('configs_page.pipeline_name_placeholder')" />
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Runtime</label>
+                <select v-model="pipelineForm.fluent_type" class="form-select">
+                  <option value="fluentbit">Fluent Bit</option>
+                  <option value="fluentd">Fluentd</option>
+                </select>
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">{{ t('common.description') }}</label>
+              <input v-model="pipelineForm.description" type="text" class="form-control" />
+            </div>
+
+            <!-- Input module -->
+            <div class="mb-3">
+              <label class="form-label fw-semibold">{{ t('configs_page.pipeline_input') }}</label>
+              <select v-model="pipelineForm.input_module_id" class="form-select">
+                <option :value="null">— {{ t('none') }} —</option>
+                <option v-for="m in pipelineInputModules" :key="m.id" :value="m.id">{{ m.name }}</option>
+              </select>
+            </div>
+
+            <!-- Filter modules -->
+            <div class="mb-3">
+              <label class="form-label fw-semibold">{{ t('configs_page.pipeline_filters') }}</label>
+              <div v-if="pipelineForm.filter_module_ids.length" class="list-group mb-2">
+                <div
+                  v-for="(fid, idx) in pipelineForm.filter_module_ids"
+                  :key="fid"
+                  class="list-group-item d-flex justify-content-between align-items-center py-1 px-2"
+                >
+                  <span class="badge bg-secondary me-2">{{ idx + 1 }}</span>
+                  <span class="flex-grow-1 font-monospace small">{{ pipelineEligibleModules.find((m) => m.id === fid)?.name || fid }}</span>
+                  <div class="d-flex gap-1 ms-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1" :disabled="idx === 0" @click="movePipelineFilterModule(idx, -1)"><i class="bi bi-arrow-up"></i></button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1" :disabled="idx === pipelineForm.filter_module_ids.length - 1" @click="movePipelineFilterModule(idx, 1)"><i class="bi bi-arrow-down"></i></button>
+                    <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" @click="removePipelineFilterModule(idx)"><i class="bi bi-x"></i></button>
+                  </div>
+                </div>
+              </div>
+              <div class="input-group">
+                <select v-model="pipelineFilterPickerValue" class="form-select form-select-sm">
+                  <option value="">{{ t('configs_page.pipeline_add_filter') }}…</option>
+                  <option v-for="m in pipelineFilterModules" :key="m.id" :value="m.id">{{ m.name }}</option>
+                </select>
+                <button type="button" class="btn btn-sm btn-outline-secondary" @click="addPipelineFilterModule(Number(pipelineFilterPickerValue)); pipelineFilterPickerValue = ''">
+                  <i class="bi bi-plus"></i>
+                </button>
+              </div>
+            </div>
+
+            <!-- Output targets -->
+            <div class="mb-3">
+              <label class="form-label fw-semibold">{{ t('configs_page.pipeline_outputs') }}</label>
+              <div class="d-flex flex-wrap gap-2">
+                <label
+                  v-for="target in pipelineAvailableOutputTargets"
+                  :key="target.id"
+                  class="d-flex align-items-center gap-1 border rounded px-2 py-1 small"
+                  style="cursor:pointer"
+                >
+                  <input type="checkbox" :checked="pipelineForm.output_target_ids.includes(target.id)" @change="togglePipelineOutputTarget(target.id)" />
+                  {{ target.name }}
+                </label>
+                <div v-if="!pipelineAvailableOutputTargets.length" class="text-muted small">{{ t('configs_page.no_output_targets') }}</div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('cancel') }}</button>
+            <button type="button" class="btn btn-primary" @click="savePipeline">{{ t('save') }}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="modal fade" id="moduleVersionsModal" tabindex="-1">
       <div class="modal-dialog modal-xl">
         <div class="modal-content">
@@ -773,6 +890,7 @@ import { useRouter } from 'vue-router'
 import ConfigsAssistantTab from './tabs/ConfigsAssistantTab.vue'
 import ConfigsImportTab from './tabs/ConfigsImportTab.vue'
 import ConfigsModulesTab from './tabs/ConfigsModulesTab.vue'
+import ConfigsPipelinesTab from './tabs/ConfigsPipelinesTab.vue'
 import ConfigsPreviewTab from './tabs/ConfigsPreviewTab.vue'
 import ConfigsTemplatesTab from './tabs/ConfigsTemplatesTab.vue'
 import ConfigsWizardTab from './tabs/ConfigsWizardTab.vue'
@@ -800,10 +918,28 @@ import {
   replayConfig,
   updateModule,
 } from '../../api'
+import {
+  getConfigPipelines,
+  createConfigPipeline,
+  updateConfigPipeline,
+  deleteConfigPipeline,
+} from '../../api/configs'
 
 const activeTab = ref('templates')
 const templates = ref([])
 const modules = ref([])
+const pipelines = ref([])
+const editingPipelineId = ref(null)
+const pipelineForm = reactive({
+  name: '',
+  description: '',
+  fluent_type: 'fluentbit',
+  input_module_id: null,
+  filter_module_ids: [],
+  output_target_ids: [],
+})
+const pipelineFilterPickerValue = ref('')
+const pipelineFormInitializing = ref(false)
 const moduleTableItems = ref([])
 const moduleTableTotal = ref(0)
 const moduleTableLoading = ref(false)
@@ -822,6 +958,11 @@ const selectedWizardModuleIds = ref([])
 const selectedWizardOutputTargetIds = ref([])
 const aiAssistantLoading = ref(false)
 const aiAssistantResult = ref(null)
+// aiAssistantModules: generated modules enriched with a local merge decision.
+// decision: 'create_new' | 'reuse_existing' | 'update_existing'
+// matchedModule: the existing module that was matched (if any)
+const aiAssistantModules = ref([])
+const aiAssistantModulesSaving = ref(false)
 const importAnalysisLoading = ref(false)
 const importModulesLoading = ref(false)
 const importedConfigResult = ref(null)
@@ -1044,6 +1185,7 @@ const wizardParserModuleIds = ref([])
 const wizardGlobalModuleVariables = ref({})
 const wizardPipelines = ref([])
 const activeWizardPipelineId = ref('')
+const wizardLoadedFromTemplate = ref(null)
 const wizardServiceSearch = ref('')
 const wizardParserSearch = ref('')
 const wizardInputSearch = ref('')
@@ -1071,7 +1213,19 @@ const allVisibleDeletableModulesSelected = computed(() =>
   visibleDeletableModules.value.length > 0 && visibleDeletableModules.value.every((item) => selectedModuleIds.value.includes(item.id))
 )
 const selectedDeletableModuleCount = computed(() => selectedModuleIds.value.length)
-const assemblyTemplateCount = computed(() => templates.value.filter((item) => item.source_type === 'module_assembly').length)
+const assemblyTemplates = computed(() => templates.value.filter((item) => item.source_type === 'module_assembly'))
+const assemblyTemplateCount = computed(() => assemblyTemplates.value.length)
+const wizardBuiltTemplates = computed(() =>
+  assemblyTemplates.value.filter((tpl) => {
+    if (!tpl.flow_layout) return false
+    try {
+      const layout = typeof tpl.flow_layout === 'string' ? JSON.parse(tpl.flow_layout) : tpl.flow_layout
+      return layout.builder === 'wizard'
+    } catch {
+      return false
+    }
+  })
+)
 const manualTemplateCount = computed(() => templates.value.filter((item) => item.source_type !== 'module_assembly').length)
 const sharedModuleCount = computed(() => modules.value.filter((item) => item.fluent_type === 'shared').length)
 const usedModuleTypes = computed(() => managedModuleTypes.filter((type) => modules.value.some((item) => item.module_type === type)))
@@ -1120,6 +1274,21 @@ const wizardAvailableOutputTargets = computed(() =>
 )
 const wizardOutputTargets = computed(() =>
   wizardAvailableOutputTargets.value.filter((item) => matchesOutputTargetSearch(item, wizardOutputSearch.value))
+)
+const wizardCompatiblePipelines = computed(() =>
+  pipelines.value.filter((p) => p.fluent_type === wizardForm.fluent_type)
+)
+const pipelineEligibleModules = computed(() =>
+  modules.value.filter((item) => item.fluent_type === 'shared' || item.fluent_type === pipelineForm.fluent_type)
+)
+const pipelineInputModules = computed(() =>
+  pipelineEligibleModules.value.filter((item) => item.module_type === 'input')
+)
+const pipelineFilterModules = computed(() =>
+  pipelineEligibleModules.value.filter((item) => item.module_type === 'filter')
+)
+const pipelineAvailableOutputTargets = computed(() =>
+  outputTargets.value.filter((item) => item.fluent_type === 'shared' || item.fluent_type === pipelineForm.fluent_type)
 )
 const previewAvailableOutputTargets = computed(() =>
   outputTargets.value.filter((item) => item.fluent_type === 'shared' || item.fluent_type === previewForm.fluent_type)
@@ -1379,6 +1548,7 @@ const aiTemplateDraftCanSave = computed(() => {
 let templateModal = null
 let moduleModal = null
 let moduleVersionsModal = null
+let pipelineModal = null
 const router = useRouter()
 const { t, dateLocale } = useI18n()
 
@@ -1391,6 +1561,12 @@ function runtimeLabel(value) {
   if (value === 'fluentd') return 'Fluentd'
   if (value === 'shared') return 'Shared'
   return value || '-'
+}
+
+function runtimeBadgeClass(value) {
+  if (value === 'fluentbit') return 'bg-info-subtle text-info-emphasis'
+  if (value === 'fluentd') return 'bg-warning-subtle text-warning-emphasis'
+  return 'bg-secondary-subtle text-secondary-emphasis'
 }
 
 function shortVariables(value) {
@@ -2752,6 +2928,116 @@ async function loadTemplates() {
   templates.value = data.data || []
 }
 
+async function loadPipelines() {
+  const { data } = await getConfigPipelines()
+  pipelines.value = data.data || []
+}
+
+function openCreatePipeline() {
+  pipelineFormInitializing.value = true
+  editingPipelineId.value = null
+  pipelineForm.name = ''
+  pipelineForm.description = ''
+  pipelineForm.fluent_type = 'fluentbit'
+  pipelineForm.input_module_id = null
+  pipelineForm.filter_module_ids = []
+  pipelineForm.output_target_ids = []
+  pipelineFilterPickerValue.value = ''
+  pipelineFormInitializing.value = false
+  ensurePipelineModal()
+  pipelineModal.show()
+}
+
+function openEditPipeline(pipeline) {
+  pipelineFormInitializing.value = true
+  editingPipelineId.value = pipeline.id
+  pipelineForm.name = pipeline.name
+  pipelineForm.description = pipeline.description || ''
+  pipelineForm.fluent_type = pipeline.fluent_type || 'fluentbit'
+  pipelineForm.input_module_id = pipeline.input_module_id || null
+  pipelineForm.filter_module_ids = (pipeline.filter_modules || []).map((m) => m.id)
+  pipelineForm.output_target_ids = (pipeline.output_targets || []).map((t) => t.id)
+  pipelineFilterPickerValue.value = ''
+  pipelineFormInitializing.value = false
+  ensurePipelineModal()
+  pipelineModal.show()
+}
+
+async function savePipeline() {
+  if (!pipelineForm.name.trim()) {
+    alert('Name is required')
+    return
+  }
+  try {
+    const payload = {
+      name: pipelineForm.name.trim(),
+      description: pipelineForm.description.trim(),
+      fluent_type: pipelineForm.fluent_type,
+      input_module_id: pipelineForm.input_module_id,
+      filter_module_ids: pipelineForm.filter_module_ids,
+      output_target_ids: pipelineForm.output_target_ids,
+    }
+    if (editingPipelineId.value) {
+      await updateConfigPipeline(editingPipelineId.value, payload)
+    } else {
+      await createConfigPipeline(payload)
+    }
+    await loadPipelines()
+    pipelineModal.hide()
+  } catch (e) {
+    alert(`${t('common.request_failed')}: ${e?.response?.data?.error || e?.message || ''}`)
+  }
+}
+
+async function handleDeletePipeline(pipeline) {
+  if (!confirm(t('configs_page.pipeline_delete_confirm').replace('{name}', pipeline.name))) return
+  try {
+    await deleteConfigPipeline(pipeline.id)
+    await loadPipelines()
+  } catch (e) {
+    alert(`${t('common.request_failed')}: ${e?.response?.data?.error || e?.message || ''}`)
+  }
+}
+
+function addPipelineFilterModule(moduleId) {
+  if (moduleId && !pipelineForm.filter_module_ids.includes(moduleId)) {
+    pipelineForm.filter_module_ids.push(moduleId)
+  }
+}
+
+function removePipelineFilterModule(index) {
+  pipelineForm.filter_module_ids.splice(index, 1)
+}
+
+function movePipelineFilterModule(index, direction) {
+  const arr = pipelineForm.filter_module_ids
+  const newIndex = index + direction
+  if (newIndex < 0 || newIndex >= arr.length) return
+  const tmp = arr[index]
+  arr[index] = arr[newIndex]
+  arr[newIndex] = tmp
+}
+
+function togglePipelineOutputTarget(targetId) {
+  const idx = pipelineForm.output_target_ids.indexOf(targetId)
+  if (idx === -1) {
+    pipelineForm.output_target_ids.push(targetId)
+  } else {
+    pipelineForm.output_target_ids.splice(idx, 1)
+  }
+}
+
+function addWizardPipelineFromSaved(pipelineId) {
+  const saved = pipelines.value.find((p) => p.id === Number(pipelineId))
+  if (!saved) return
+  const newPipeline = createWizardPipeline()
+  newPipeline.input = saved.input_module_id ? { id: createWizardInstanceID('wizard-input'), module_id: saved.input_module_id } : null
+  newPipeline.filters = (saved.filter_modules || []).map((m) => ({ id: createWizardInstanceID('wizard-filter'), module_id: m.id }))
+  newPipeline.outputs = (saved.output_targets || []).map((t) => ({ id: createWizardInstanceID('wizard-output'), target_id: t.id }))
+  wizardPipelines.value.push(newPipeline)
+  activeWizardPipelineId.value = newPipeline.id
+}
+
 async function loadModules() {
   modules.value = await listAllModules()
   const deletableIDs = new Set(modules.value.filter((item) => !item.is_builtin).map((item) => item.id))
@@ -2865,6 +3151,12 @@ function ensureModuleModal() {
 function ensureModuleVersionsModal() {
   if (!moduleVersionsModal) {
     moduleVersionsModal = new window.bootstrap.Modal(document.getElementById('moduleVersionsModal'))
+  }
+}
+
+function ensurePipelineModal() {
+  if (!pipelineModal) {
+    pipelineModal = new window.bootstrap.Modal(document.getElementById('pipelineModal'))
   }
 }
 
@@ -3271,6 +3563,81 @@ function openAdvancedPreviewFromWizard() {
   activeTab.value = 'preview'
 }
 
+function wizardHasContent() {
+  if (wizardServiceModuleId.value) return true
+  if (wizardParserModuleIds.value.length) return true
+  return wizardPipelines.value.some(
+    (p) => p.input || p.filters.length || p.outputs.length
+  )
+}
+
+function loadWizardFromTemplate(template) {
+  if (!template?.flow_layout) {
+    alert(t('configs_page.wizard_load_incompatible'))
+    return
+  }
+  let layout
+  try {
+    layout = typeof template.flow_layout === 'string' ? JSON.parse(template.flow_layout) : template.flow_layout
+  } catch {
+    alert(t('configs_page.wizard_load_incompatible'))
+    return
+  }
+  if (layout.builder !== 'wizard') {
+    alert(t('configs_page.wizard_load_incompatible'))
+    return
+  }
+  if (wizardHasContent() && !confirm(t('configs_page.wizard_load_overwrite_confirm'))) return
+
+  // Reset current wizard state
+  wizardPipelines.value = []
+  wizardServiceModuleId.value = null
+  wizardParserModuleIds.value = []
+  wizardGlobalModuleVariables.value = {}
+  renderedConfig.value = null
+
+  // Restore basic settings
+  if (layout.runtime) wizardForm.fluent_type = layout.runtime
+  if (layout.goal) wizardForm.goal = layout.goal
+  wizardForm.name = template.name || ''
+  wizardForm.description = template.description || ''
+
+  // Restore global resources
+  if (layout.global?.service_module_id) {
+    selectWizardServiceModule(layout.global.service_module_id)
+  }
+  for (const mid of layout.global?.parser_module_ids || []) {
+    toggleWizardParserModule(mid)
+  }
+
+  // Restore pipelines
+  const restored = (layout.pipelines || []).map((p) => {
+    const pid = createWizardInstanceID('wizard-pipeline')
+    return {
+      id: pid,
+      name: p.name || '',
+      input: p.input_module_id
+        ? { id: createWizardInstanceID('wizard-input'), module_id: p.input_module_id }
+        : null,
+      filters: (p.filter_module_ids || []).map((mid) => ({
+        id: createWizardInstanceID('wizard-filter'),
+        module_id: mid,
+      })),
+      outputs: (p.output_targets || []).map((ot) => ({
+        id: createWizardInstanceID('wizard-output'),
+        target_id: ot.id,
+      })),
+    }
+  })
+  wizardPipelines.value = restored.length ? restored : [createWizardPipeline()]
+  activeWizardPipelineId.value = wizardPipelines.value[0].id
+  wizardLoadedFromTemplate.value = template
+}
+
+function clearWizardLoadedTemplate() {
+  wizardLoadedFromTemplate.value = null
+}
+
 async function runAIAssistant() {
   if (!aiAssistantForm.sample.trim()) {
     aiAssistantResult.value = null
@@ -3280,6 +3647,7 @@ async function runAIAssistant() {
 
   aiAssistantLoading.value = true
   aiAssistantResult.value = null
+  aiAssistantModules.value = []
   clearAIAssistantFeedback()
   try {
     const { data } = await analyzeLogSampleAssistant({
@@ -3290,6 +3658,12 @@ async function runAIAssistant() {
       extra_requirements: aiAssistantForm.extra_requirements,
     })
     aiAssistantResult.value = data
+
+    const existingList = modules.value.filter(
+      (m) => m.fluent_type === aiAssistantForm.fluent_type || m.fluent_type === 'shared'
+    )
+    aiAssistantModules.value = mergeAIModules(data.modules || [], existingList)
+
     setAIAssistantFeedback(
       'success',
       t('configs_page.ai_assistant_success'),
@@ -3298,6 +3672,7 @@ async function runAIAssistant() {
     )
   } catch (error) {
     aiAssistantResult.value = null
+    aiAssistantModules.value = []
     setAIAssistantFeedback(
       'danger',
       t('configs_page.ai_assistant_failed'),
@@ -3307,6 +3682,105 @@ async function runAIAssistant() {
     )
   } finally {
     aiAssistantLoading.value = false
+  }
+}
+
+// Normalise a single line/segment for comparison: collapse inline whitespace, lowercase.
+function normalizeLine(s) {
+  return String(s || '').replace(/[ \t]+/g, ' ').trim().toLowerCase()
+}
+
+// Split raw content into comparable segments (newline or semicolon delimited), normalising each.
+function splitContentLines(raw) {
+  return String(raw || '')
+    .split(/[;\n]/)
+    .map(normalizeLine)
+    .filter(Boolean)
+}
+
+// Ratio of shared segments between two raw content strings.
+function contentSimilarityRatio(rawA, rawB) {
+  const aLines = splitContentLines(rawA)
+  const bLines = splitContentLines(rawB)
+  if (!aLines.length || !bLines.length) return 0
+  const bSet = new Set(bLines)
+  const matching = aLines.filter((l) => bSet.has(l)).length
+  return matching / Math.max(aLines.length, bLines.length)
+}
+
+// Match each AI-generated module against the existing catalog and assign a default decision.
+function mergeAIModules(generatedModules, existingModules) {
+  return generatedModules.map((mod) => {
+    const nameLower = (mod.name || '').toLowerCase()
+    const typeLower = (mod.module_type || '').toLowerCase()
+
+    // 1. Exact name + type match.
+    const exactMatch = existingModules.find(
+      (e) => e.name.toLowerCase() === nameLower && e.module_type.toLowerCase() === typeLower
+    )
+    if (exactMatch) {
+      const ratio = contentSimilarityRatio(mod.content, exactMatch.latest_content || '')
+      const decision = ratio >= 0.95 ? 'reuse_existing' : 'update_existing'
+      return { ...mod, decision, matchedModule: exactMatch }
+    }
+
+    // 2. Content similarity scan across same-type modules (≥70% line overlap).
+    const sameType = existingModules.filter((e) => e.module_type.toLowerCase() === typeLower)
+    const similarMatch = sameType.find(
+      (e) => contentSimilarityRatio(mod.content, e.latest_content || '') >= 0.7
+    )
+    if (similarMatch) {
+      return { ...mod, decision: 'reuse_existing', matchedModule: similarMatch }
+    }
+
+    return { ...mod, decision: 'create_new', matchedModule: null }
+  })
+}
+
+async function saveAIModules() {
+  if (!aiAssistantModules.value.length) return
+  aiAssistantModulesSaving.value = true
+  const errors = []
+  try {
+    for (const item of aiAssistantModules.value) {
+      if (item.decision === 'reuse_existing') continue
+      try {
+        if (item.decision === 'create_new') {
+          const { data: created } = await createModule({
+            name: item.name,
+            module_type: item.module_type,
+            fluent_type: aiAssistantForm.fluent_type,
+            description: aiAssistantResult.value?.summary || '',
+            variables: item.variables_json || '{}',
+            content: item.content,
+            is_builtin: false,
+          })
+          void created
+        } else if (item.decision === 'update_existing') {
+          if (!item.matchedModule) {
+            throw new Error(`No existing module matched. Change decision to "Create new" or re-run.`)
+          }
+          await createModuleVersion(item.matchedModule.id, {
+            content: item.content,
+            variables: item.variables_json || '{}',
+            comment: `AI-generated update from assistant`,
+          })
+        }
+      } catch (e) {
+        errors.push(`"${item.name}": ${e?.response?.data?.error || e?.message || ''}`)
+      }
+    }
+    // Reload modules and re-run merge so cards reflect current state.
+    await loadModules()
+    const rawGenerated = aiAssistantResult.value?.modules || []
+    aiAssistantModules.value = mergeAIModules(rawGenerated, modules.value)
+    if (errors.length) {
+      setAIAssistantFeedback('warning', t('configs_page.ai_modules_save_partial'), errors.join('; '))
+    } else {
+      setAIAssistantFeedback('success', t('configs_page.ai_modules_saved'))
+    }
+  } finally {
+    aiAssistantModulesSaving.value = false
   }
 }
 
@@ -3537,19 +4011,25 @@ async function importParsedModules() {
   }
 }
 
-function useAIModuleDraft() {
-  if (!aiAssistantResult.value) return
+function useAIModuleDraft(module) {
+  if (!module) return
 
   resetModuleForm()
   editingModuleId.value = null
-  moduleForm.name = aiAssistantResult.value.recommended_module_name || `ai-${aiAssistantForm.module_type}`
-  moduleForm.description = aiAssistantResult.value.summary || ''
-  moduleForm.module_type = aiAssistantResult.value.module_type || aiAssistantForm.module_type
+  moduleForm.name = module.name || `ai-${module.module_type}`
+  moduleForm.description = aiAssistantResult.value?.summary || ''
+  moduleForm.module_type = module.module_type || aiAssistantForm.module_type
   moduleForm.fluent_type = aiAssistantForm.fluent_type
-  moduleForm.content = aiAssistantResult.value.module_content || ''
+  moduleForm.content = module.content || ''
   moduleForm.is_builtin = false
-  applyAIModuleVariables(aiAssistantResult.value.variables_json || '{}')
-  activateAIDraftState(aiModuleDraftState, aiAssistantResult.value, [
+  applyAIModuleVariables(module.variables_json || '{}')
+  // Pass a synthetic result so activateAIDraftState gets the right notes/steps.
+  const draftResult = {
+    ...aiAssistantResult.value,
+    notes: module.note ? [module.note, ...(aiAssistantResult.value?.notes || [])] : (aiAssistantResult.value?.notes || []),
+    assembly_steps: [],
+  }
+  activateAIDraftState(aiModuleDraftState, draftResult, [
     t('configs_page.ai_draft_review_name'),
     t('configs_page.ai_draft_review_runtime'),
     t('configs_page.ai_draft_review_variables'),
@@ -3564,14 +4044,20 @@ function useAIModuleDraft() {
   moduleModal.show()
 }
 
-function useAITemplateDraft() {
+function useAITemplateDraft(pipeline) {
   if (!aiAssistantResult.value) return
 
   resetTemplateForm()
-  templateForm.name = aiAssistantResult.value.recommended_template_name || `ai-${aiAssistantForm.fluent_type}-template`
-  templateForm.description = aiAssistantResult.value.summary || ''
+  if (pipeline) {
+    templateForm.name = pipeline.name || `ai-${aiAssistantForm.fluent_type}-template`
+    templateForm.description = pipeline.description || aiAssistantResult.value.summary || ''
+    templateForm.content = pipeline.template_content || ''
+  } else {
+    templateForm.name = `ai-${aiAssistantForm.fluent_type}-template`
+    templateForm.description = aiAssistantResult.value.summary || ''
+    templateForm.content = (aiAssistantResult.value.pipelines && aiAssistantResult.value.pipelines[0]?.template_content) || ''
+  }
   templateForm.fluent_type = aiAssistantForm.fluent_type
-  templateForm.content = aiAssistantResult.value.template_content || ''
   activateAIDraftState(aiTemplateDraftState, aiAssistantResult.value, [
     t('configs_page.ai_draft_review_name'),
     t('configs_page.ai_draft_review_runtime'),
@@ -3585,6 +4071,108 @@ function useAITemplateDraft() {
   ])
   ensureTemplateModal()
   templateModal.show()
+}
+
+// Resolve AI pipeline module_names to catalog module objects.
+// Disambiguation key: name + module_type + fluent_type (from AI result + current runtime).
+// Returns { resolved: Module[], unsaved: string[] }.
+function resolveAIPipelineModules(pipeline) {
+  const ft = aiAssistantForm.fluent_type
+  // AI result carries name + module_type for each generated module
+  const aiMetaByName = new Map(
+    (aiAssistantResult.value?.modules || []).map((m) => [m.name, { type: m.module_type }])
+  )
+  // Catalog keyed by "name\0type\0fluent_type" (most specific), then "name\0type", then "name"
+  const key3 = (name, type, ftype) => `${name}\0${type}\0${ftype}`
+  const key2 = (name, type) => `${name}\0${type}`
+  const byKey3 = new Map(modules.value.map((m) => [key3(m.name, m.module_type, m.fluent_type), m]))
+  const byKey2 = new Map(modules.value.map((m) => [key2(m.name, m.module_type), m]))
+  const byName = new Map(modules.value.map((m) => [m.name, m]))
+
+  const resolved = []
+  const unsaved = []
+  for (const name of pipeline.module_names || []) {
+    const aiMeta = aiMetaByName.get(name)
+    const aiType = aiMeta?.type
+    let mod = null
+    if (aiType) {
+      mod = byKey3.get(key3(name, aiType, ft))
+           ?? byKey3.get(key3(name, aiType, 'shared'))
+           ?? byKey2.get(key2(name, aiType))
+    }
+    if (!mod) mod = byName.get(name)
+    if (!mod) unsaved.push(name)
+    else resolved.push(mod)
+  }
+  return { resolved, unsaved }
+}
+
+// Split resolved modules into semantic slots.
+// output modules: try name-match against known OutputTarget records.
+// Matched → matchedTargets (can be used as output_target_ids / wizard outputs).
+// Unmatched output + all route/filter/parser/service → stageMods (ordered pipeline stages).
+function splitAIPipelineModules(resolvedModules) {
+  const inputMod = resolvedModules.find((m) => m.module_type === 'input') || null
+  const outputMods = resolvedModules.filter((m) => m.module_type === 'output')
+  const stageMods = resolvedModules.filter((m) => m.module_type !== 'input' && m.module_type !== 'output')
+
+  const matchedTargets = []
+  const unmatchedOutputMods = []
+  for (const mod of outputMods) {
+    const target = outputTargets.value.find((tgt) => tgt.name === mod.name)
+    if (target) matchedTargets.push(target)
+    else unmatchedOutputMods.push(mod)
+  }
+
+  // Unmatched output modules fall back to stage position (after filters)
+  return { inputMod, stageMods: [...stageMods, ...unmatchedOutputMods], matchedTargets, unmatchedOutputMods }
+}
+
+async function saveAIPipelineAsConfigPipeline(pipeline) {
+  const { resolved, unsaved } = resolveAIPipelineModules(pipeline)
+  if (unsaved.length) {
+    alert(t('configs_page.ai_pipeline_modules_not_saved') + ' (' + unsaved.join(', ') + ')')
+    return
+  }
+  const { inputMod, stageMods, matchedTargets, unmatchedOutputMods } = splitAIPipelineModules(resolved)
+  try {
+    const { data } = await createConfigPipeline({
+      name: pipeline.name || `ai-pipeline-${Date.now()}`,
+      description: pipeline.description || aiAssistantResult.value?.summary || '',
+      fluent_type: aiAssistantForm.fluent_type,
+      input_module_id: inputMod?.id ?? null,
+      filter_module_ids: stageMods.map((m) => m.id),
+      output_target_ids: matchedTargets.map((t) => t.id),
+    })
+    await loadPipelines()
+    const msg = t('configs_page.ai_pipeline_saved_as_pipeline').replace('{name}', data.name)
+    const detail = unmatchedOutputMods.length
+      ? t('configs_page.ai_pipeline_output_stages_note').replace('{names}', unmatchedOutputMods.map((m) => m.name).join(', '))
+      : ''
+    setAIAssistantFeedback('success', msg, detail)
+  } catch (e) {
+    setAIAssistantFeedback('danger', t('common.request_failed'), e?.response?.data?.error || e?.message || '')
+  }
+}
+
+function sendAIPipelineToWizard(pipeline) {
+  const { resolved, unsaved } = resolveAIPipelineModules(pipeline)
+  if (unsaved.length) {
+    alert(t('configs_page.ai_pipeline_modules_not_saved') + ' (' + unsaved.join(', ') + ')')
+    return
+  }
+  const { inputMod, stageMods, matchedTargets, unmatchedOutputMods } = splitAIPipelineModules(resolved)
+  const newPipeline = createWizardPipeline()
+  newPipeline.name = pipeline.name || ''
+  newPipeline.input = inputMod ? { id: createWizardInstanceID('wizard-input'), module_id: inputMod.id } : null
+  newPipeline.filters = stageMods.map((m) => ({ id: createWizardInstanceID('wizard-filter'), module_id: m.id }))
+  newPipeline.outputs = matchedTargets.map((tgt) => ({ id: createWizardInstanceID('wizard-output'), target_id: tgt.id }))
+  wizardPipelines.value.push(newPipeline)
+  activeWizardPipelineId.value = newPipeline.id
+  activeTab.value = 'wizard'
+  if (unmatchedOutputMods.length) {
+    alert(t('configs_page.ai_pipeline_output_stages_note').replace('{names}', unmatchedOutputMods.map((m) => m.name).join(', ')))
+  }
 }
 
 function wizardGoalLabel(goal) {
@@ -3735,6 +4323,18 @@ function findingBadgeClass(severity) {
 }
 
 watch(
+  () => pipelineForm.fluent_type,
+  () => {
+    if (pipelineFormInitializing.value) return
+    pipelineForm.input_module_id = null
+    pipelineForm.filter_module_ids = []
+    pipelineForm.output_target_ids = []
+    pipelineFilterPickerValue.value = ''
+  },
+  { flush: 'sync' }
+)
+
+watch(
   () => previewForm.fluent_type,
   () => {
     const eligibleIds = new Set(previewEligibleModules.value.map((item) => item.id))
@@ -3795,7 +4395,7 @@ watch(
 
 onMounted(async () => {
   resetWizardForm()
-  await Promise.all([loadTemplates(), loadModules(), loadModuleTable(), loadOutputTargets()])
+  await Promise.all([loadTemplates(), loadModules(), loadModuleTable(), loadOutputTargets(), loadPipelines()])
   ensureWizardBaselineModules()
 })
 </script>

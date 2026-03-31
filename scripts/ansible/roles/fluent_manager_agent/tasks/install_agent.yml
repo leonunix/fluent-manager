@@ -76,3 +76,24 @@
 - name: Show agent version
   ansible.builtin.debug:
     msg: "{{ fm_agent_version_output.stdout }}"
+
+- name: Install polkit rule to allow agent user to manage fluent services
+  ansible.builtin.copy:
+    dest: /etc/polkit-1/rules.d/50-fluent-manager-agent.rules
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      // Allow fluent-manager-agent user to manage Fluent Bit / Fluentd services
+      polkit.addRule(function(action, subject) {
+          var units = [
+              "fluent-bit.service",
+              "td-agent.service",
+              "fluentd.service"
+          ];
+          if (action.id === "org.freedesktop.systemd1.manage-units" &&
+              units.indexOf(action.lookup("unit")) !== -1 &&
+              subject.user === "{{ fm_agent_user }}") {
+              return polkit.Result.YES;
+          }
+      });

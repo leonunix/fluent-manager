@@ -60,3 +60,23 @@
     enabled: true
     state: started
   when: fb_check.rc != 0
+
+- name: Grant agent group write access to Fluent Bit config directory
+  ansible.builtin.file:
+    path: "{{ fm_fluentbit_config_dir }}"
+    state: directory
+    group: "{{ fm_agent_group }}"
+    mode: "0775"
+
+- name: Find Fluent Bit config files
+  ansible.builtin.find:
+    paths: "{{ fm_fluentbit_config_dir }}"
+    file_type: file
+  register: fb_config_files
+
+- name: Grant agent group write access to Fluent Bit config files
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    group: "{{ fm_agent_group }}"
+    mode: "0664"
+  loop: "{{ fb_config_files.files }}"

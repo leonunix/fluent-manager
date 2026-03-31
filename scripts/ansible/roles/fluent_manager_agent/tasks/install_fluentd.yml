@@ -64,3 +64,23 @@
     enabled: true
     state: started
   when: fd_check.rc != 0 and td_check.rc | default(1) != 0
+
+- name: Grant agent group write access to Fluentd config directory
+  ansible.builtin.file:
+    path: "{{ fm_fluentd_config_dir }}"
+    state: directory
+    group: "{{ fm_agent_group }}"
+    mode: "0775"
+
+- name: Find Fluentd config files
+  ansible.builtin.find:
+    paths: "{{ fm_fluentd_config_dir }}"
+    file_type: file
+  register: fd_config_files
+
+- name: Grant agent group write access to Fluentd config files
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    group: "{{ fm_agent_group }}"
+    mode: "0664"
+  loop: "{{ fd_config_files.files }}"

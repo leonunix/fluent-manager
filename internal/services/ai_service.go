@@ -18,6 +18,28 @@ import (
 	"google.golang.org/genai"
 )
 
+// GeneratedModule is a single Fluent config module block produced by the AI.
+// Names follow the "{source}-{module_type}" convention (e.g. "nginx-access-parser")
+// so the frontend can match them against existing modules by name and content.
+type GeneratedModule struct {
+	Name          string `json:"name"`
+	ModuleType    string `json:"module_type"`
+	VariablesJSON string `json:"variables_json"`
+	Content       string `json:"content"`
+	Note          string `json:"note,omitempty"`
+}
+
+// GeneratedPipeline is a named assembly of the generated modules that forms a
+// complete, deployable log processing chain. It maps directly to an assembly
+// ConfigTemplate in the system and can be saved to a cluster.
+type GeneratedPipeline struct {
+	Name            string   `json:"name"`
+	Description     string   `json:"description"`
+	ModuleNames     []string `json:"module_names"` // references to GeneratedModule.Name
+	TemplateContent string   `json:"template_content"`
+	Note            string   `json:"note,omitempty"`
+}
+
 type LogSampleAnalysisInput struct {
 	AccountID         string `json:"account_id"`
 	FluentType        string `json:"fluent_type"`
@@ -28,19 +50,15 @@ type LogSampleAnalysisInput struct {
 }
 
 type LogSampleAnalysisResult struct {
-	Provider                string   `json:"provider"`
-	AccountID               string   `json:"account_id"`
-	AccountName             string   `json:"account_name"`
-	DetectedFormat          string   `json:"detected_format"`
-	Summary                 string   `json:"summary"`
-	RecommendedModuleName   string   `json:"recommended_module_name"`
-	RecommendedTemplateName string   `json:"recommended_template_name"`
-	ModuleType              string   `json:"module_type"`
-	VariablesJSON           string   `json:"variables_json"`
-	ModuleContent           string   `json:"module_content"`
-	TemplateContent         string   `json:"template_content"`
-	AssemblySteps           []string `json:"assembly_steps"`
-	Notes                   []string `json:"notes"`
+	Provider       string              `json:"provider"`
+	AccountID      string              `json:"account_id"`
+	AccountName    string              `json:"account_name"`
+	DetectedFormat string              `json:"detected_format"`
+	Summary        string              `json:"summary"`
+	Modules        []GeneratedModule   `json:"modules"`
+	Pipelines      []GeneratedPipeline `json:"pipelines"`
+	AssemblySteps  []string            `json:"assembly_steps"`
+	Notes          []string            `json:"notes"`
 }
 
 type AITestAccountInput struct {
@@ -210,14 +228,15 @@ func (s *aiService) AnalyzeLogSample(input *LogSampleAnalysisInput) (*LogSampleA
 		}
 	}
 
-	if result.ModuleType == "" {
-		result.ModuleType = input.ModuleType
-	}
-	if result.ModuleType != "" && !validConfigModuleTypes[result.ModuleType] {
-		result.ModuleType = input.ModuleType
-	}
-	if result.VariablesJSON != "" {
-		result.VariablesJSON = prettyJSONString(result.VariablesJSON)
+	// Validate and pretty-print each generated module.
+	for i := range result.Modules {
+		m := &result.Modules[i]
+		if m.ModuleType != "" && !validConfigModuleTypes[m.ModuleType] {
+			m.ModuleType = ""
+		}
+		if m.VariablesJSON != "" {
+			m.VariablesJSON = prettyJSONString(m.VariablesJSON)
+		}
 	}
 	result.Provider = account.Provider
 	result.AccountID = account.ID
@@ -319,33 +338,60 @@ func buildLogSamplePrompt(input *LogSampleAnalysisInput) string {
 	if goal == "" {
 		goal = "both"
 	}
-	moduleTypeHint := input.ModuleType
-	if moduleTypeHint == "" {
-		moduleTypeHint = "choose the most suitable one from service/input/parser/filter/route/output"
+	moduleTypeHint := ""
+	if input.ModuleType != "" {
+		moduleTypeHint = fmt.Sprintf("\nPreferred module type hint: %s (include other types if needed for a complete pipeline)", input.ModuleType)
 	}
-	return fmt.Sprintf(`Analyze the following log sample and propose Fluent configuration assets.
+	return fmt.Sprintf(`Analyze the following log sample and propose a complete set of reusable Fluent configuration modules.
 
 Target runtime: %s
-Desired output goal: %s
-Preferred module type: %s
+Desired output goal: %s%s
 Additional requirements:
 %s
+
+Module naming convention (REQUIRED): use the pattern "{source}-{module_type}" derived from the log file name or service name.
+Examples: "nginx-access-parser", "nginx-access-input", "mysql-error-parser", "app-server-filter", "kafka-output".
+This naming is used for deduplication — keep names short, stable, and predictable.
+
+Always produce a complete functional pipeline:
+- If the log needs custom parsing: include a "parser" module.
+- Always include at least one "input" module referencing any parser.
+- Include "filter" only if transformation is clearly needed.
+- Include "output" only if the goal explicitly requests it or it is obvious from requirements.
 
 Return JSON with exactly these fields:
 {
   "detected_format": "short explanation",
   "summary": "short explanation",
-  "recommended_module_name": "string",
-  "recommended_template_name": "string",
-  "module_type": "service|input|parser|filter|route|output",
-  "variables_json": "{ ... pretty JSON string ... }",
-  "module_content": "config snippet string",
-  "template_content": "config template string",
+  "modules": [
+    {
+      "name": "{source}-{module_type}",
+      "module_type": "service|input|parser|filter|route|output",
+      "variables_json": "{ ... pretty JSON string of template variables ... }",
+      "content": "config snippet using {{ .variable }} placeholders",
+      "note": "optional short operator note"
+    }
+  ],
+  "pipelines": [
+    {
+      "name": "{source}-pipeline",
+      "description": "one-line description of what this pipeline does",
+      "module_names": ["{source}-parser", "{source}-input"],
+      "template_content": "fully assembled deployable config template combining the modules above",
+      "note": "optional operator note about deployment or variable overrides"
+    }
+  ],
   "assembly_steps": ["step 1", "step 2"],
   "notes": ["note 1", "note 2"]
 }
 
-Log sample (lines prefixed with "# /path/to/file" indicate the source file path — use the filename and directory as additional context to infer the log type, service, or component even before reading the content):
+Pipeline rules:
+- Produce one pipeline per distinct log source found in the sample.
+- module_names must reference names from the modules array above.
+- template_content must be the complete, assembled, deployable config — not a reference, the actual content.
+- Pipeline name convention: "{source}-pipeline" (e.g. "nginx-access-pipeline").
+
+Log sample (lines prefixed with "# /path/to/file" indicate the source file — use filename and directory as additional context to infer log type, service, or component):
 %s
 `, input.FluentType, goal, moduleTypeHint, strings.TrimSpace(input.ExtraRequirements), strings.TrimSpace(input.Sample))
 }
@@ -368,6 +414,13 @@ func parseLogSampleAnalysis(raw string) (*LogSampleAnalysisResult, error) {
 	var result LogSampleAnalysisResult
 	if err := json.Unmarshal([]byte(clean), &result); err != nil {
 		return nil, err
+	}
+	// Ensure arrays are never nil so the frontend always gets a well-formed response.
+	if result.Modules == nil {
+		result.Modules = []GeneratedModule{}
+	}
+	if result.Pipelines == nil {
+		result.Pipelines = []GeneratedPipeline{}
 	}
 	return &result, nil
 }

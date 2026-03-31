@@ -79,6 +79,23 @@ type ConfigModuleVersion struct {
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
+// ConfigPipeline is a named, reusable input → filters → outputs chain that can
+// be assembled into a ConfigTemplate alongside other pipelines or modules.
+type ConfigPipeline struct {
+	ID              uint           `gorm:"primaryKey" json:"id"`
+	Name            string         `gorm:"uniqueIndex;size:128;not null" json:"name"`
+	Description     string         `gorm:"size:512" json:"description"`
+	FluentType      string         `gorm:"size:32;not null" json:"fluent_type"`
+	InputModuleID   *uint          `json:"input_module_id"`
+	FilterModuleIDs string         `gorm:"type:text" json:"filter_module_ids"` // JSON []uint ordered
+	OutputTargetIDs string         `gorm:"type:text" json:"output_target_ids"` // JSON []uint
+	CreatedBy       uint           `json:"created_by"`
+	Creator         *User          `gorm:"foreignKey:CreatedBy" json:"creator,omitempty"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
+	DeletedAt       gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
 // RenderedConfig is a persisted render preview / snapshot for a runtime target.
 type RenderedConfig struct {
 	ID             uint           `gorm:"primaryKey" json:"id"`

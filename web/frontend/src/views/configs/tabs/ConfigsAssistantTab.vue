@@ -127,8 +127,9 @@
               </select>
             </div>
             <div class="col-md-6">
-              <label class="form-label">{{ t('configs_page.module_type_coverage') }}</label>
+              <label class="form-label">{{ t('configs_page.ai_module_type_hint') }}</label>
               <select v-model="state.aiAssistantForm.module_type" class="form-select">
+                <option value="">{{ t('configs_page.ai_module_type_auto') }}</option>
                 <option v-for="type in state.moduleTypes" :key="type" :value="type">{{ type }}</option>
               </select>
             </div>
@@ -173,11 +174,8 @@
             <h6 class="mb-0">{{ t('configs_page.ai_assistant_result') }}</h6>
             <div class="small text-muted mt-1">{{ t('configs_page.ai_assistant_result_hint') }}</div>
           </div>
-          <div v-if="state.aiAssistantResult" class="d-flex gap-2">
-            <button class="btn btn-sm btn-outline-primary" @click="actions.useAIModuleDraft">
-              <i class="bi bi-box-arrow-in-down-right me-1"></i>{{ t('configs_page.ai_use_module') }}
-            </button>
-            <button class="btn btn-sm btn-outline-primary" @click="actions.useAITemplateDraft">
+          <div v-if="state.aiAssistantResult && !(state.aiAssistantResult.pipelines && state.aiAssistantResult.pipelines.length)" class="d-flex gap-2">
+            <button class="btn btn-sm btn-outline-primary" @click="actions.useAITemplateDraft()">
               <i class="bi bi-box-arrow-in-down-right me-1"></i>{{ t('configs_page.ai_use_template') }}
             </button>
           </div>
@@ -189,6 +187,7 @@
             :class="{
               'is-success': state.aiAssistantFeedback.type === 'success',
               'is-danger': state.aiAssistantFeedback.type === 'danger',
+              'is-warning': state.aiAssistantFeedback.type === 'warning',
             }"
           >
             <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
@@ -237,17 +236,119 @@
               </div>
             </div>
 
-            <div class="mb-3">
-              <label class="form-label">{{ t('configs_page.variables_json') }}</label>
-              <textarea class="form-control font-monospace fm-config-textarea" rows="7" readonly :value="state.aiAssistantResult.variables_json"></textarea>
+            <!-- Generated modules list with merge decisions -->
+            <div v-if="state.aiAssistantModules && state.aiAssistantModules.length" class="mb-3">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <label class="form-label mb-0">{{ t('configs_page.ai_generated_modules') }}</label>
+                <button
+                  class="btn btn-sm btn-success"
+                  :disabled="state.aiAssistantModulesSaving"
+                  @click="actions.saveAIModules"
+                >
+                  <span v-if="state.aiAssistantModulesSaving"><span class="spinner-border spinner-border-sm me-1"></span></span>
+                  <i v-else class="bi bi-cloud-arrow-up me-1"></i>
+                  {{ state.aiAssistantModulesSaving ? t('configs_page.ai_modules_saving') : t('configs_page.ai_modules_save_all') }}
+                </button>
+              </div>
+              <div class="d-flex flex-column gap-2">
+                <div
+                  v-for="(mod, idx) in state.aiAssistantModules"
+                  :key="idx"
+                  class="border rounded p-3"
+                  :class="mod.decision === 'reuse_existing' ? 'border-success-subtle bg-success-subtle' : mod.decision === 'update_existing' ? 'border-warning-subtle bg-warning-subtle' : 'border-primary-subtle bg-primary-subtle'"
+                >
+                  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+                    <div class="d-flex align-items-center gap-2">
+                      <span class="badge text-bg-secondary font-monospace">{{ mod.module_type }}</span>
+                      <span class="fw-semibold">{{ mod.name }}</span>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                      <select
+                        v-model="mod.decision"
+                        class="form-select form-select-sm"
+                        style="width:auto"
+                      >
+                        <option value="create_new">{{ t('configs_page.ai_module_create_new') }}</option>
+                        <option value="reuse_existing">{{ t('configs_page.ai_module_reuse') }}</option>
+                        <option value="update_existing">{{ t('configs_page.ai_module_update') }}</option>
+                      </select>
+                      <button
+                        v-if="mod.decision !== 'reuse_existing'"
+                        class="btn btn-sm btn-outline-primary"
+                        @click="actions.useAIModuleDraft(mod)"
+                        :title="t('configs_page.ai_use_module')"
+                      >
+                        <i class="bi bi-pencil-square"></i>
+                      </button>
+                    </div>
+                  </div>
+                  <div v-if="mod.matchedModule" class="small text-muted mb-2">
+                    {{ t('configs_page.ai_module_matched') }}: <span class="fw-semibold">{{ mod.matchedModule.name }}</span>
+                  </div>
+                  <div v-if="mod.note" class="small text-muted mb-2">{{ mod.note }}</div>
+                  <textarea
+                    v-if="mod.decision !== 'reuse_existing'"
+                    class="form-control form-control-sm font-monospace"
+                    rows="6"
+                    readonly
+                    :value="mod.content"
+                  ></textarea>
+                </div>
+              </div>
             </div>
-            <div class="mb-3">
-              <label class="form-label">{{ t('configs_page.version_content') }}</label>
-              <textarea class="form-control font-monospace fm-config-textarea" rows="10" readonly :value="state.aiAssistantResult.module_content"></textarea>
-            </div>
-            <div class="mb-3">
-              <label class="form-label">{{ t('configs_page.template_content') }}</label>
-              <textarea class="form-control font-monospace fm-config-textarea" rows="10" readonly :value="state.aiAssistantResult.template_content"></textarea>
+
+            <!-- Generated pipelines list -->
+            <div v-if="state.aiAssistantResult.pipelines && state.aiAssistantResult.pipelines.length" class="mb-3">
+              <label class="form-label">{{ t('configs_page.ai_generated_pipelines') }}</label>
+              <div class="d-flex flex-column gap-2">
+                <div
+                  v-for="(pipeline, idx) in state.aiAssistantResult.pipelines"
+                  :key="idx"
+                  class="border rounded p-3 border-info-subtle bg-info-subtle"
+                >
+                  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+                    <div>
+                      <span class="fw-semibold">{{ pipeline.name }}</span>
+                      <div v-if="pipeline.description" class="small text-muted mt-1">{{ pipeline.description }}</div>
+                    </div>
+                    <div class="d-flex gap-1 flex-wrap">
+                      <button
+                        class="btn btn-sm btn-outline-primary"
+                        @click="actions.useAITemplateDraft(pipeline)"
+                      >
+                        <i class="bi bi-box-arrow-in-down-right me-1"></i>{{ t('configs_page.ai_pipeline_save_as_template') }}
+                      </button>
+                      <button
+                        class="btn btn-sm btn-outline-success"
+                        @click="actions.saveAIPipelineAsConfigPipeline(pipeline)"
+                      >
+                        <i class="bi bi-diagram-3 me-1"></i>{{ t('configs_page.ai_pipeline_save_as_config_pipeline') }}
+                      </button>
+                      <button
+                        class="btn btn-sm btn-outline-secondary"
+                        @click="actions.sendAIPipelineToWizard(pipeline)"
+                      >
+                        <i class="bi bi-magic me-1"></i>{{ t('configs_page.ai_pipeline_send_to_wizard') }}
+                      </button>
+                    </div>
+                  </div>
+                  <div v-if="pipeline.module_names && pipeline.module_names.length" class="mb-2">
+                    <span class="small text-muted me-1">{{ t('configs_page.ai_pipeline_modules') }}:</span>
+                    <span
+                      v-for="modName in pipeline.module_names"
+                      :key="modName"
+                      class="badge bg-secondary-subtle text-secondary-emphasis font-monospace me-1"
+                    >{{ modName }}</span>
+                  </div>
+                  <div v-if="pipeline.note" class="small text-muted mb-2">{{ pipeline.note }}</div>
+                  <textarea
+                    class="form-control form-control-sm font-monospace"
+                    rows="8"
+                    readonly
+                    :value="pipeline.template_content"
+                  ></textarea>
+                </div>
+              </div>
             </div>
 
             <div class="row g-3">

@@ -90,6 +90,7 @@ func migrateAll(db *gorm.DB) error {
 		&ConfigVersion{},
 		&ConfigModule{},
 		&ConfigModuleVersion{},
+		&ConfigPipeline{},
 		&RenderedConfig{},
 		&LogPipeline{},
 		&ConfigAnalysisResult{},

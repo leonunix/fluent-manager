@@ -82,6 +82,24 @@ type RenderedConfigPreviewInput struct {
 	Variables      string            `json:"variables"`
 }
 
+// ConfigPipelineInput is the DTO for creating or updating a ConfigPipeline.
+type ConfigPipelineInput struct {
+	Name            string  `json:"name"`
+	Description     string  `json:"description"`
+	FluentType      string  `json:"fluent_type"`
+	InputModuleID   *uint   `json:"input_module_id"`
+	FilterModuleIDs []uint  `json:"filter_module_ids"`
+	OutputTargetIDs []uint  `json:"output_target_ids"`
+}
+
+// ConfigPipelineDetail extends ConfigPipeline with resolved related objects.
+type ConfigPipelineDetail struct {
+	models.ConfigPipeline
+	InputModule   *models.ConfigModule  `json:"input_module,omitempty"`
+	FilterModules []models.ConfigModule `json:"filter_modules"`
+	OutputTargets []models.OutputTarget `json:"output_targets"`
+}
+
 type ConfigService interface {
 	ListTemplates(fluentType, search string, page, pageSize int) ([]models.ConfigTemplate, int64, error)
 	GetTemplate(id uint) (*models.ConfigTemplate, error)
@@ -102,6 +120,12 @@ type ConfigService interface {
 	CreateModuleVersion(moduleID, createdBy uint, content, variables, comment string) (*models.ConfigModuleVersion, error)
 	PreviewRenderedConfig(input *RenderedConfigPreviewInput, createdBy uint) (*models.RenderedConfig, error)
 	GetRenderedConfig(id uint) (*models.RenderedConfig, error)
+
+	ListPipelines(fluentType, search string) ([]ConfigPipelineDetail, error)
+	GetPipeline(id uint) (*ConfigPipelineDetail, error)
+	CreatePipeline(input *ConfigPipelineInput, createdBy uint) (*ConfigPipelineDetail, error)
+	UpdatePipeline(id uint, input *ConfigPipelineInput) (*ConfigPipelineDetail, error)
+	DeletePipeline(id uint) error
 }
 
 type configService struct {
@@ -403,7 +427,7 @@ func (s *configService) DeleteModules(ids []uint) error {
 			}
 			if len(usedNames) > 0 {
 				sort.Strings(usedNames)
-				return fmt.Errorf("%w: modules are still referenced by templates or versions: %s", ErrForbidden, strings.Join(usedNames, ", "))
+				return fmt.Errorf("%w: modules are still referenced by templates, versions or pipelines: %s", ErrForbidden, strings.Join(usedNames, ", "))
 			}
 		}
 
@@ -499,6 +523,34 @@ func findModuleUsageRefs(tx *gorm.DB, moduleIDs []uint) (map[uint][]moduleUsageR
 			name: label,
 			id:   version.ID,
 		})
+	}
+
+	var configPipelines []models.ConfigPipeline
+	if err := tx.Find(&configPipelines).Error; err != nil {
+		return nil, err
+	}
+	for _, cp := range configPipelines {
+		ref := moduleUsageRef{kind: "pipeline", name: cp.Name, id: cp.ID}
+		if cp.InputModuleID != nil {
+			if _, ok := targets[*cp.InputModuleID]; ok {
+				usageByModuleID[*cp.InputModuleID] = append(usageByModuleID[*cp.InputModuleID], ref)
+			}
+		}
+		var filterIDs []uint
+		if cp.FilterModuleIDs != "" {
+			_ = json.Unmarshal([]byte(cp.FilterModuleIDs), &filterIDs)
+		}
+		seen := make(map[uint]struct{})
+		for _, mid := range filterIDs {
+			if _, ok := targets[mid]; !ok {
+				continue
+			}
+			if _, dup := seen[mid]; dup {
+				continue
+			}
+			seen[mid] = struct{}{}
+			usageByModuleID[mid] = append(usageByModuleID[mid], ref)
+		}
 	}
 
 	return usageByModuleID, nil
@@ -891,6 +943,198 @@ func renderModuleTemplate(content string, variables map[string]interface{}) (str
 		return "", err
 	}
 	return buf.String(), nil
+}
+
+func (s *configService) resolvePipelineDetail(p models.ConfigPipeline) *ConfigPipelineDetail {
+	detail := &ConfigPipelineDetail{
+		ConfigPipeline: p,
+		FilterModules:  []models.ConfigModule{},
+		OutputTargets:  []models.OutputTarget{},
+	}
+
+	if p.InputModuleID != nil {
+		var m models.ConfigModule
+		if err := s.db.First(&m, *p.InputModuleID).Error; err == nil {
+			detail.InputModule = &m
+		}
+	}
+
+	var filterIDs []uint
+	if p.FilterModuleIDs != "" {
+		_ = json.Unmarshal([]byte(p.FilterModuleIDs), &filterIDs)
+	}
+	if len(filterIDs) > 0 {
+		var mods []models.ConfigModule
+		s.db.Where("id IN ?", filterIDs).Find(&mods)
+		byID := make(map[uint]models.ConfigModule, len(mods))
+		for _, m := range mods {
+			byID[m.ID] = m
+		}
+		for _, id := range filterIDs {
+			if m, ok := byID[id]; ok {
+				detail.FilterModules = append(detail.FilterModules, m)
+			}
+		}
+	}
+
+	var outputIDs []uint
+	if p.OutputTargetIDs != "" {
+		_ = json.Unmarshal([]byte(p.OutputTargetIDs), &outputIDs)
+	}
+	if len(outputIDs) > 0 {
+		var targets []models.OutputTarget
+		s.db.Where("id IN ?", outputIDs).Find(&targets)
+		byID := make(map[uint]models.OutputTarget, len(targets))
+		for _, t := range targets {
+			byID[t.ID] = t
+		}
+		for _, id := range outputIDs {
+			if t, ok := byID[id]; ok {
+				detail.OutputTargets = append(detail.OutputTargets, t)
+			}
+		}
+	}
+
+	return detail
+}
+
+func (s *configService) ListPipelines(fluentType, search string) ([]ConfigPipelineDetail, error) {
+	q := s.db.Order("created_at DESC")
+	if fluentType != "" {
+		q = q.Where("fluent_type = ?", fluentType)
+	}
+	if search != "" {
+		q = q.Where("name LIKE ?", "%"+search+"%")
+	}
+	var rows []models.ConfigPipeline
+	if err := q.Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	result := make([]ConfigPipelineDetail, 0, len(rows))
+	for _, p := range rows {
+		result = append(result, *s.resolvePipelineDetail(p))
+	}
+	return result, nil
+}
+
+func (s *configService) GetPipeline(id uint) (*ConfigPipelineDetail, error) {
+	var p models.ConfigPipeline
+	if err := s.db.First(&p, id).Error; err != nil {
+		return nil, err
+	}
+	return s.resolvePipelineDetail(p), nil
+}
+
+func marshalUintSlice(ids []uint) string {
+	if len(ids) == 0 {
+		return "[]"
+	}
+	b, _ := json.Marshal(ids)
+	return string(b)
+}
+
+func validatePipelineInput(input *ConfigPipelineInput) (string, error) {
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return "", fmt.Errorf("%w: pipeline name is required", ErrInvalidArgument)
+	}
+	if input.FluentType != "fluentbit" && input.FluentType != "fluentd" {
+		return "", fmt.Errorf("%w: fluent_type must be fluentbit or fluentd", ErrInvalidArgument)
+	}
+	return name, nil
+}
+
+func (s *configService) validatePipelineRefs(input *ConfigPipelineInput) error {
+	ft := input.FluentType
+	if input.InputModuleID != nil {
+		var m models.ConfigModule
+		if err := s.db.First(&m, *input.InputModuleID).Error; err != nil {
+			return fmt.Errorf("%w: input module %d not found", ErrInvalidArgument, *input.InputModuleID)
+		}
+		if m.FluentType != "shared" && m.FluentType != ft {
+			return fmt.Errorf("%w: input module %q is for %s, not %s", ErrInvalidArgument, m.Name, m.FluentType, ft)
+		}
+	}
+	if len(input.FilterModuleIDs) > 0 {
+		var mods []models.ConfigModule
+		if err := s.db.Where("id IN ?", input.FilterModuleIDs).Find(&mods).Error; err != nil {
+			return err
+		}
+		if len(mods) != len(input.FilterModuleIDs) {
+			return fmt.Errorf("%w: one or more filter module IDs not found", ErrInvalidArgument)
+		}
+		for _, m := range mods {
+			if m.FluentType != "shared" && m.FluentType != ft {
+				return fmt.Errorf("%w: filter module %q is for %s, not %s", ErrInvalidArgument, m.Name, m.FluentType, ft)
+			}
+		}
+	}
+	if len(input.OutputTargetIDs) > 0 {
+		var targets []models.OutputTarget
+		if err := s.db.Where("id IN ?", input.OutputTargetIDs).Find(&targets).Error; err != nil {
+			return err
+		}
+		if len(targets) != len(input.OutputTargetIDs) {
+			return fmt.Errorf("%w: one or more output target IDs not found", ErrInvalidArgument)
+		}
+		for _, tgt := range targets {
+			if tgt.FluentType != "shared" && tgt.FluentType != ft {
+				return fmt.Errorf("%w: output target %q is for %s, not %s", ErrInvalidArgument, tgt.Name, tgt.FluentType, ft)
+			}
+		}
+	}
+	return nil
+}
+
+func (s *configService) CreatePipeline(input *ConfigPipelineInput, createdBy uint) (*ConfigPipelineDetail, error) {
+	name, err := validatePipelineInput(input)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.validatePipelineRefs(input); err != nil {
+		return nil, err
+	}
+	p := models.ConfigPipeline{
+		Name:            name,
+		Description:     strings.TrimSpace(input.Description),
+		FluentType:      input.FluentType,
+		InputModuleID:   input.InputModuleID,
+		FilterModuleIDs: marshalUintSlice(input.FilterModuleIDs),
+		OutputTargetIDs: marshalUintSlice(input.OutputTargetIDs),
+		CreatedBy:       createdBy,
+	}
+	if err := s.db.Create(&p).Error; err != nil {
+		return nil, err
+	}
+	return s.resolvePipelineDetail(p), nil
+}
+
+func (s *configService) UpdatePipeline(id uint, input *ConfigPipelineInput) (*ConfigPipelineDetail, error) {
+	var p models.ConfigPipeline
+	if err := s.db.First(&p, id).Error; err != nil {
+		return nil, err
+	}
+	name, err := validatePipelineInput(input)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.validatePipelineRefs(input); err != nil {
+		return nil, err
+	}
+	p.Name = name
+	p.Description = strings.TrimSpace(input.Description)
+	p.FluentType = input.FluentType
+	p.InputModuleID = input.InputModuleID
+	p.FilterModuleIDs = marshalUintSlice(input.FilterModuleIDs)
+	p.OutputTargetIDs = marshalUintSlice(input.OutputTargetIDs)
+	if err := s.db.Save(&p).Error; err != nil {
+		return nil, err
+	}
+	return s.resolvePipelineDetail(p), nil
+}
+
+func (s *configService) DeletePipeline(id uint) error {
+	return s.db.Delete(&models.ConfigPipeline{}, id).Error
 }
 
 func isConfigValidationError(err error) bool {

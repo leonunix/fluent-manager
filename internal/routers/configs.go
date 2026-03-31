@@ -27,6 +27,11 @@ func registerConfigRoutes(authed *gin.RouterGroup, h *allHandlers) {
 		configs.POST("/modules/:id/versions", middleware.RequirePermission("configs", "create"), h.Config.CreateModuleVersion)
 		configs.POST("/rendered-configs/preview", middleware.RequirePermission("configs", "read"), h.Config.PreviewRenderedConfig)
 		configs.GET("/rendered-configs/:id", middleware.RequirePermission("configs", "read"), h.Config.GetRenderedConfig)
+		configs.GET("/pipelines", middleware.RequirePermission("configs", "read"), h.Config.ListPipelines)
+		configs.GET("/pipelines/:id", middleware.RequirePermission("configs", "read"), h.Config.GetPipeline)
+		configs.POST("/pipelines", middleware.RequirePermission("configs", "create"), h.Config.CreatePipeline)
+		configs.PUT("/pipelines/:id", middleware.RequirePermission("configs", "update"), h.Config.UpdatePipeline)
+		configs.DELETE("/pipelines/:id", middleware.RequirePermission("configs", "delete"), h.Config.DeletePipeline)
 	}
 
 	// Config Analysis

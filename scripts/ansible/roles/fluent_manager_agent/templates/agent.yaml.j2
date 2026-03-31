@@ -20,6 +20,13 @@ fluent_service_unit: "{{ fm_fluentbit_service_unit }}"
 {% elif fm_fluentd_service_unit %}
 fluent_service_unit: "{{ fm_fluentd_service_unit }}"
 {% endif %}
+{% if fm_fluent_type == 'fluentd' %}
+fluent_restart_cmd: "{{ fm_fluentd_restart_cmd }}"
+fluent_reload_cmd: "{{ fm_fluentd_reload_cmd }}"
+{% else %}
+fluent_restart_cmd: "{{ fm_fluentbit_restart_cmd }}"
+fluent_reload_cmd: "{{ fm_fluentbit_reload_cmd }}"
+{% endif %}
 {% if fm_heartbeat_interval %}
 heartbeat_interval: {{ fm_heartbeat_interval }}
 {% endif %}

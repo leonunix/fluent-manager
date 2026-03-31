@@ -38,12 +38,18 @@ fm_install_fluentd: false
 # Fluent Bit specific
 fm_fluentbit_version: ""          # empty = latest from repo
 fm_fluentbit_config_path: ""      # empty = agent auto-detect
+fm_fluentbit_config_dir: /etc/fluent-bit
 fm_fluentbit_service_unit: ""
+fm_fluentbit_restart_cmd: "systemctl restart fluent-bit"
+fm_fluentbit_reload_cmd: "systemctl reload fluent-bit"
 
 # Fluentd specific
 fm_fluentd_version: ""
 fm_fluentd_config_path: ""
+fm_fluentd_config_dir: /etc/td-agent
 fm_fluentd_service_unit: ""
+fm_fluentd_restart_cmd: "systemctl restart td-agent"
+fm_fluentd_reload_cmd: "systemctl reload td-agent"
 
 # --- Agent config overrides (written to agent.yaml) ---
 fm_heartbeat_interval: ""

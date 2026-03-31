@@ -18,6 +18,12 @@ export const deleteModules = (ids: number[]) => api.post('/configs/modules/batch
 export const getModuleVersions = (moduleId: number) => api.get(`/configs/modules/${moduleId}/versions`)
 export const createModuleVersion = (moduleId: number, data: Record<string, any>) => api.post(`/configs/modules/${moduleId}/versions`, data)
 
+export const getConfigPipelines = (params?: Record<string, any>) => api.get('/configs/pipelines', { params })
+export const getConfigPipelineById = (id: number) => api.get(`/configs/pipelines/${id}`)
+export const createConfigPipeline = (data: Record<string, any>) => api.post('/configs/pipelines', data)
+export const updateConfigPipeline = (id: number, data: Record<string, any>) => api.put(`/configs/pipelines/${id}`, data)
+export const deleteConfigPipeline = (id: number) => api.delete(`/configs/pipelines/${id}`)
+
 export const previewRenderedConfig = (data: Record<string, any>) => api.post('/configs/rendered-configs/preview', data)
 export const getRenderedConfig = (id: number) => api.get(`/configs/rendered-configs/${id}`)
 export const analyzeLogSampleAssistant = (data: Record<string, any>) => api.post('/config-analysis/log-sample-assistant', data)

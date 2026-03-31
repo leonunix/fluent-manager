@@ -361,6 +361,72 @@ func (h *ConfigHandler) GetRenderedConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, rendered)
 }
 
+func (h *ConfigHandler) ListPipelines(c *gin.Context) {
+	pipelines, err := h.Svc.ListPipelines(c.Query("fluent_type"), c.Query("search"))
+	if err != nil {
+		writeConfigError(c, err, "config pipeline")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": pipelines, "total": len(pipelines)})
+}
+
+func (h *ConfigHandler) GetPipeline(c *gin.Context) {
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	pipeline, err := h.Svc.GetPipeline(id)
+	if err != nil {
+		writeConfigError(c, err, "config pipeline")
+		return
+	}
+	c.JSON(http.StatusOK, pipeline)
+}
+
+func (h *ConfigHandler) CreatePipeline(c *gin.Context) {
+	var input services.ConfigPipelineInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	pipeline, err := h.Svc.CreatePipeline(&input, c.GetUint("user_id"))
+	if err != nil {
+		writeConfigError(c, err, "config pipeline")
+		return
+	}
+	c.JSON(http.StatusCreated, pipeline)
+}
+
+func (h *ConfigHandler) UpdatePipeline(c *gin.Context) {
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	var input services.ConfigPipelineInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	pipeline, err := h.Svc.UpdatePipeline(id, &input)
+	if err != nil {
+		writeConfigError(c, err, "config pipeline")
+		return
+	}
+	c.JSON(http.StatusOK, pipeline)
+}
+
+func (h *ConfigHandler) DeletePipeline(c *gin.Context) {
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	if err := h.Svc.DeletePipeline(id); err != nil {
+		writeConfigError(c, err, "config pipeline")
+		return
+	}
+	c.JSON(http.StatusNoContent, nil)
+}
+
 func writeConfigError(c *gin.Context, err error, resource string) {
 	switch {
 	case errors.Is(err, services.ErrInvalidArgument):

@@ -264,14 +264,30 @@ func (s *fluentOpsService) DeleteOutputTarget(id uint) error {
 	if err != nil {
 		return err
 	}
-	var count int64
+	var logCount int64
 	if err := s.db.Model(&models.LogPipeline{}).
 		Where("destination_output_target_id = ?", target.ID).
-		Count(&count).Error; err != nil {
+		Count(&logCount).Error; err != nil {
 		return err
 	}
-	if count > 0 {
-		return fmt.Errorf("%w: output target is referenced by %d pipeline(s)", ErrConflict, count)
+	if logCount > 0 {
+		return fmt.Errorf("%w: output target is referenced by %d log pipeline(s)", ErrConflict, logCount)
+	}
+	// Also block deletion if any ConfigPipeline references this output target.
+	var configPipelines []models.ConfigPipeline
+	if err := s.db.Where("output_target_ids LIKE ?", fmt.Sprintf("%%%d%%", target.ID)).Find(&configPipelines).Error; err != nil {
+		return err
+	}
+	for _, cp := range configPipelines {
+		var ids []uint
+		if cp.OutputTargetIDs != "" {
+			_ = json.Unmarshal([]byte(cp.OutputTargetIDs), &ids)
+		}
+		for _, oid := range ids {
+			if oid == target.ID {
+				return fmt.Errorf("%w: output target is referenced by config pipeline %q", ErrConflict, cp.Name)
+			}
+		}
 	}
 	return s.db.Delete(&models.OutputTarget{}, target.ID).Error
 }

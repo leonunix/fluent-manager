@@ -2,14 +2,53 @@
   <div class="row g-4">
     <div class="col-12">
       <div class="card border-0 shadow-sm">
-        <div class="card-header bg-white">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
           <h6 class="mb-0">{{ t('configs_page.wizard_basics') }}</h6>
+          <div v-if="state.wizardLoadedFromTemplate" class="d-flex align-items-center gap-2">
+            <span class="badge bg-success-subtle text-success-emphasis">
+              <i class="bi bi-check-circle me-1"></i>{{ t('configs_page.wizard_loaded_from') }}: {{ state.wizardLoadedFromTemplate.name }}
+            </span>
+            <button class="btn btn-sm btn-outline-secondary py-0" @click="actions.clearWizardLoadedTemplate">
+              {{ t('configs_page.wizard_clear_loaded') }}
+            </button>
+          </div>
         </div>
         <div class="card-body">
           <div class="alert alert-info py-2 mb-3">
             <div class="fw-semibold">{{ t('configs_page.wizard_intro') }}</div>
             <div class="small mt-1">{{ t('configs_page.wizard_architecture_hint') }}</div>
           </div>
+
+          <!-- Load from existing template -->
+          <div class="border rounded p-3 mb-3 bg-light-subtle">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              <label class="form-label mb-0 text-nowrap">{{ t('configs_page.wizard_load_from_template') }}</label>
+              <div class="flex-grow-1">
+                <select
+                  v-model="selectedLoadTemplateId"
+                  class="form-select form-select-sm"
+                >
+                  <option value="">— {{ t('common.none') }} —</option>
+                  <option
+                    v-for="tpl in state.wizardAssemblyTemplates"
+                    :key="tpl.id"
+                    :value="tpl.id"
+                  >{{ tpl.name }}</option>
+                </select>
+                <div v-if="!state.wizardAssemblyTemplates || !state.wizardAssemblyTemplates.length" class="small text-muted mt-1">
+                  {{ t('configs_page.wizard_no_assembly_templates') }}
+                </div>
+              </div>
+              <button
+                class="btn btn-sm btn-primary text-nowrap"
+                :disabled="!selectedLoadTemplateId"
+                @click="doLoadFromTemplate"
+              >
+                <i class="bi bi-box-arrow-in-down-right me-1"></i>{{ t('configs_page.wizard_load_button') }}
+              </button>
+            </div>
+          </div>
+
           <div class="row g-3">
             <div class="col-lg-3">
               <label class="form-label">{{ t('configs_page.wizard_goal') }}</label>
@@ -203,9 +242,22 @@
             <h6 class="mb-0">{{ t('configs_page.wizard_pipeline_workspace') }}</h6>
             <div class="small text-muted mt-1">{{ t('configs_page.wizard_pipeline_workspace_hint') }}</div>
           </div>
-          <button class="btn btn-primary btn-sm" @click="actions.addWizardPipeline">
-            <i class="bi bi-plus-lg me-1"></i>{{ t('configs_page.wizard_add_pipeline') }}
-          </button>
+          <div class="d-flex flex-wrap gap-2 align-items-center">
+            <div v-if="state.wizardCompatiblePipelines && state.wizardCompatiblePipelines.length" class="input-group input-group-sm" style="max-width:300px">
+              <select v-model="selectedFromSavedPipelineId" class="form-select form-select-sm">
+                <option value="">{{ t('configs_page.wizard_from_pipeline') }}…</option>
+                <option v-for="p in state.wizardCompatiblePipelines" :key="p.id" :value="p.id">{{ p.name }}</option>
+              </select>
+              <button
+                class="btn btn-sm btn-outline-secondary"
+                :disabled="!selectedFromSavedPipelineId"
+                @click="doAddFromSavedPipeline"
+              >{{ t('configs_page.wizard_add_pipeline_from') }}</button>
+            </div>
+            <button class="btn btn-primary btn-sm" @click="actions.addWizardPipeline">
+              <i class="bi bi-plus-lg me-1"></i>{{ t('configs_page.wizard_add_pipeline') }}
+            </button>
+          </div>
         </div>
         <div class="card-body">
           <div class="row g-4">
@@ -540,7 +592,7 @@
 </template>
 
 <script setup>
-import { computed, unref } from 'vue'
+import { computed, ref, unref } from 'vue'
 import { useI18n } from '../../../i18n'
 
 const props = defineProps({
@@ -559,6 +611,23 @@ const props = defineProps({
 })
 
 const { t } = useI18n()
+
+const selectedLoadTemplateId = ref('')
+const selectedFromSavedPipelineId = ref('')
+
+function doLoadFromTemplate() {
+  // eslint-disable-next-line eqeqeq
+  const tpl = (unref(props.state.wizardAssemblyTemplates) || []).find((item) => item.id == selectedLoadTemplateId.value)
+  if (!tpl) return
+  props.actions.loadWizardFromTemplate(tpl)
+  selectedLoadTemplateId.value = ''
+}
+
+function doAddFromSavedPipeline() {
+  if (!selectedFromSavedPipelineId.value) return
+  props.actions.addWizardPipelineFromSaved(selectedFromSavedPipelineId.value)
+  selectedFromSavedPipelineId.value = ''
+}
 
 const allVariableGroups = computed(() => [
   ...(unref(props.state.wizardGlobalVariableGroups) || []),
