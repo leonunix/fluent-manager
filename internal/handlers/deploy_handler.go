@@ -65,15 +65,27 @@ func (h *DeployHandler) List(c *gin.Context) {
 
 func (h *DeployHandler) Get(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
 	allowed := middleware.GetAllowedClusters(c)
-	task, records, err := h.Svc.Get(uint(id), allowed)
+	task, records, total, err := h.Svc.Get(uint(id), page, pageSize, allowed)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "deploy task not found"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"task":    task,
-		"records": records,
+		"task":      task,
+		"records":   records,
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
 	})
 }
 

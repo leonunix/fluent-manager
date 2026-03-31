@@ -10,7 +10,7 @@ import (
 type DeployService interface {
 	Create(configVersionID uint, nodeIDs []uint, clusterID, regionID, dataCenterID, environmentID *uint, userID uint, allowedClusters []uint) (*models.DeployTask, error)
 	List(page, pageSize int, allowedClusters []uint) ([]models.DeployTask, int64, error)
-	Get(id uint, allowedClusters []uint) (*models.DeployTask, []models.DeployRecord, error)
+	Get(id uint, page, pageSize int, allowedClusters []uint) (*models.DeployTask, []models.DeployRecord, int64, error)
 	GetAuditLogs(page, pageSize int, allowedClusters []uint) ([]models.AuditLog, int64, error)
 }
 
@@ -148,10 +148,10 @@ func (s *deployService) List(page, pageSize int, allowedClusters []uint) ([]mode
 	return tasks, total, err
 }
 
-func (s *deployService) Get(id uint, allowedClusters []uint) (*models.DeployTask, []models.DeployRecord, error) {
+func (s *deployService) Get(id uint, page, pageSize int, allowedClusters []uint) (*models.DeployTask, []models.DeployRecord, int64, error) {
 	var task models.DeployTask
 	if err := s.db.Preload("Config.Template").Preload("Creator").First(&task, id).Error; err != nil {
-		return nil, nil, err
+		return nil, nil, 0, err
 	}
 
 	// Scope check: verify the task has at least one record targeting a node in the user's allowed clusters
@@ -161,8 +161,18 @@ func (s *deployService) Get(id uint, allowedClusters []uint) (*models.DeployTask
 			Where("deploy_task_id = ? AND node_id IN (SELECT id FROM nodes WHERE cluster_id IN ?)", id, allowedClusters).
 			Count(&count)
 		if count == 0 {
-			return nil, nil, errors.New("deploy task not found")
+			return nil, nil, 0, errors.New("deploy task not found")
 		}
+	}
+
+	countQuery := s.db.Model(&models.DeployRecord{}).Where("deploy_task_id = ?", id)
+	if allowedClusters != nil {
+		countQuery = countQuery.Where("node_id IN (SELECT id FROM nodes WHERE cluster_id IN ?)", allowedClusters)
+	}
+
+	var total int64
+	if err := countQuery.Count(&total).Error; err != nil {
+		return nil, nil, 0, err
 	}
 
 	var records []models.DeployRecord
@@ -170,8 +180,11 @@ func (s *deployService) Get(id uint, allowedClusters []uint) (*models.DeployTask
 	if allowedClusters != nil {
 		recordQuery = recordQuery.Where("node_id IN (SELECT id FROM nodes WHERE cluster_id IN ?)", allowedClusters)
 	}
-	recordQuery.Find(&records)
-	return &task, records, nil
+	if err := recordQuery.Order("id ASC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&records).Error; err != nil {
+		return nil, nil, 0, err
+	}
+
+	return &task, records, total, nil
 }
 
 func (s *deployService) GetAuditLogs(page, pageSize int, allowedClusters []uint) ([]models.AuditLog, int64, error) {

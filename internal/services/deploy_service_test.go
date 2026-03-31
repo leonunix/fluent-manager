@@ -195,15 +195,50 @@ func TestDeployGet(t *testing.T) {
 
 	task, _ := svc.Create(cv.ID, nil, &cluster.ID, nil, nil, nil, 1, nil)
 
-	gotTask, records, err := svc.Get(task.ID, nil)
+	gotTask, records, total, err := svc.Get(task.ID, 1, 20, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if gotTask.ID != task.ID {
 		t.Error("wrong task returned")
 	}
+	if total != 2 {
+		t.Errorf("expected total=2 deploy records, got %d", total)
+	}
 	if len(records) != 2 {
 		t.Errorf("expected 2 deploy records, got %d", len(records))
+	}
+}
+
+func TestDeployGet_PaginatesRecords(t *testing.T) {
+	db, svc := setupDeployTest(t)
+	cv, cluster, _ := seedDeployData(t, db)
+
+	task, _ := svc.Create(cv.ID, nil, &cluster.ID, nil, nil, nil, 1, nil)
+
+	_, firstPage, total, err := svc.Get(task.ID, 1, 1, nil)
+	if err != nil {
+		t.Fatalf("unexpected error loading first page: %v", err)
+	}
+	if total != 2 {
+		t.Fatalf("expected total=2 deploy records, got %d", total)
+	}
+	if len(firstPage) != 1 {
+		t.Fatalf("expected 1 deploy record on first page, got %d", len(firstPage))
+	}
+
+	_, secondPage, total, err := svc.Get(task.ID, 2, 1, nil)
+	if err != nil {
+		t.Fatalf("unexpected error loading second page: %v", err)
+	}
+	if total != 2 {
+		t.Fatalf("expected total=2 deploy records on second page, got %d", total)
+	}
+	if len(secondPage) != 1 {
+		t.Fatalf("expected 1 deploy record on second page, got %d", len(secondPage))
+	}
+	if firstPage[0].ID == secondPage[0].ID {
+		t.Error("expected different deploy records on each page")
 	}
 }
 

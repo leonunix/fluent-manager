@@ -35,10 +35,27 @@
                 </button>
               </td>
             </tr>
+            <tr v-if="!tasks.length">
+              <td colspan="7" class="text-center text-muted py-4">{{ t('common.no_data') }}</td>
+            </tr>
           </tbody>
         </table>
       </div>
     </div>
+
+    <nav v-if="total > pageSize" class="mt-3">
+      <ul class="pagination justify-content-center">
+        <li class="page-item" :class="{ disabled: page <= 1 }">
+          <a class="page-link" href="#" @click.prevent="changePage(page - 1)">{{ t('common.previous') }}</a>
+        </li>
+        <li class="page-item disabled">
+          <span class="page-link">{{ page }} / {{ totalPages() }}</span>
+        </li>
+        <li class="page-item" :class="{ disabled: page >= totalPages() }">
+          <a class="page-link" href="#" @click.prevent="changePage(page + 1)">{{ t('common.next') }}</a>
+        </li>
+      </ul>
+    </nav>
 
     <!-- Detail Modal -->
     <div class="modal fade" id="detailModal" tabindex="-1">
@@ -60,8 +77,25 @@
                   <td><span :class="statusClass(r.status)" class="badge">{{ r.status }}</span></td>
                   <td>{{ r.message || '-' }}</td>
                 </tr>
+                <tr v-if="!detail.records?.length">
+                  <td colspan="4" class="text-center text-muted py-4">{{ t('common.no_data') }}</td>
+                </tr>
               </tbody>
             </table>
+
+            <nav v-if="detailTotal > detailPageSize" class="mt-3">
+              <ul class="pagination pagination-sm justify-content-center mb-0">
+                <li class="page-item" :class="{ disabled: detailPage <= 1 }">
+                  <a class="page-link" href="#" @click.prevent="changeDetailPage(detailPage - 1)">{{ t('common.previous') }}</a>
+                </li>
+                <li class="page-item disabled">
+                  <span class="page-link">{{ detailPage }} / {{ detailTotalPages() }}</span>
+                </li>
+                <li class="page-item" :class="{ disabled: detailPage >= detailTotalPages() }">
+                  <a class="page-link" href="#" @click.prevent="changeDetailPage(detailPage + 1)">{{ t('common.next') }}</a>
+                </li>
+              </ul>
+            </nav>
           </div>
         </div>
       </div>
@@ -75,7 +109,14 @@ import { getDeploys, getDeploy } from '../api'
 import { useI18n } from '../i18n'
 
 const tasks = ref([])
+const total = ref(0)
+const page = ref(1)
+const pageSize = 20
 const detail = ref(null)
+const detailTotal = ref(0)
+const detailPage = ref(1)
+const detailPageSize = 20
+const activeTaskID = ref(null)
 let modal = null
 const { t, dateLocale } = useI18n()
 
@@ -94,15 +135,45 @@ function successPct(t) { return t.total_nodes ? (t.success_count / t.total_nodes
 function failPct(t) { return t.total_nodes ? (t.fail_count / t.total_nodes * 100) : 0 }
 function formatTime(t) { return t ? new Date(t).toLocaleString(dateLocale.value) : '-' }
 
-async function viewDetail(task) {
-  const { data } = await getDeploy(task.id)
+function totalPages() {
+  return Math.max(1, Math.ceil(total.value / pageSize))
+}
+
+function detailTotalPages() {
+  return Math.max(1, Math.ceil(detailTotal.value / detailPageSize))
+}
+
+async function loadDeploys() {
+  const { data } = await getDeploys({ page: page.value, page_size: pageSize })
+  tasks.value = data.data || []
+  total.value = data.total || 0
+}
+
+async function loadDetail(taskID, nextPage = detailPage.value) {
+  const { data } = await getDeploy(taskID, { page: nextPage, page_size: detailPageSize })
   detail.value = data
+  detailTotal.value = data.total || 0
+  detailPage.value = data.page || nextPage
+}
+
+async function changePage(nextPage) {
+  if (nextPage < 1 || nextPage > totalPages() || nextPage === page.value) return
+  page.value = nextPage
+  await loadDeploys()
+}
+
+async function viewDetail(task) {
+  activeTaskID.value = task.id
+  detailPage.value = 1
+  await loadDetail(task.id, 1)
   if (!modal) modal = new window.bootstrap.Modal(document.getElementById('detailModal'))
   modal.show()
 }
 
-onMounted(async () => {
-  const { data } = await getDeploys({ page_size: 50 })
-  tasks.value = data.data || []
-})
+async function changeDetailPage(nextPage) {
+  if (!activeTaskID.value || nextPage < 1 || nextPage > detailTotalPages() || nextPage === detailPage.value) return
+  await loadDetail(activeTaskID.value, nextPage)
+}
+
+onMounted(loadDeploys)
 </script>
