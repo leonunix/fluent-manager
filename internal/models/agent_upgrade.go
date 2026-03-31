@@ -16,6 +16,8 @@ type AgentUpgradeTask struct {
 	TotalNodes    int            `json:"total_nodes"`
 	SuccessCount  int            `json:"success_count"`
 	FailCount     int            `json:"fail_count"`
+	StartedAt     *time.Time     `json:"started_at"`
+	FinishedAt    *time.Time     `json:"finished_at"`
 	CreatedBy     uint           `json:"created_by"`
 	Creator       *User          `gorm:"foreignKey:CreatedBy" json:"creator,omitempty"`
 	CreatedAt     time.Time      `json:"created_at"`

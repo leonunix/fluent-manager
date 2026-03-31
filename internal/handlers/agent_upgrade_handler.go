@@ -60,14 +60,26 @@ func (h *AgentUpgradeHandler) Get(c *gin.Context) {
 		return
 	}
 
-	task, records, err := h.Svc.Get(uint(id), middleware.GetAllowedClusters(c))
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 200 {
+		pageSize = 20
+	}
+
+	task, records, total, err := h.Svc.Get(uint(id), page, pageSize, middleware.GetAllowedClusters(c))
 	if err != nil {
 		writeAgentUpgradeError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"task":    task,
-		"records": records,
+		"task":      task,
+		"records":   records,
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
 	})
 }
 

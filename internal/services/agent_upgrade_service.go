@@ -26,7 +26,7 @@ type AgentUpgradeTaskInput struct {
 type AgentUpgradeService interface {
 	Create(input AgentUpgradeTaskInput, userID uint, allowedClusters []uint) (*models.AgentUpgradeTask, error)
 	List(page, pageSize int, allowedClusters []uint) ([]models.AgentUpgradeTask, int64, error)
-	Get(id uint, allowedClusters []uint) (*models.AgentUpgradeTask, []models.AgentUpgradeRecord, error)
+	Get(id uint, page, pageSize int, allowedClusters []uint) (*models.AgentUpgradeTask, []models.AgentUpgradeRecord, int64, error)
 }
 
 type agentUpgradeService struct {
@@ -173,10 +173,29 @@ func (s *agentUpgradeService) List(page, pageSize int, allowedClusters []uint) (
 	return tasks, total, err
 }
 
-func (s *agentUpgradeService) Get(id uint, allowedClusters []uint) (*models.AgentUpgradeTask, []models.AgentUpgradeRecord, error) {
+func (s *agentUpgradeService) Get(id uint, page, pageSize int, allowedClusters []uint) (*models.AgentUpgradeTask, []models.AgentUpgradeRecord, int64, error) {
 	var task models.AgentUpgradeTask
 	if err := s.db.Preload("Creator").Preload("Artifact").First(&task, id).Error; err != nil {
-		return nil, nil, err
+		return nil, nil, 0, err
+	}
+
+	if allowedClusters != nil {
+		if len(allowedClusters) == 0 {
+			return nil, nil, 0, gorm.ErrRecordNotFound
+		}
+	}
+
+	countQuery := s.db.Model(&models.AgentUpgradeRecord{}).Where("agent_upgrade_task_id = ?", id)
+	if allowedClusters != nil {
+		countQuery = countQuery.Where("node_id IN (SELECT id FROM nodes WHERE cluster_id IN ?)", allowedClusters)
+	}
+
+	var total int64
+	if err := countQuery.Count(&total).Error; err != nil {
+		return nil, nil, 0, err
+	}
+	if allowedClusters != nil && total == 0 {
+		return nil, nil, 0, gorm.ErrRecordNotFound
 	}
 
 	query := s.db.Where("agent_upgrade_task_id = ?", id).
@@ -185,20 +204,14 @@ func (s *agentUpgradeService) Get(id uint, allowedClusters []uint) (*models.Agen
 		Preload("Node.Environment").
 		Preload("RemoteCommand.Creator")
 	if allowedClusters != nil {
-		if len(allowedClusters) == 0 {
-			return nil, nil, gorm.ErrRecordNotFound
-		}
 		query = query.Where("node_id IN (SELECT id FROM nodes WHERE cluster_id IN ?)", allowedClusters)
 	}
 
 	var records []models.AgentUpgradeRecord
-	if err := query.Order("created_at ASC").Find(&records).Error; err != nil {
-		return nil, nil, err
+	if err := query.Order("created_at ASC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&records).Error; err != nil {
+		return nil, nil, 0, err
 	}
-	if allowedClusters != nil && len(records) == 0 {
-		return nil, nil, gorm.ErrRecordNotFound
-	}
-	return &task, records, nil
+	return &task, records, total, nil
 }
 
 func (s *agentUpgradeService) resolveTargetNodes(input AgentUpgradeTaskInput, allowedClusters []uint) ([]models.Node, error) {

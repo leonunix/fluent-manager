@@ -604,7 +604,11 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="task in tasks" :key="task.id">
+              <tr
+                v-for="task in tasks"
+                :key="task.id"
+                :class="{ 'fm-task-row-active': detailTaskID === task.id }"
+              >
                 <td>#{{ task.id }}</td>
                 <td>
                   <div class="fw-semibold">{{ task.name }}</div>
@@ -1013,73 +1017,334 @@
     <div class="modal fade" id="bootstrapDetailModal" tabindex="-1">
       <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">
-              {{
-                t("bootstrap_page.detail_title").replace(
-                  "{id}",
-                  detail?.task?.id || "",
-                )
-              }}
-            </h5>
-            <button
-              type="button"
-              class="btn-close"
-              data-bs-dismiss="modal"
-            ></button>
-          </div>
-          <div v-if="detail" class="modal-body">
-            <div class="mb-3">
-              <div class="fw-semibold">{{ detail.task.name }}</div>
-              <div class="text-muted small">
-                {{ detail.task.message || "-" }}
+          <div class="modal-header border-0 pb-0">
+            <div>
+              <h5 class="modal-title">
+                {{
+                  t("bootstrap_page.detail_title").replace(
+                    "{id}",
+                    detailTaskID || "",
+                  )
+                }}
+              </h5>
+              <div class="small text-muted">
+                {{ t("bootstrap_page.detail_live_hint") }}
               </div>
             </div>
-            <div class="table-responsive">
-              <table class="table table-sm align-middle">
-                <thead>
-                  <tr>
-                    <th>{{ t("bootstrap_page.hostname") }}</th>
-                    <th>IP</th>
-                    <th>{{ t("bootstrap_page.ssh_user") }}</th>
-                    <th>{{ t("common.cluster") }}</th>
-                    <th>{{ t("status") }}</th>
-                    <th>{{ t("deploys_page.message") }}</th>
-                    <th>{{ t("bootstrap_page.output_excerpt") }}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="record in detail.records" :key="record.id">
-                    <td>
-                      <div class="fw-semibold">{{ record.hostname }}</div>
-                      <div v-if="record.node?.id" class="small text-muted">
-                        Node #{{ record.node.id }}
-                      </div>
-                    </td>
-                    <td>{{ record.ip_address }}</td>
-                    <td>{{ record.ssh_user }}:{{ record.ssh_port }}</td>
-                    <td>
-                      {{
-                        record.cluster?.name ||
-                        record.bootstrap_host?.cluster?.name ||
-                        "-"
-                      }}
-                    </td>
-                    <td>
-                      <span class="badge" :class="statusClass(record.status)">{{
-                        statusText(record.status)
-                      }}</span>
-                    </td>
-                    <td class="small">{{ record.message || "-" }}</td>
-                    <td>
-                      <code class="small">{{
-                        record.output_excerpt || "-"
-                      }}</code>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+            <div class="d-flex align-items-center gap-2">
+              <button
+                type="button"
+                class="btn btn-sm btn-outline-secondary"
+                @click="refreshDetail()"
+                :disabled="detailLoading || detailRefreshing || !detailTaskID"
+              >
+                <i
+                  class="bi me-1"
+                  :class="
+                    detailRefreshing
+                      ? 'bi-arrow-repeat fm-spin'
+                      : 'bi-arrow-clockwise'
+                  "
+                ></i>
+                {{ t("common.refresh") }}
+              </button>
+              <button
+                type="button"
+                class="btn-close"
+                data-bs-dismiss="modal"
+              ></button>
             </div>
+          </div>
+          <div class="modal-body">
+            <div
+              v-if="detailLoading && !detail"
+              class="d-flex flex-column align-items-center justify-content-center text-center text-muted py-5"
+            >
+              <div class="spinner-border text-primary mb-3" role="status"></div>
+              <div>{{ t("bootstrap_page.detail_loading") }}</div>
+            </div>
+
+            <template v-else-if="detail">
+              <section class="fm-bootstrap-live-shell mb-4">
+                <div
+                  class="d-flex flex-wrap justify-content-between align-items-start gap-3"
+                >
+                  <div>
+                    <div class="fm-live-kicker">
+                      {{ t("bootstrap_page.detail_live_title") }}
+                    </div>
+                    <div class="h5 mb-1">{{ detail.task.name }}</div>
+                    <div class="text-muted small">
+                      {{ detailStageText(detail.task) }}
+                    </div>
+                  </div>
+                  <div class="text-start text-md-end">
+                    <span
+                      class="badge rounded-pill"
+                      :class="statusClass(detail.task.status)"
+                    >
+                      {{ statusText(detail.task.status) }}
+                    </span>
+                    <div class="small text-muted mt-2">
+                      {{ detail.task.message || "-" }}
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  v-if="detailJustCreated && detailAutoRefreshEnabled"
+                  class="alert alert-primary border-0 mt-3 mb-0 py-2"
+                >
+                  <i class="bi bi-broadcast-pin me-2"></i>
+                  {{ t("bootstrap_page.detail_created_hint") }}
+                </div>
+
+                <div
+                  v-if="detailError"
+                  class="alert alert-warning border-0 mt-3 mb-0 py-2"
+                >
+                  <i class="bi bi-exclamation-triangle me-2"></i>
+                  {{ detailError }}
+                </div>
+
+                <div class="fm-bootstrap-flow">
+                  <div class="fm-bootstrap-flow__rail">
+                    <template
+                      v-for="(stage, index) in detailFlowStages"
+                      :key="stage.key"
+                    >
+                      <article
+                        class="fm-bootstrap-flow__stage"
+                        :class="`is-${stage.state}`"
+                      >
+                        <div class="fm-bootstrap-flow__icon">
+                          <i
+                            class="bi"
+                            :class="[stage.icon, stage.spin ? 'fm-spin' : '']"
+                          ></i>
+                        </div>
+                        <div class="fm-bootstrap-flow__content">
+                          <div class="fm-bootstrap-flow__label">
+                            {{ stage.label }}
+                          </div>
+                          <div class="fm-bootstrap-flow__meta">
+                            {{ stage.meta }}
+                          </div>
+                        </div>
+                      </article>
+                      <div
+                        v-if="index < detailFlowStages.length - 1"
+                        class="fm-bootstrap-flow__connector"
+                        :class="
+                          flowConnectorClass(
+                            stage,
+                            detailFlowStages[index + 1],
+                          )
+                        "
+                      >
+                        <span class="fm-bootstrap-flow__connector-line"></span>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+
+                <div class="progress fm-detail-progress mt-3">
+                  <div
+                    class="progress-bar bg-success"
+                    :style="{ width: detailSuccessPct + '%' }"
+                  ></div>
+                  <div
+                    class="progress-bar bg-danger"
+                    :style="{ width: detailFailPct + '%' }"
+                  ></div>
+                  <div
+                    class="progress-bar fm-progress-running"
+                    :style="{ width: detailRunningPct + '%' }"
+                  ></div>
+                  <div
+                    class="progress-bar fm-progress-pending"
+                    :style="{ width: detailPendingPct + '%' }"
+                  ></div>
+                </div>
+
+                <div class="row g-3 mt-1">
+                  <div class="col-6 col-lg-3">
+                    <div class="fm-detail-stat">
+                      <div class="fm-detail-stat-label">
+                        {{ t("bootstrap_page.total_hosts_label") }}
+                      </div>
+                      <div class="fm-detail-stat-value">
+                        {{ detailStats.total }}
+                      </div>
+                    </div>
+                  </div>
+                  <div class="col-6 col-lg-3">
+                    <div class="fm-detail-stat">
+                      <div class="fm-detail-stat-label text-success">
+                        {{ t("bootstrap_page.success_hosts_label") }}
+                      </div>
+                      <div class="fm-detail-stat-value">
+                        {{ detailStats.success }}
+                      </div>
+                    </div>
+                  </div>
+                  <div class="col-6 col-lg-3">
+                    <div class="fm-detail-stat">
+                      <div class="fm-detail-stat-label text-danger">
+                        {{ t("bootstrap_page.failed_hosts_label") }}
+                      </div>
+                      <div class="fm-detail-stat-value">
+                        {{ detailStats.failed }}
+                      </div>
+                    </div>
+                  </div>
+                  <div class="col-6 col-lg-3">
+                    <div class="fm-detail-stat">
+                      <div class="fm-detail-stat-label text-info-emphasis">
+                        {{
+                          detailStats.running
+                            ? t("bootstrap_page.running_hosts_label")
+                            : t("bootstrap_page.pending_hosts_label")
+                        }}
+                      </div>
+                      <div class="fm-detail-stat-value">
+                        {{
+                          detailStats.running || detailStats.pending
+                        }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3 pt-3 border-top"
+                >
+                  <div class="d-flex flex-wrap gap-2">
+                    <span class="badge text-bg-light border">
+                      {{
+                        detailAutoRefreshEnabled
+                          ? t("bootstrap_page.auto_refresh_on").replace(
+                              "{seconds}",
+                              String(taskPollIntervalSeconds),
+                            )
+                          : t("bootstrap_page.auto_refresh_off")
+                      }}
+                    </span>
+                    <span class="badge text-bg-light border">
+                      {{
+                        t("bootstrap_page.last_refresh").replace(
+                          "{time}",
+                          formatTime(detailLastRefreshedAt),
+                        )
+                      }}
+                    </span>
+                  </div>
+                  <div class="small text-muted d-flex flex-wrap gap-3">
+                    <span
+                      >{{ t("deploys_page.created_at") }}
+                      {{ formatTime(detail.task.created_at) }}</span
+                    >
+                    <span
+                      >{{ t("bootstrap_page.started_at") }}
+                      {{ formatTime(detail.task.started_at) }}</span
+                    >
+                    <span
+                      >{{ t("bootstrap_page.finished_at") }}
+                      {{ formatTime(detail.task.finished_at) }}</span
+                    >
+                  </div>
+                </div>
+              </section>
+
+              <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                  <thead>
+                    <tr>
+                      <th>{{ t("bootstrap_page.hostname") }}</th>
+                      <th>IP</th>
+                      <th>{{ t("bootstrap_page.ssh_user") }}</th>
+                      <th>{{ t("common.cluster") }}</th>
+                      <th>{{ t("status") }}</th>
+                      <th>{{ t("deploys_page.message") }}</th>
+                      <th>{{ t("bootstrap_page.output_excerpt") }}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="record in detail.records" :key="record.id">
+                      <td>
+                        <div class="fw-semibold">{{ record.hostname }}</div>
+                        <div v-if="record.node?.id" class="small text-muted">
+                          Node #{{ record.node.id }}
+                        </div>
+                      </td>
+                      <td>{{ record.ip_address }}</td>
+                      <td>{{ record.ssh_user }}:{{ record.ssh_port }}</td>
+                      <td>
+                        {{
+                          record.cluster?.name ||
+                          record.bootstrap_host?.cluster?.name ||
+                          "-"
+                        }}
+                      </td>
+                      <td>
+                        <span class="badge" :class="statusClass(record.status)">{{
+                          statusText(record.status)
+                        }}</span>
+                      </td>
+                      <td class="small">{{ record.message || "-" }}</td>
+                      <td>
+                        <code class="small fm-output-excerpt">{{
+                          record.output_excerpt || "-"
+                        }}</code>
+                      </td>
+                    </tr>
+                    <tr v-if="!detail.records?.length">
+                      <td colspan="7" class="text-center text-muted py-4">
+                        {{ t("bootstrap_page.no_records") }}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <nav v-if="detailRecordTotal > detailRecordPageSize" class="mt-3">
+                <ul class="pagination justify-content-center mb-0">
+                  <li
+                    class="page-item"
+                    :class="{ disabled: detailRecordPage <= 1 }"
+                  >
+                    <a
+                      class="page-link"
+                      href="#"
+                      @click.prevent="changeDetailRecordPage(detailRecordPage - 1)"
+                      >{{ t("common.previous") }}</a
+                    >
+                  </li>
+                  <li class="page-item disabled">
+                    <span class="page-link">{{
+                      `${detailRecordPage} / ${detailRecordTotalPages()}`
+                    }}</span>
+                  </li>
+                  <li
+                    class="page-item"
+                    :class="{
+                      disabled: detailRecordPage >= detailRecordTotalPages(),
+                    }"
+                  >
+                    <a
+                      class="page-link"
+                      href="#"
+                      @click.prevent="changeDetailRecordPage(detailRecordPage + 1)"
+                      >{{ t("common.next") }}</a
+                    >
+                  </li>
+                </ul>
+              </nav>
+            </template>
+          </div>
+          <div class="modal-footer border-0 pt-0">
+            <button class="btn btn-outline-secondary" data-bs-dismiss="modal">
+              {{ t("common.close") }}
+            </button>
           </div>
         </div>
       </div>
@@ -1132,6 +1397,15 @@ const datacenters = ref([]);
 const regions = ref([]);
 const environments = ref([]);
 const detail = ref(null);
+const detailTaskID = ref(null);
+const detailLoading = ref(false);
+const detailRefreshing = ref(false);
+const detailError = ref("");
+const detailLastRefreshedAt = ref(null);
+const detailJustCreated = ref(false);
+const detailRecordTotal = ref(0);
+const detailRecordPage = ref(1);
+const detailRecordPageSize = 20;
 const selectedHostIDs = ref([]);
 const loadingAny = ref(false);
 const loadingHosts = ref(false);
@@ -1166,12 +1440,165 @@ const filteredClusters = computed(() =>
   }),
 );
 
+const detailAutoRefreshEnabled = computed(() =>
+  isActiveTaskStatus(detail.value?.task?.status),
+);
+
+const detailStats = computed(() => {
+  const task = detail.value?.task;
+  const records = detail.value?.records || [];
+  const total = Number(task?.total_hosts || records.length || 0);
+
+  if (!records.length) {
+    const success = Number(task?.success_count || 0);
+    const failed = Number(task?.fail_count || 0);
+    const remaining = Math.max(total - success - failed, 0);
+    return {
+      total,
+      success,
+      failed,
+      running: task?.status === "running" ? remaining : 0,
+      pending: task?.status === "pending" ? remaining : 0,
+    };
+  }
+
+  const success = records.filter((record) => isSuccessStatus(record.status)).length;
+  const failed = records.filter((record) => isFailedStatus(record.status)).length;
+  let running = records.filter((record) => record.status === "running").length;
+  let pending = records.filter((record) => record.status === "pending").length;
+
+  // The backend promotes hosts to "running" shortly after the task starts, but
+  // we still avoid a flat "pending" wall if a refresh lands in-between updates.
+  if (task?.status === "running" && running === 0 && pending > 0) {
+    running = pending;
+    pending = 0;
+  }
+
+  return { total, success, failed, running, pending };
+});
+
+const detailSuccessPct = computed(() =>
+  percentage(detailStats.value.success, detailStats.value.total),
+);
+const detailFailPct = computed(() =>
+  percentage(detailStats.value.failed, detailStats.value.total),
+);
+const detailRunningPct = computed(() =>
+  percentage(detailStats.value.running, detailStats.value.total),
+);
+const detailPendingPct = computed(() =>
+  percentage(detailStats.value.pending, detailStats.value.total),
+);
+const detailResolvedCount = computed(
+  () => detailStats.value.success + detailStats.value.failed,
+);
+const detailOpenCount = computed(() =>
+  Math.max(detailStats.value.total - detailResolvedCount.value, 0),
+);
+const detailRegisteredCount = computed(() =>
+  (detail.value?.records || []).filter((record) => Boolean(record.node_id)).length,
+);
+const detailFlowStages = computed(() => {
+  const task = detail.value?.task;
+  if (!task) return [];
+
+  const finished =
+    task.status === "completed" || task.status === "failed";
+  const started =
+    Boolean(task.started_at) || task.status === "running" || finished;
+  const verificationStarted =
+    detailResolvedCount.value > 0 || detailRegisteredCount.value > 0 || finished;
+  const executionStarted =
+    detailStats.value.running > 0 ||
+    detailStats.value.pending < detailStats.value.total ||
+    verificationStarted;
+  const prepareActive = task.status === "running" && !executionStarted;
+  const executeActive =
+    task.status === "running" && executionStarted && !verificationStarted;
+  const verifyActive = task.status === "running" && verificationStarted;
+
+  return [
+    {
+      key: "queued",
+      label: t("bootstrap_page.flow_queued"),
+      meta:
+        task.status === "pending"
+          ? t("bootstrap_page.flow_meta_waiting")
+          : t("bootstrap_page.flow_meta_dispatched"),
+      icon: "bi-hourglass-split",
+      state: task.status === "pending" ? "active" : "done",
+      spin: false,
+    },
+    {
+      key: "prepare",
+      label: t("bootstrap_page.flow_prepare"),
+      meta: !started
+        ? t("bootstrap_page.flow_meta_prepare_pending")
+        : prepareActive
+          ? t("bootstrap_page.flow_meta_preparing")
+          : t("bootstrap_page.flow_meta_prepared"),
+      icon: "bi-gear-wide-connected",
+      state: !started ? "pending" : prepareActive ? "active" : "done",
+      spin: prepareActive,
+    },
+    {
+      key: "execute",
+      label: t("bootstrap_page.flow_execute"),
+      meta: !started
+        ? t("bootstrap_page.flow_meta_execute_pending")
+        : interpolate(t("bootstrap_page.flow_meta_executing"), {
+            count: detailOpenCount.value,
+            total: detailStats.value.total,
+          }),
+      icon: "bi-terminal-split",
+      state: !started ? "pending" : executeActive ? "active" : executionStarted ? "done" : "pending",
+      spin: executeActive,
+    },
+    {
+      key: "verify",
+      label: t("bootstrap_page.flow_verify"),
+      meta: !verificationStarted
+        ? t("bootstrap_page.flow_meta_verify_pending")
+        : interpolate(t("bootstrap_page.flow_meta_verifying"), {
+            done: detailResolvedCount.value,
+            total: detailStats.value.total,
+            nodes: detailRegisteredCount.value,
+          }),
+      icon: "bi-broadcast-pin",
+      state: !started ? "pending" : verifyActive ? "active" : verificationStarted ? "done" : "pending",
+      spin: verifyActive,
+    },
+    {
+      key: "finish",
+      label: t("bootstrap_page.flow_finish"),
+      meta: finished
+        ? interpolate(t("bootstrap_page.flow_meta_finished"), {
+            success: detailStats.value.success,
+            failed: detailStats.value.failed,
+          })
+        : t("bootstrap_page.flow_meta_finish_pending"),
+      icon: task.status === "failed" ? "bi-x-octagon" : "bi-check2-circle",
+      state:
+        task.status === "completed"
+          ? "success"
+          : task.status === "failed"
+            ? "failed"
+            : "pending",
+      spin: false,
+    },
+  ];
+});
+
 let pollTimer = null;
 let hostModal = null;
 let bulkModal = null;
 let detailModal = null;
+let detailModalEl = null;
+let detailModalHiddenHandler = null;
 const bulkImportText = ref("");
 const importingHosts = ref(false);
+const taskPollIntervalMs = 5000;
+const taskPollIntervalSeconds = taskPollIntervalMs / 1000;
 
 const taskForm = reactive({
   name: "",
@@ -1245,6 +1672,63 @@ function successPct(task) {
 
 function failPct(task) {
   return task.total_hosts ? (task.fail_count / task.total_hosts) * 100 : 0;
+}
+
+function percentage(value, total) {
+  return total ? (value / total) * 100 : 0;
+}
+
+function interpolate(template, replacements = {}) {
+  return Object.entries(replacements).reduce(
+    (result, [key, value]) =>
+      result.replace(new RegExp(`\\{${key}\\}`, "g"), String(value)),
+    template,
+  );
+}
+
+function isSuccessStatus(status) {
+  return status === "completed" || status === "success";
+}
+
+function isFailedStatus(status) {
+  return status === "failed";
+}
+
+function isActiveTaskStatus(status) {
+  return status === "pending" || status === "running";
+}
+
+function detailStageText(task) {
+  if (!task) return "-";
+  if (task.status === "pending") {
+    return t("bootstrap_page.stage_pending");
+  }
+  if (task.status === "running") {
+    if (detailStats.value.success > 0 || detailStats.value.failed > 0) {
+      return t("bootstrap_page.stage_verifying");
+    }
+    return t("bootstrap_page.stage_running");
+  }
+  if (task.status === "completed") {
+    return t("bootstrap_page.stage_completed");
+  }
+  if (task.status === "failed") {
+    return t("bootstrap_page.stage_failed");
+  }
+  return statusText(task.status);
+}
+
+function flowConnectorClass(currentStage, nextStage) {
+  return {
+    "is-filled":
+      currentStage.state !== "pending" && nextStage.state !== "pending",
+    "is-active":
+      currentStage.state === "active" || nextStage.state === "active",
+    "is-failed":
+      nextStage.state === "failed",
+    "is-success":
+      nextStage.state === "success",
+  };
 }
 
 function formatTime(value) {
@@ -1330,6 +1814,10 @@ function taskTotalPages() {
   return Math.max(1, Math.ceil(taskTotal.value / taskPageSize));
 }
 
+function detailRecordTotalPages() {
+  return Math.max(1, Math.ceil(detailRecordTotal.value / detailRecordPageSize));
+}
+
 async function changeTaskPage(nextPage) {
   if (
     nextPage < 1 ||
@@ -1340,6 +1828,18 @@ async function changeTaskPage(nextPage) {
   }
   taskPage.value = nextPage;
   await loadTasks();
+}
+
+async function changeDetailRecordPage(nextPage) {
+  if (
+    nextPage < 1 ||
+    nextPage > detailRecordTotalPages() ||
+    nextPage === detailRecordPage.value
+  ) {
+    return;
+  }
+  detailRecordPage.value = nextPage;
+  await refreshDetail();
 }
 
 function openHostModal(host = null) {
@@ -1605,7 +2105,7 @@ async function deleteHostRow(host) {
 async function submitTask() {
   creatingTask.value = true;
   try {
-    await createBootstrapTask({
+    const createdTask = await createBootstrapTask({
       name: taskForm.name || undefined,
       server_url: taskForm.server_url,
       agent_api_key: taskForm.agent_api_key || undefined,
@@ -1621,7 +2121,10 @@ async function submitTask() {
     resetTaskForm();
     selectedHostIDs.value = [];
     taskPage.value = 1;
-    await loadTasks();
+    await Promise.all([
+      loadTasks(),
+      openDetail(createdTask, { justCreated: true }),
+    ]);
   } catch (error) {
     alert(getErrorMessage(error));
   } finally {
@@ -1629,26 +2132,110 @@ async function submitTask() {
   }
 }
 
-async function openDetail(task) {
-  detail.value = await getBootstrapTask(task.id);
-  if (!detailModal) {
-    detailModal = new window.bootstrap.Modal(
-      document.getElementById("bootstrapDetailModal"),
-    );
+function clearDetailState() {
+  detail.value = null;
+  detailTaskID.value = null;
+  detailLoading.value = false;
+  detailRefreshing.value = false;
+  detailError.value = "";
+  detailLastRefreshedAt.value = null;
+  detailJustCreated.value = false;
+  detailRecordTotal.value = 0;
+  detailRecordPage.value = 1;
+}
+
+function ensureDetailModal() {
+  if (!detailModalEl) {
+    detailModalEl = document.getElementById("bootstrapDetailModal");
   }
-  detailModal.show();
+  if (!detailModal && detailModalEl) {
+    detailModal = new window.bootstrap.Modal(detailModalEl);
+  }
+  if (detailModalEl && !detailModalHiddenHandler) {
+    detailModalHiddenHandler = () => {
+      clearDetailState();
+    };
+    detailModalEl.addEventListener("hidden.bs.modal", detailModalHiddenHandler);
+  }
+}
+
+async function refreshDetail(options = {}) {
+  const taskID = detailTaskID.value;
+  if (!taskID) return null;
+
+  if (options.background) {
+    detailRefreshing.value = true;
+  } else {
+    detailLoading.value = true;
+  }
+
+  try {
+    const data = await getBootstrapTask(taskID, {
+      page: detailRecordPage.value,
+      page_size: detailRecordPageSize,
+    });
+    if (detailTaskID.value !== taskID) {
+      return null;
+    }
+    detail.value = data;
+    detailError.value = "";
+    detailLastRefreshedAt.value = new Date().toISOString();
+    detailRecordTotal.value = data.total || 0;
+    detailRecordPage.value = data.page || detailRecordPage.value;
+    return data;
+  } catch (error) {
+    if (!options.background && detailTaskID.value === taskID) {
+      detailError.value = getErrorMessage(error);
+    }
+    return null;
+  } finally {
+    if (options.background) {
+      detailRefreshing.value = false;
+    } else {
+      detailLoading.value = false;
+    }
+  }
+}
+
+async function openDetail(task, options = {}) {
+  if (detailTaskID.value !== task.id) {
+    detailRecordPage.value = 1;
+  }
+  detailTaskID.value = task.id;
+  detailJustCreated.value = !!options.justCreated;
+  detailError.value = "";
+  detailRecordTotal.value = Number(task.total_hosts || 0);
+  detail.value = {
+    task: {
+      ...task,
+      success_count: Number(task.success_count || 0),
+      fail_count: Number(task.fail_count || 0),
+      total_hosts: Number(task.total_hosts || 0),
+    },
+    records: detail.value?.task?.id === task.id ? detail.value.records || [] : [],
+  };
+
+  ensureDetailModal();
+  detailModal?.show();
+  await refreshDetail();
 }
 
 function startPolling() {
   stopPolling();
   pollTimer = window.setInterval(async () => {
+    if (
+      !tasks.value.some((task) => isActiveTaskStatus(task.status)) &&
+      !detailAutoRefreshEnabled.value
+    ) {
+      return;
+    }
     try {
       await loadTasks();
-      if (detail.value?.task?.id) {
-        detail.value = await getBootstrapTask(detail.value.task.id);
+      if (detailTaskID.value && detailAutoRefreshEnabled.value) {
+        await refreshDetail({ background: true });
       }
     } catch {}
-  }, 8000);
+  }, taskPollIntervalMs);
 }
 
 function stopPolling() {
@@ -1665,5 +2252,325 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopPolling();
+  if (detailModalEl && detailModalHiddenHandler) {
+    detailModalEl.removeEventListener(
+      "hidden.bs.modal",
+      detailModalHiddenHandler,
+    );
+  }
 });
 </script>
+
+<style scoped>
+.fm-task-row-active > td {
+  background: linear-gradient(90deg, rgba(13, 110, 253, 0.08), rgba(13, 110, 253, 0.02));
+}
+
+.fm-bootstrap-live-shell {
+  padding: 1.25rem;
+  border: 1px solid rgba(13, 110, 253, 0.12);
+  border-radius: 1rem;
+  background:
+    radial-gradient(circle at top right, rgba(13, 202, 240, 0.14), transparent 32%),
+    linear-gradient(180deg, rgba(248, 249, 250, 0.96), rgba(255, 255, 255, 1));
+}
+
+.fm-live-kicker {
+  margin-bottom: 0.35rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--bs-secondary-color);
+}
+
+.fm-bootstrap-flow {
+  margin-top: 1rem;
+  padding-top: 0.15rem;
+}
+
+.fm-bootstrap-flow__rail {
+  display: flex;
+  align-items: stretch;
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding-bottom: 0.35rem;
+}
+
+.fm-bootstrap-flow__stage {
+  min-width: 178px;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  padding: 0.95rem 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.fm-bootstrap-flow__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  font-size: 1.15rem;
+  color: #64748b;
+  background: rgba(148, 163, 184, 0.16);
+}
+
+.fm-bootstrap-flow__content {
+  min-width: 0;
+}
+
+.fm-bootstrap-flow__label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.fm-bootstrap-flow__meta {
+  margin-top: 0.4rem;
+  font-size: 0.88rem;
+  line-height: 1.4;
+  color: #0f172a;
+}
+
+.fm-bootstrap-flow__stage.is-done {
+  border-color: rgba(37, 99, 235, 0.18);
+}
+
+.fm-bootstrap-flow__stage.is-done .fm-bootstrap-flow__icon {
+  color: #2563eb;
+  background: rgba(59, 130, 246, 0.14);
+}
+
+.fm-bootstrap-flow__stage.is-done .fm-bootstrap-flow__label {
+  color: #1d4ed8;
+}
+
+.fm-bootstrap-flow__stage.is-active {
+  transform: translateY(-2px);
+  border-color: rgba(14, 165, 233, 0.32);
+  background:
+    radial-gradient(circle at top left, rgba(125, 211, 252, 0.28), transparent 42%),
+    rgba(255, 255, 255, 0.96);
+  box-shadow: 0 18px 44px rgba(14, 165, 233, 0.16);
+}
+
+.fm-bootstrap-flow__stage.is-active .fm-bootstrap-flow__icon {
+  color: #0369a1;
+  background: linear-gradient(135deg, rgba(125, 211, 252, 0.4), rgba(34, 197, 94, 0.18));
+  animation: fm-flow-pulse 1.8s ease-in-out infinite;
+}
+
+.fm-bootstrap-flow__stage.is-active .fm-bootstrap-flow__label {
+  color: #0284c7;
+}
+
+.fm-bootstrap-flow__stage.is-pending {
+  border-style: dashed;
+  opacity: 0.82;
+}
+
+.fm-bootstrap-flow__stage.is-success {
+  border-color: rgba(34, 197, 94, 0.25);
+  background:
+    radial-gradient(circle at top left, rgba(134, 239, 172, 0.22), transparent 42%),
+    rgba(255, 255, 255, 0.96);
+}
+
+.fm-bootstrap-flow__stage.is-success .fm-bootstrap-flow__icon {
+  color: #15803d;
+  background: rgba(74, 222, 128, 0.18);
+}
+
+.fm-bootstrap-flow__stage.is-success .fm-bootstrap-flow__label {
+  color: #15803d;
+}
+
+.fm-bootstrap-flow__stage.is-failed {
+  border-color: rgba(239, 68, 68, 0.28);
+  background:
+    radial-gradient(circle at top left, rgba(252, 165, 165, 0.22), transparent 42%),
+    rgba(255, 255, 255, 0.96);
+}
+
+.fm-bootstrap-flow__stage.is-failed .fm-bootstrap-flow__icon {
+  color: #b91c1c;
+  background: rgba(248, 113, 113, 0.18);
+}
+
+.fm-bootstrap-flow__stage.is-failed .fm-bootstrap-flow__label {
+  color: #b91c1c;
+}
+
+.fm-bootstrap-flow__connector {
+  position: relative;
+  flex: 0 0 54px;
+  display: flex;
+  align-items: center;
+}
+
+.fm-bootstrap-flow__connector-line {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(148, 163, 184, 0.28);
+}
+
+.fm-bootstrap-flow__connector-line::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  transform: scaleX(0);
+  transform-origin: left center;
+  background: linear-gradient(90deg, #38bdf8, #2563eb);
+  transition: transform 0.25s ease;
+}
+
+.fm-bootstrap-flow__connector::after {
+  content: "";
+  position: absolute;
+  right: -3px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-left: 8px solid rgba(148, 163, 184, 0.45);
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+}
+
+.fm-bootstrap-flow__connector.is-filled .fm-bootstrap-flow__connector-line::after,
+.fm-bootstrap-flow__connector.is-active .fm-bootstrap-flow__connector-line::after,
+.fm-bootstrap-flow__connector.is-failed .fm-bootstrap-flow__connector-line::after,
+.fm-bootstrap-flow__connector.is-success .fm-bootstrap-flow__connector-line::after {
+  transform: scaleX(1);
+}
+
+.fm-bootstrap-flow__connector.is-active .fm-bootstrap-flow__connector-line::after {
+  background: linear-gradient(90deg, #22d3ee, #0ea5e9, #2563eb);
+  background-size: 200% 100%;
+  animation: fm-flow-glide 1.6s linear infinite;
+}
+
+.fm-bootstrap-flow__connector.is-active::after {
+  border-left-color: #0ea5e9;
+}
+
+.fm-bootstrap-flow__connector.is-failed .fm-bootstrap-flow__connector-line::after {
+  background: linear-gradient(90deg, #f87171, #ef4444);
+}
+
+.fm-bootstrap-flow__connector.is-failed::after {
+  border-left-color: #ef4444;
+}
+
+.fm-bootstrap-flow__connector.is-success .fm-bootstrap-flow__connector-line::after {
+  background: linear-gradient(90deg, #4ade80, #22c55e);
+}
+
+.fm-bootstrap-flow__connector.is-success::after {
+  border-left-color: #22c55e;
+}
+
+.fm-detail-progress {
+  height: 0.8rem;
+  border-radius: 999px;
+  background: rgba(108, 117, 125, 0.12);
+}
+
+.fm-progress-running {
+  background: #0dcaf0;
+}
+
+.fm-progress-pending {
+  background: rgba(108, 117, 125, 0.32);
+}
+
+.fm-detail-stat {
+  height: 100%;
+  padding: 0.9rem 1rem;
+  border-radius: 0.9rem;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(33, 37, 41, 0.08);
+}
+
+.fm-detail-stat-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--bs-secondary-color);
+}
+
+.fm-detail-stat-value {
+  margin-top: 0.3rem;
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--bs-body-color);
+}
+
+.fm-output-excerpt {
+  display: block;
+  max-width: 420px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.fm-spin {
+  animation: fm-spin 1s linear infinite;
+}
+
+@keyframes fm-flow-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(14, 165, 233, 0.2);
+  }
+
+  50% {
+    box-shadow: 0 0 0 10px rgba(14, 165, 233, 0);
+  }
+}
+
+@keyframes fm-flow-glide {
+  from {
+    background-position: 0% 0%;
+  }
+
+  to {
+    background-position: 200% 0%;
+  }
+}
+
+@keyframes fm-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 767.98px) {
+  .fm-bootstrap-flow__stage {
+    min-width: 164px;
+  }
+
+  .fm-bootstrap-flow__connector {
+    flex-basis: 40px;
+  }
+}
+</style>

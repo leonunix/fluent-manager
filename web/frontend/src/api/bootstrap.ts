@@ -24,12 +24,18 @@ export const getBootstrapTasks = (params?: Record<string, any>) =>
     }>("/bootstrap/tasks", { params })
     .then(({ data }) => data);
 
-export const getBootstrapTask = (id: number) =>
+export const getBootstrapTask = (
+  id: number,
+  params?: { page?: number; page_size?: number },
+) =>
   api
     .get<{
       task: BootstrapTask;
       records: BootstrapRecord[];
-    }>(`/bootstrap/tasks/${id}`)
+      total: number;
+      page: number;
+      page_size: number;
+    }>(`/bootstrap/tasks/${id}`, { params })
     .then(({ data }) => data);
 
 export const createBootstrapTask = (payload: BootstrapTaskInput) =>

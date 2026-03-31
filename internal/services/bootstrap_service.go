@@ -92,7 +92,7 @@ type BootstrapService interface {
 	DeleteHost(id uint, allowedClusters []uint) error
 	Create(input BootstrapTaskInput, userID uint, allowedClusters []uint) (*models.BootstrapTask, error)
 	List(page, pageSize int, allowedClusters []uint) ([]models.BootstrapTask, int64, error)
-	Get(id uint, allowedClusters []uint) (*models.BootstrapTask, []models.BootstrapRecord, error)
+	Get(id uint, page, pageSize int, allowedClusters []uint) (*models.BootstrapTask, []models.BootstrapRecord, int64, error)
 	Close()
 }
 
@@ -320,24 +320,34 @@ func (s *bootstrapService) List(page, pageSize int, allowedClusters []uint) ([]m
 	return tasks, total, err
 }
 
-func (s *bootstrapService) Get(id uint, allowedClusters []uint) (*models.BootstrapTask, []models.BootstrapRecord, error) {
+func (s *bootstrapService) Get(id uint, page, pageSize int, allowedClusters []uint) (*models.BootstrapTask, []models.BootstrapRecord, int64, error) {
 	var task models.BootstrapTask
 	query := s.db.Preload("Cluster.Region.DataCenter").Preload("Creator")
 	if err := query.First(&task, id).Error; err != nil {
-		return nil, nil, err
+		return nil, nil, 0, err
 	}
 
 	if isScopedRequest(allowedClusters) {
 		if len(allowedClusters) == 0 {
-			return nil, nil, gorm.ErrRecordNotFound
+			return nil, nil, 0, gorm.ErrRecordNotFound
 		}
 		var count int64
-		s.db.Model(&models.BootstrapRecord{}).
+		if err := s.db.Model(&models.BootstrapRecord{}).
 			Where("bootstrap_task_id = ? AND cluster_id IN ?", id, allowedClusters).
-			Count(&count)
-		if count == 0 {
-			return nil, nil, gorm.ErrRecordNotFound
+			Count(&count).Error; err != nil {
+			return nil, nil, 0, err
 		}
+		if count == 0 {
+			return nil, nil, 0, gorm.ErrRecordNotFound
+		}
+	}
+
+	countQuery := s.db.Model(&models.BootstrapRecord{}).Where("bootstrap_task_id = ?", id)
+	countQuery = applyAllowedClusterScope(countQuery, "cluster_id", allowedClusters)
+
+	var total int64
+	if err := countQuery.Count(&total).Error; err != nil {
+		return nil, nil, 0, err
 	}
 
 	recordQuery := s.db.Where("bootstrap_task_id = ?", id)
@@ -349,10 +359,12 @@ func (s *bootstrapService) Get(id uint, allowedClusters []uint) (*models.Bootstr
 		Preload("BootstrapHost.Cluster.Region.DataCenter").
 		Preload("Cluster.Region.DataCenter").
 		Order("id ASC").
+		Offset((page - 1) * pageSize).
+		Limit(pageSize).
 		Find(&records).Error; err != nil {
-		return nil, nil, err
+		return nil, nil, 0, err
 	}
-	return &task, records, nil
+	return &task, records, total, nil
 }
 
 type preparedBootstrapTask struct {
@@ -844,6 +856,14 @@ func (s *bootstrapService) runTask(taskID uint, input *preparedBootstrapTask) {
 	}); err != nil {
 		s.logTaskError(taskID, "failed to mark bootstrap task as running", err)
 		return
+	}
+	if err := s.db.Model(&models.BootstrapRecord{}).
+		Where("bootstrap_task_id = ?", taskID).
+		Updates(map[string]interface{}{
+			"status":  bootstrapTaskStatusRunning,
+			"message": "Ansible playbook is running.",
+		}).Error; err != nil {
+		s.logTaskError(taskID, "failed to mark bootstrap records as running", err)
 	}
 
 	workDir, cleanup, err := prepareBootstrapWorkspace(s.GetCapability(), input, s.settings.DisableHostKeyChecking)

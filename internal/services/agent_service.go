@@ -744,10 +744,21 @@ func (s *agentService) recalculateUpgradeTasks(taskIDs []uint) {
 			status = "partial"
 		}
 
-		s.db.Model(&task).Updates(map[string]interface{}{
+		now := time.Now()
+		updates := map[string]interface{}{
 			"status":        status,
 			"success_count": int(successCount),
 			"fail_count":    int(failCount),
-		})
+		}
+		if task.StartedAt == nil && status != "pending" {
+			updates["started_at"] = &now
+		}
+		if status == "completed" || status == "failed" || status == "partial" {
+			updates["finished_at"] = &now
+		} else {
+			updates["finished_at"] = nil
+		}
+
+		s.db.Model(&task).Updates(updates)
 	}
 }
