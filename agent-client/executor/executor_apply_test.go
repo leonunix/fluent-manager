@@ -309,6 +309,47 @@ func TestPrepareManagedConfigInjectsHTTPServer(t *testing.T) {
 	}
 }
 
+func TestEnsureMetricsEnabledInjectsOnStartup(t *testing.T) {
+	exec, _ := newApplyTestExecutor(t)
+	exec.cfg.FluentMetricsURL = "http://127.0.0.1:2020/api/v1/metrics/prometheus"
+	startNamedRuntimeProcess(t, "fluent-bit")
+
+	// Write a config without HTTP_Server
+	initial := "[SERVICE]\n    Flush 1\n\n[INPUT]\n    Name cpu\n"
+	if err := os.WriteFile(exec.cfg.FluentConfigPath, []byte(initial), 0o644); err != nil {
+		t.Fatalf("write initial config: %v", err)
+	}
+
+	exec.EnsureMetricsEnabled()
+
+	data, err := os.ReadFile(exec.cfg.FluentConfigPath)
+	if err != nil {
+		t.Fatalf("read config after EnsureMetricsEnabled: %v", err)
+	}
+	result := string(data)
+	if !strings.Contains(result, "HTTP_Server On") {
+		t.Fatalf("expected HTTP_Server On injected at startup, got:\n%s", result)
+	}
+}
+
+func TestEnsureMetricsEnabledIdempotent(t *testing.T) {
+	exec, _ := newApplyTestExecutor(t)
+	exec.cfg.FluentMetricsURL = "http://127.0.0.1:2020/api/v1/metrics/prometheus"
+
+	already := "[SERVICE]\n    Flush 1\n    HTTP_Server On\n    HTTP_Port   2020\n\n[INPUT]\n    Name cpu\n"
+	if err := os.WriteFile(exec.cfg.FluentConfigPath, []byte(already), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	modBefore, _ := os.Stat(exec.cfg.FluentConfigPath)
+
+	exec.EnsureMetricsEnabled()
+
+	modAfter, _ := os.Stat(exec.cfg.FluentConfigPath)
+	if modBefore.ModTime() != modAfter.ModTime() {
+		t.Fatal("expected config file to be untouched when HTTP_Server already On")
+	}
+}
+
 func TestPrepareManagedConfigInjectsFluentdMonitorAgent(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := tempDir + "/fluentd.conf"

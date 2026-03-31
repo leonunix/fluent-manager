@@ -77,6 +77,61 @@ func (e *Executor) CurrentConfigHash() string {
 	return fmt.Sprintf("%x", h)
 }
 
+// EnsureMetricsEnabled reads the current on-disk config and injects the metrics API directives
+// (HTTP_Server On for Fluent Bit, monitor_agent for Fluentd) if they are not already present.
+// Called once at agent startup so metrics collection works without waiting for a server deployment.
+func (e *Executor) EnsureMetricsEnabled() {
+	metricsURL := strings.TrimSpace(e.cfg.FluentMetricsURL)
+	if metricsURL == "" {
+		return
+	}
+
+	configPath := strings.TrimSpace(e.cfg.FluentConfigPath)
+	if configPath == "" {
+		return
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("[executor] EnsureMetricsEnabled: read config: %v", err)
+		}
+		return
+	}
+
+	content := string(data)
+	var patched string
+	switch e.cfg.FluentType {
+	case "fluentbit":
+		chunks := splitFluentBitChunks(content)
+		for _, chunk := range chunks {
+			if chunk.isBlock && chunk.kind == "SERVICE" && fluentBitHTTPServerEnabled(chunk.lines) {
+				return // already enabled
+			}
+		}
+		patched = injectFluentBitHTTPServer(content, metricsPortFromURL(metricsURL, "2020"))
+	case "fluentd":
+		if strings.Contains(strings.ToLower(content), "monitor_agent") {
+			return // already enabled
+		}
+		patched = injectFluentdMonitorAgent(content, metricsPortFromURL(metricsURL, "24220"))
+	default:
+		return
+	}
+
+	patched = normalizeTrailingNewline(patched)
+	if err := os.WriteFile(configPath, []byte(patched), 0o644); err != nil {
+		log.Printf("[executor] EnsureMetricsEnabled: write config: %v", err)
+		return
+	}
+
+	log.Printf("[executor] metrics API injected into %s, reloading", configPath)
+	if _, _, err := e.reloadOrRestart(); err != nil {
+		log.Printf("[executor] EnsureMetricsEnabled: reload failed: %v", err)
+	}
+	e.refreshRuntimeProfile()
+}
+
 // Apply writes a new config, validates it, reloads or restarts the service, and rolls back on failure.
 // Returns (success, message).
 func (e *Executor) Apply(content string, configID uint) (bool, string) {

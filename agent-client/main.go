@@ -15,7 +15,7 @@ import (
 	"github.com/fluent-manager/fluent-manager-agent/transport"
 )
 
-const Version = "2.0.0"
+const Version = "2.0.1"
 
 func main() {
 	cfgPath := flag.String("config", "/etc/fluent-manager/agent.yaml", "optional agent config path")
@@ -61,6 +61,7 @@ func main() {
 
 	// --- Config Executor: applies & validates configs, runs remote commands ---
 	exec := executor.New(cfg)
+	exec.EnsureMetricsEnabled()
 
 	// --- Log Watcher: tails fluent logs and buffers for upload ---
 	lw := logwatch.New(cfg, client)
