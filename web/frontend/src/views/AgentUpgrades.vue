@@ -1159,28 +1159,16 @@ const detailAutoRefreshEnabled = computed(() =>
 
 const detailStats = computed(() => {
   const task = detail.value?.task;
-  const records = detail.value?.records || [];
-  const total = Number(task?.total_nodes || records.length || 0);
-
-  if (!records.length) {
-    const success = Number(task?.success_count || 0);
-    const failed = Number(task?.fail_count || 0);
-    const remaining = Math.max(total - success - failed, 0);
-    return {
-      total,
-      success,
-      failed,
-      running: task?.status === "running" ? remaining : 0,
-      pending: task?.status === "pending" ? remaining : 0,
-    };
-  }
-
+  const total = Number(task?.total_nodes || 0);
+  const success = Number(task?.success_count || 0);
+  const failed = Number(task?.fail_count || 0);
+  const remaining = Math.max(total - success - failed, 0);
   return {
     total,
-    success: records.filter((record) => isSuccessStatus(record.status)).length,
-    failed: records.filter((record) => isFailedStatus(record.status)).length,
-    running: records.filter((record) => record.status === "running").length,
-    pending: records.filter((record) => record.status === "pending").length,
+    success,
+    failed,
+    running: task?.status === "running" ? remaining : 0,
+    pending: task?.status === "pending" ? remaining : 0,
   };
 });
 

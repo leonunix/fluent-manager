@@ -434,6 +434,10 @@ func (s *agentService) ReportStatus(nodeUID string, configID uint, success bool,
 		}
 		if totalPending == 0 {
 			updates["status"] = "completed"
+			now := time.Now()
+			updates["finished_at"] = &now
+		} else {
+			updates["finished_at"] = nil
 		}
 		if err := s.db.Model(&models.DeployTask{}).Where("id = ?", taskID).Updates(updates).Error; err != nil {
 			return err
@@ -780,6 +784,10 @@ func (s *agentService) recalculateDeployTasksForNode(nodeID, configVersionID uin
 		}
 		if totalPending == 0 {
 			updates["status"] = "completed"
+			now := time.Now()
+			updates["finished_at"] = &now
+		} else {
+			updates["finished_at"] = nil
 		}
 		s.db.Model(&models.DeployTask{}).Where("id = ?", taskID).Updates(updates)
 	}

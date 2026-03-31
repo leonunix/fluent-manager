@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"time"
 
 	"github.com/fluent-manager/fluent-manager/internal/models"
 	"gorm.io/gorm"
@@ -104,12 +105,14 @@ func (s *deployService) Create(configVersionID uint, nodeIDs []uint, clusterID, 
 		}
 	}
 
+	now := time.Now()
 	task := models.DeployTask{
 		ConfigID:   configVersionID,
 		Scope:      scope,
 		ScopeID:    scopeID,
-		Status:     "pending",
+		Status:     "running",
 		TotalNodes: len(uniqueIDs),
+		StartedAt:  &now,
 		CreatedBy:  userID,
 	}
 	if err := s.db.Create(&task).Error; err != nil {
@@ -127,7 +130,6 @@ func (s *deployService) Create(configVersionID uint, nodeIDs []uint, clusterID, 
 	}
 
 	s.db.Model(&models.Node{}).Where("id IN ?", uniqueIDs).Update("config_id", configVersionID)
-	s.db.Model(&task).Update("status", "running")
 
 	return &task, nil
 }

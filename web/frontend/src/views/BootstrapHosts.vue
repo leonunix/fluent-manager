@@ -1446,35 +1446,17 @@ const detailAutoRefreshEnabled = computed(() =>
 
 const detailStats = computed(() => {
   const task = detail.value?.task;
-  const records = detail.value?.records || [];
-  const total = Number(task?.total_hosts || records.length || 0);
-
-  if (!records.length) {
-    const success = Number(task?.success_count || 0);
-    const failed = Number(task?.fail_count || 0);
-    const remaining = Math.max(total - success - failed, 0);
-    return {
-      total,
-      success,
-      failed,
-      running: task?.status === "running" ? remaining : 0,
-      pending: task?.status === "pending" ? remaining : 0,
-    };
-  }
-
-  const success = records.filter((record) => isSuccessStatus(record.status)).length;
-  const failed = records.filter((record) => isFailedStatus(record.status)).length;
-  let running = records.filter((record) => record.status === "running").length;
-  let pending = records.filter((record) => record.status === "pending").length;
-
-  // The backend promotes hosts to "running" shortly after the task starts, but
-  // we still avoid a flat "pending" wall if a refresh lands in-between updates.
-  if (task?.status === "running" && running === 0 && pending > 0) {
-    running = pending;
-    pending = 0;
-  }
-
-  return { total, success, failed, running, pending };
+  const total = Number(task?.total_hosts || 0);
+  const success = Number(task?.success_count || 0);
+  const failed = Number(task?.fail_count || 0);
+  const remaining = Math.max(total - success - failed, 0);
+  return {
+    total,
+    success,
+    failed,
+    running: task?.status === "running" ? remaining : 0,
+    pending: task?.status === "pending" ? remaining : 0,
+  };
 });
 
 const detailSuccessPct = computed(() =>

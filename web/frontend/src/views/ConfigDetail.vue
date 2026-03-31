@@ -880,9 +880,9 @@ async function submitDeploy() {
     data.node_ids = deployForm.node_ids
   }
   try {
-    await createDeploy(data)
+    const { data: createdTask } = await createDeploy(data)
     deployModal.hide()
-    router.push('/deploys')
+    router.push({ path: '/deploys', query: { task: String(createdTask.id) } })
   } catch (error) {
     alert(`${t('config_detail.deploy_failed')}: ${getErrorMessage(error)}`)
   }
