@@ -313,6 +313,33 @@ func (s *agentService) storeMetrics(nodeID uint, raw map[string]interface{}) {
 	if v, ok := raw["fluent_open_fds"].(float64); ok {
 		m.FluentOpenFDs = int(v)
 	}
+	if v, ok := raw["queue_depth"].(float64); ok {
+		m.QueueDepth = int(v)
+	}
+	if v, ok := raw["retry_count"].(float64); ok {
+		m.RetryCount = int(v)
+	}
+	if v, ok := raw["flush_latency_ms"].(float64); ok {
+		m.FlushLatencyMS = int(v)
+	}
+	if v, ok := raw["input_status"].(string); ok {
+		m.InputStatus = v
+	}
+	if v, ok := raw["output_status"].(string); ok {
+		m.OutputStatus = v
+	}
+	if v, ok := raw["input_records_total"].(float64); ok {
+		m.InputRecordsTotal = int64(v)
+	}
+	if v, ok := raw["input_bytes_total"].(float64); ok {
+		m.InputBytesTotal = int64(v)
+	}
+	if v, ok := raw["output_records_total"].(float64); ok {
+		m.OutputRecordsTotal = int64(v)
+	}
+	if v, ok := raw["output_bytes_total"].(float64); ok {
+		m.OutputBytesTotal = int64(v)
+	}
 
 	s.db.Save(&m)
 }

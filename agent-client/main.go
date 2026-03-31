@@ -54,14 +54,15 @@ func main() {
 	}
 	log.Printf("Registered as node %s", cfg.Snapshot().NodeUID)
 
-	// --- Metrics Collector: CPU/mem/disk/fluent process ---
-	mc := collector.New(cfg)
-	mc.Start()
-	defer mc.Stop()
-
 	// --- Config Executor: applies & validates configs, runs remote commands ---
 	exec := executor.New(cfg)
 	exec.EnsureMetricsEnabled()
+
+	// --- Metrics Collector: CPU/mem/disk/fluent process ---
+	// Started after EnsureMetricsEnabled so the first collection sees SupportsMetricsAPI = true.
+	mc := collector.New(cfg)
+	mc.Start()
+	defer mc.Stop()
 
 	// --- Log Watcher: tails fluent logs and buffers for upload ---
 	lw := logwatch.New(cfg, client)

@@ -77,6 +77,50 @@
               </div>
             </div>
           </div>
+          <!-- Pipeline Health (from Fluent Bit / Fluentd API) -->
+          <div class="col-12" v-if="node.fluent_profile?.supports_metrics_api">
+            <div class="card border-0 shadow-sm">
+              <div class="card-body">
+                <div class="text-muted small mb-2">{{ t('node_detail.pipeline_health') }}</div>
+                <div class="d-flex gap-4 flex-wrap align-items-center">
+                  <div>
+                    <div class="text-muted small mb-1">{{ t('node_detail.input_status') }}</div>
+                    <span :class="pipelineStatusClass(metrics.input_status)" class="badge">{{ metrics.input_status || 'N/A' }}</span>
+                  </div>
+                  <div>
+                    <div class="text-muted small mb-1">{{ t('node_detail.output_status') }}</div>
+                    <span :class="pipelineStatusClass(metrics.output_status)" class="badge">{{ metrics.output_status || 'N/A' }}</span>
+                  </div>
+                  <template v-if="hasApiData(metrics)">
+                    <div>
+                      <div class="text-muted small mb-1">{{ t('node_detail.queue_depth') }}</div>
+                      <div class="fw-semibold" :class="metrics.queue_depth > 0 ? 'text-warning' : 'text-success'">{{ metrics.queue_depth }}</div>
+                    </div>
+                    <div>
+                      <div class="text-muted small mb-1">{{ t('node_detail.retry_count') }}</div>
+                      <div class="fw-semibold" :class="metrics.retry_count > 0 ? 'text-warning' : 'text-success'">{{ metrics.retry_count }}</div>
+                    </div>
+                    <div>
+                      <div class="text-muted small mb-1">{{ t('node_detail.flush_latency') }}</div>
+                      <div class="fw-semibold" :class="colorClass(metrics.flush_latency_ms, 1000, 5000)">{{ metrics.flush_latency_ms }} ms</div>
+                    </div>
+                    <div class="vr mx-1"></div>
+                    <div>
+                      <div class="text-muted small mb-1">{{ t('node_detail.input_records') }}</div>
+                      <div class="fw-semibold">{{ formatCount(metrics.input_records_total) }}</div>
+                      <div class="text-muted small">{{ formatBytes(metrics.input_bytes_total) }}</div>
+                    </div>
+                    <div>
+                      <div class="text-muted small mb-1">{{ t('node_detail.output_records') }}</div>
+                      <div class="fw-semibold">{{ formatCount(metrics.output_records_total) }}</div>
+                      <div class="text-muted small">{{ formatBytes(metrics.output_bytes_total) }}</div>
+                    </div>
+                  </template>
+                  <span v-else class="text-muted small">{{ t('node_detail.no_api_data') }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
           <!-- System Metrics - Secondary -->
           <div class="col-md-4">
             <div class="card border-0 shadow-sm">
@@ -386,6 +430,32 @@ function statusText(s) {
 
 function cmdStatusClass(s) {
   return { 'bg-success': s === 'success', 'bg-warning': s === 'pending' || s === 'delivered', 'bg-danger': s === 'failed' }
+}
+
+function formatCount(n) {
+  if (!n) return '0'
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B'
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M'
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K'
+  return String(n)
+}
+function formatBytes(n) {
+  if (!n) return '0 B'
+  if (n >= 1073741824) return (n / 1073741824).toFixed(1) + ' GB'
+  if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB'
+  if (n >= 1024) return (n / 1024).toFixed(1) + ' KB'
+  return n + ' B'
+}
+
+function pipelineStatusClass(s) {
+  if (s === 'healthy') return 'bg-success'
+  if (s === 'degraded') return 'bg-warning text-dark'
+  if (s === 'unhealthy') return 'bg-danger'
+  return 'bg-secondary'
+}
+
+function hasApiData(m) {
+  return m && m.input_status && m.input_status !== 'unknown'
 }
 
 function colorClass(val, warn, danger) {

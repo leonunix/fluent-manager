@@ -77,6 +77,17 @@ type NodeMetrics struct {
 	FluentCPUPercent float64   `json:"fluent_cpu_percent"`
 	FluentMemMB      float64   `json:"fluent_mem_mb"`
 	FluentOpenFDs    int       `json:"fluent_open_fds"`
+	// Pipeline health (from Fluent Bit / Fluentd metrics API)
+	QueueDepth          int    `json:"queue_depth"`
+	RetryCount          int    `json:"retry_count"`
+	FlushLatencyMS      int    `json:"flush_latency_ms"`
+	InputStatus         string `gorm:"size:32" json:"input_status"`
+	OutputStatus        string `gorm:"size:32" json:"output_status"`
+	// Throughput counters (cumulative since process start, reset on restart)
+	InputRecordsTotal  int64 `json:"input_records_total"`
+	InputBytesTotal    int64 `json:"input_bytes_total"`
+	OutputRecordsTotal int64 `json:"output_records_total"`
+	OutputBytesTotal   int64 `json:"output_bytes_total"`
 	UpdatedAt        time.Time `json:"updated_at"`
 }
 

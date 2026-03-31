@@ -58,6 +58,52 @@
       </div>
     </div>
 
+    <!-- Throughput KPIs -->
+    <div class="row g-4 mb-4">
+      <div class="col-md-3">
+        <div class="stat-card">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <div class="text-muted small">{{ t('dashboard.input_records') }}</div>
+              <h3 class="mb-0 mt-1">{{ formatCount(throughput.total_input_records) }}</h3>
+              <div class="text-muted small mt-1">{{ formatBytes(throughput.total_input_bytes) }}</div>
+            </div>
+            <div class="stat-icon" style="background: #dbeafe; color: #2563eb;">
+              <i class="bi bi-arrow-down-circle"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="stat-card">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <div class="text-muted small">{{ t('dashboard.output_records') }}</div>
+              <h3 class="mb-0 mt-1">{{ formatCount(throughput.total_output_records) }}</h3>
+              <div class="text-muted small mt-1">{{ formatBytes(throughput.total_output_bytes) }}</div>
+            </div>
+            <div class="stat-icon" style="background: #d1fae5; color: #059669;">
+              <i class="bi bi-arrow-up-circle"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="stat-card">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <div class="text-muted small">{{ t('dashboard.nodes_reporting') }}</div>
+              <h3 class="mb-0 mt-1">{{ throughput.nodes_reporting }}</h3>
+              <div class="text-muted small mt-1">/ {{ stats.total || 0 }} {{ t('dashboard.total_nodes') }}</div>
+            </div>
+            <div class="stat-icon" style="background: #ede9fe; color: #7c3aed;">
+              <i class="bi bi-bar-chart-line"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Fluent Overview -->
     <div class="row g-4 mb-4">
       <div class="col-md-4">
@@ -209,7 +255,7 @@ import { PieChart, BarChart, GaugeChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import VChart from 'vue-echarts'
-import { getNodeStats, getDeploys, getAuditLogs, getTopologyTree, getMetricsOverview, getMetricsTopNodes } from '../api'
+import { getNodeStats, getDeploys, getAuditLogs, getTopologyTree, getMetricsOverview, getMetricsTopNodes, getMetricsThroughput } from '../api'
 import { useI18n } from '../i18n'
 
 use([CanvasRenderer, PieChart, BarChart, GaugeChart, TooltipComponent, LegendComponent, GridComponent])
@@ -221,6 +267,7 @@ const auditLogs = ref([])
 const tree = ref([])
 const overview = ref({})
 const topNodes = ref([])
+const throughput = ref({})
 
 function getStatusCount(status) {
   const s = stats.value.statuses?.find(s => s.status === status)
@@ -291,12 +338,26 @@ function deployStatusClass(status) {
   return { 'bg-success': status === 'completed', 'bg-warning': status === 'running', 'bg-danger': status === 'failed', 'bg-secondary': status === 'pending' }
 }
 function formatTime(t) { return t ? new Date(t).toLocaleString('zh-CN') : '-' }
+function formatCount(n) {
+  if (!n) return '0'
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B'
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M'
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K'
+  return String(n)
+}
+function formatBytes(n) {
+  if (!n) return '0 B'
+  if (n >= 1073741824) return (n / 1073741824).toFixed(1) + ' GB'
+  if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB'
+  if (n >= 1024) return (n / 1024).toFixed(1) + ' KB'
+  return n + ' B'
+}
 
 onMounted(async () => {
   try {
-    const [s, d, a, tr, ov, tn] = await Promise.all([
+    const [s, d, a, tr, ov, tn, tp] = await Promise.all([
       getNodeStats(), getDeploys({ page_size: 5 }), getAuditLogs({ page_size: 8 }), getTopologyTree(),
-      getMetricsOverview(), getMetricsTopNodes(),
+      getMetricsOverview(), getMetricsTopNodes(), getMetricsThroughput(),
     ])
     stats.value = s.data
     deploys.value = d.data.data || []
@@ -304,6 +365,7 @@ onMounted(async () => {
     tree.value = tr.data.data || []
     overview.value = ov.data || {}
     topNodes.value = tn.data.data || []
+    throughput.value = tp.data || {}
   } catch (e) { console.error('Dashboard load error:', e) }
 })
 </script>

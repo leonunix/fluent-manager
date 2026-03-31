@@ -51,6 +51,12 @@ type Metrics struct {
 	InputStatus    string `json:"input_status"`
 	OutputStatus   string `json:"output_status"`
 
+	// Throughput counters (cumulative since process start)
+	InputRecordsTotal  int64 `json:"input_records_total"`
+	InputBytesTotal    int64 `json:"input_bytes_total"`
+	OutputRecordsTotal int64 `json:"output_records_total"`
+	OutputBytesTotal   int64 `json:"output_bytes_total"`
+
 	// Metadata
 	CollectedAt time.Time `json:"collected_at"`
 }
@@ -272,16 +278,17 @@ func (c *Collector) collectRuntimeSignals(cfg config.Snapshot, m *Metrics) {
 		return
 	}
 
-	m.InputStatus = "healthy"
-	m.OutputStatus = "healthy"
-
 	if !cfg.RuntimeProfile.SupportsMetricsAPI || strings.TrimSpace(cfg.FluentMetricsURL) == "" {
+		m.InputStatus = "unknown"
+		m.OutputStatus = "unknown"
 		return
 	}
 
 	payload, err := c.fetchRuntimeMetrics(cfg)
 	if err != nil {
 		log.Printf("[collector] runtime metrics scrape failed: %v", err)
+		m.InputStatus = "unknown"
+		m.OutputStatus = "unknown"
 		return
 	}
 
@@ -367,6 +374,23 @@ func (c *Collector) populateFromPrometheus(payload []byte, m *Metrics) {
 
 	m.InputStatus = deriveStatus(m.FluentRunning, inputHardErrors, 0, 0)
 	m.OutputStatus = deriveStatus(m.FluentRunning, outputHardErrors, float64(m.RetryCount), float64(m.QueueDepth))
+
+	m.InputRecordsTotal = int64(metricSum(sums,
+		"fluentbit_input_records_total",
+		"fluentbit_input_proc_records_total",
+	))
+	m.InputBytesTotal = int64(metricSum(sums,
+		"fluentbit_input_bytes_total",
+		"fluentbit_input_proc_bytes_total",
+	))
+	m.OutputRecordsTotal = int64(metricSum(sums,
+		"fluentbit_output_proc_records_total",
+		"fluentbit_output_records_total",
+	))
+	m.OutputBytesTotal = int64(metricSum(sums,
+		"fluentbit_output_proc_bytes_total",
+		"fluentbit_output_bytes_total",
+	))
 }
 
 func (c *Collector) populateFromFluentdMonitorAgent(payload []byte, m *Metrics) {
@@ -416,6 +440,22 @@ func (c *Collector) populateFromFluentdMonitorAgent(payload []byte, m *Metrics) 
 	m.FlushLatencyMS = int(totalFlushMS)
 	m.InputStatus = deriveStatus(m.FluentRunning, inputErrors, 0, 0)
 	m.OutputStatus = deriveStatus(m.FluentRunning, outputErrors, totalRetries, outputSignals)
+
+	for _, plugin := range plugins {
+		category := strings.ToLower(stringField(plugin, "plugin_category"))
+		if category == "" {
+			category = strings.ToLower(stringField(plugin, "type"))
+		}
+		emitRecords := int64(numberField(plugin, "emit_records"))
+		emitBytes := int64(numberField(plugin, "emit_bytes"))
+		if category == "input" || strings.EqualFold(stringField(plugin, "plugin_type"), "input") {
+			m.InputRecordsTotal += emitRecords
+			m.InputBytesTotal += emitBytes
+		} else if category == "output" || boolField(plugin, "output_plugin") {
+			m.OutputRecordsTotal += emitRecords
+			m.OutputBytesTotal += emitBytes
+		}
+	}
 }
 
 func decodeMonitorAgentPlugins(payload []byte) ([]map[string]interface{}, error) {

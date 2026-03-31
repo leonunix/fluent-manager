@@ -33,6 +33,16 @@ func (h *MetricsHandler) TopNodes(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": resp})
 }
 
+func (h *MetricsHandler) Throughput(c *gin.Context) {
+	allowed := middleware.GetAllowedClusters(c)
+	resp, err := h.Svc.Throughput(allowed)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
 func (h *MetricsHandler) ByDatacenter(c *gin.Context) {
 	allowed := middleware.GetAllowedClusters(c)
 	var allowedDCIDs []uint

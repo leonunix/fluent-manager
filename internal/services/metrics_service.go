@@ -35,10 +35,19 @@ type DCMetricsResult struct {
 	NodeCount int64   `json:"node_count"`
 }
 
+type ThroughputResult struct {
+	TotalInputRecords  int64 `json:"total_input_records"`
+	TotalInputBytes    int64 `json:"total_input_bytes"`
+	TotalOutputRecords int64 `json:"total_output_records"`
+	TotalOutputBytes   int64 `json:"total_output_bytes"`
+	NodesReporting     int64 `json:"nodes_reporting"`
+}
+
 type MetricsService interface {
 	Overview(allowedClusters []uint) (*OverviewResult, error)
 	TopNodes(allowedClusters []uint) ([]TopNodeResult, error)
 	ByDatacenter(allowedDCIDs []uint) ([]DCMetricsResult, error)
+	Throughput(allowedClusters []uint) (*ThroughputResult, error)
 }
 
 type metricsService struct {
@@ -144,6 +153,40 @@ func (s *metricsService) topNodesQuery(allowedClusters []uint) ([]TopNodeResult,
 		resp = []TopNodeResult{}
 	}
 	return resp, nil
+}
+
+func (s *metricsService) Throughput(allowedClusters []uint) (*ThroughputResult, error) {
+	if allowedClusters == nil {
+		const cacheKey = "metrics:throughput"
+		var resp ThroughputResult
+		if cache.Get(cacheKey, &resp) {
+			return &resp, nil
+		}
+		result, err := s.throughputQuery(nil)
+		if err != nil {
+			return nil, err
+		}
+		cache.Set(cacheKey, *result)
+		return result, nil
+	}
+	return s.throughputQuery(allowedClusters)
+}
+
+func (s *metricsService) throughputQuery(allowedClusters []uint) (*ThroughputResult, error) {
+	var resp ThroughputResult
+
+	baseJoin := "JOIN nodes ON nodes.id = node_metrics.node_id AND nodes.status = 'online' AND nodes.deleted_at IS NULL"
+	query := s.db.Model(&models.NodeMetrics{}).
+		Select("SUM(node_metrics.input_records_total) as total_input_records, SUM(node_metrics.input_bytes_total) as total_input_bytes, SUM(node_metrics.output_records_total) as total_output_records, SUM(node_metrics.output_bytes_total) as total_output_bytes, COUNT(CASE WHEN node_metrics.input_records_total > 0 OR node_metrics.output_records_total > 0 THEN 1 END) as nodes_reporting").
+		Joins(baseJoin)
+
+	if allowedClusters != nil {
+		query = query.Where("nodes.cluster_id IN ?", allowedClusters)
+	}
+
+	row := query.Row()
+	row.Scan(&resp.TotalInputRecords, &resp.TotalInputBytes, &resp.TotalOutputRecords, &resp.TotalOutputBytes, &resp.NodesReporting)
+	return &resp, nil
 }
 
 func (s *metricsService) ByDatacenter(allowedDCIDs []uint) ([]DCMetricsResult, error) {
