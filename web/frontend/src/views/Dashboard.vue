@@ -58,45 +58,51 @@
       </div>
     </div>
 
-    <!-- Resource Overview Gauges -->
+    <!-- Fluent Overview -->
     <div class="row g-4 mb-4">
-      <div class="col-md-3" v-for="g in gaugeConfigs" :key="g.key">
+      <div class="col-md-4">
         <div class="card border-0">
           <div class="card-body text-center py-3">
-            <v-chart :option="gaugeOption(g)" style="height: 160px;" :autoresize="true" />
-            <div class="small text-muted mt-1">{{ g.label }}</div>
+            <v-chart :option="fluentGaugeOption" style="height: 160px;" :autoresize="true" />
+            <div class="small text-muted mt-1">{{ t('dashboard.fluent_run_rate') }}</div>
           </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="stat-card h-100 d-flex flex-column align-items-center justify-content-center" style="min-height: 190px;">
+          <div class="stat-icon mb-3" style="background: #d1fae5; color: var(--fm-success);"><i class="bi bi-activity"></i></div>
+          <div class="text-muted small">{{ t('dashboard.fluent_running_count') }}</div>
+          <h3 class="mb-0 mt-1 text-success">{{ overview.fluent_running || 0 }}</h3>
+          <div class="text-muted small mt-1">/ {{ overview.fluent_total || 0 }} {{ t('dashboard.total_nodes') }}</div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="stat-card h-100 d-flex flex-column align-items-center justify-content-center" style="min-height: 190px;">
+          <div class="stat-icon mb-3" style="background: #fef3c7; color: var(--fm-warning);"><i class="bi bi-exclamation-circle"></i></div>
+          <div class="text-muted small">{{ t('dashboard.fluent_stopped_count') }}</div>
+          <h3 class="mb-0 mt-1 text-warning">{{ (overview.fluent_total || 0) - (overview.fluent_running || 0) }}</h3>
+          <div class="text-muted small mt-1">/ {{ overview.fluent_total || 0 }} {{ t('dashboard.total_nodes') }}</div>
         </div>
       </div>
     </div>
 
-    <!-- Top Nodes + DC Metrics Row -->
+    <!-- Online Nodes -->
     <div class="row g-4 mb-4">
-      <div class="col-md-5">
+      <div class="col-md-12">
         <div class="card border-0">
           <div class="card-header"><h6 class="mb-0">{{ t('dashboard.top_nodes') }}</h6></div>
           <div class="card-body p-0">
             <table class="table table-hover mb-0">
-              <thead><tr><th>{{ t('dashboard.hostname') }}</th><th>{{ t('dashboard.cluster') }}</th><th>CPU</th><th>MEM</th></tr></thead>
+              <thead><tr><th>{{ t('dashboard.hostname') }}</th><th>IP</th><th>{{ t('dashboard.cluster') }}</th></tr></thead>
               <tbody>
                 <tr v-for="n in topNodes" :key="n.node_id" style="cursor:pointer" @click="$router.push('/nodes/' + n.node_id)">
-                  <td class="text-truncate small" style="max-width:140px;">{{ n.hostname }}</td>
+                  <td class="text-truncate small" style="max-width:200px;">{{ n.hostname }}</td>
+                  <td class="small text-muted">{{ n.ip_address || '-' }}</td>
                   <td class="small">{{ n.cluster_name || '-' }}</td>
-                  <td><span :class="usageClass(n.cpu)">{{ n.cpu.toFixed(1) }}%</span></td>
-                  <td><span :class="usageClass(n.mem)">{{ n.mem.toFixed(1) }}%</span></td>
                 </tr>
-                <tr v-if="!topNodes.length"><td colspan="4" class="text-center text-muted">{{ t('dashboard.no_metrics') }}</td></tr>
+                <tr v-if="!topNodes.length"><td colspan="3" class="text-center text-muted">{{ t('dashboard.no_metrics') }}</td></tr>
               </tbody>
             </table>
-          </div>
-        </div>
-      </div>
-      <div class="col-md-7">
-        <div class="card border-0">
-          <div class="card-header"><h6 class="mb-0">{{ t('dashboard.dc_metrics') }}</h6></div>
-          <div class="card-body">
-            <v-chart v-if="dcMetricsOption.series" :option="dcMetricsOption" style="height: 240px;" :autoresize="true" />
-            <div v-else class="text-center text-muted py-5">{{ t('dashboard.no_metrics') }}</div>
           </div>
         </div>
       </div>
@@ -203,7 +209,7 @@ import { PieChart, BarChart, GaugeChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import VChart from 'vue-echarts'
-import { getNodeStats, getDeploys, getAuditLogs, getTopologyTree, getMetricsOverview, getMetricsTopNodes, getMetricsByDC } from '../api'
+import { getNodeStats, getDeploys, getAuditLogs, getTopologyTree, getMetricsOverview, getMetricsTopNodes } from '../api'
 import { useI18n } from '../i18n'
 
 use([CanvasRenderer, PieChart, BarChart, GaugeChart, TooltipComponent, LegendComponent, GridComponent])
@@ -215,7 +221,6 @@ const auditLogs = ref([])
 const tree = ref([])
 const overview = ref({})
 const topNodes = ref([])
-const dcMetrics = ref([])
 
 function getStatusCount(status) {
   const s = stats.value.statuses?.find(s => s.status === status)
@@ -265,15 +270,9 @@ const dcBarOption = computed(() => {
   }
 })
 
-const gaugeConfigs = computed(() => [
-  { key: 'cpu', label: t('dashboard.avg_cpu'), value: overview.value.avg_cpu || 0 },
-  { key: 'mem', label: t('dashboard.avg_mem'), value: overview.value.avg_mem || 0 },
-  { key: 'disk', label: t('dashboard.avg_disk'), value: overview.value.avg_disk || 0 },
-  { key: 'fluent', label: t('dashboard.fluent_run_rate'), value: overview.value.fluent_run_rate || 0 },
-])
-
-function gaugeOption(g) {
-  const color = g.value >= 90 ? '#ef4444' : g.value >= 70 ? '#f59e0b' : '#10b981'
+const fluentGaugeOption = computed(() => {
+  const value = overview.value.fluent_run_rate || 0
+  const color = value >= 90 ? '#10b981' : value >= 50 ? '#f59e0b' : '#ef4444'
   return {
     series: [{
       type: 'gauge', startAngle: 200, endAngle: -20, min: 0, max: 100,
@@ -283,30 +282,8 @@ function gaugeOption(g) {
       axisTick: { show: false }, splitLine: { show: false }, axisLabel: { show: false },
       title: { show: false },
       detail: { fontSize: 22, fontWeight: 'bold', offsetCenter: [0, 0], formatter: '{value}%', color },
-      data: [{ value: Math.round(g.value * 10) / 10 }],
+      data: [{ value: Math.round(value * 10) / 10 }],
     }],
-  }
-}
-
-function usageClass(v) {
-  if (v >= 90) return 'text-danger fw-bold'
-  if (v >= 70) return 'text-warning'
-  return ''
-}
-
-const dcMetricsOption = computed(() => {
-  if (!dcMetrics.value.length) return {}
-  const names = dcMetrics.value.map(d => d.dc_alias || d.dc_name)
-  return {
-    tooltip: { trigger: 'axis', formatter: (params) => params.map(p => `${p.seriesName}: ${p.value.toFixed(1)}%`).join('<br/>') },
-    legend: { data: ['CPU', 'MEM'], bottom: 0, textStyle: { fontSize: 11 } },
-    grid: { left: '3%', right: '4%', bottom: '15%', top: '5%', containLabel: true },
-    xAxis: { type: 'category', data: names, axisLabel: { fontSize: 11 } },
-    yAxis: { type: 'value', max: 100, axisLabel: { formatter: '{value}%' } },
-    series: [
-      { name: 'CPU', type: 'bar', data: dcMetrics.value.map(d => d.avg_cpu), itemStyle: { color: '#6366f1', borderRadius: [4, 4, 0, 0] } },
-      { name: 'MEM', type: 'bar', data: dcMetrics.value.map(d => d.avg_mem), itemStyle: { color: '#06b6d4', borderRadius: [4, 4, 0, 0] } },
-    ],
   }
 })
 
@@ -317,9 +294,9 @@ function formatTime(t) { return t ? new Date(t).toLocaleString('zh-CN') : '-' }
 
 onMounted(async () => {
   try {
-    const [s, d, a, tr, ov, tn, dm] = await Promise.all([
+    const [s, d, a, tr, ov, tn] = await Promise.all([
       getNodeStats(), getDeploys({ page_size: 5 }), getAuditLogs({ page_size: 8 }), getTopologyTree(),
-      getMetricsOverview(), getMetricsTopNodes(), getMetricsByDC(),
+      getMetricsOverview(), getMetricsTopNodes(),
     ])
     stats.value = s.data
     deploys.value = d.data.data || []
@@ -327,7 +304,6 @@ onMounted(async () => {
     tree.value = tr.data.data || []
     overview.value = ov.data || {}
     topNodes.value = tn.data.data || []
-    dcMetrics.value = dm.data.data || []
   } catch (e) { console.error('Dashboard load error:', e) }
 })
 </script>

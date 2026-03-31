@@ -46,57 +46,71 @@
       </div>
       <div class="col-md-9" v-if="metrics">
         <div class="row g-3">
-          <div class="col-md-3">
+          <!-- Fluent Process - Primary -->
+          <div class="col-12">
+            <div class="card border-0 shadow-sm">
+              <div class="card-body">
+                <div class="text-muted small mb-2">{{ t('node_detail.fluent_process') }}</div>
+                <div class="d-flex align-items-center gap-4 flex-wrap">
+                  <h4 :class="metrics.fluent_running ? 'text-success mb-0' : 'text-danger mb-0'">
+                    {{ metrics.fluent_running ? t('node_detail.running') : t('node_detail.stopped') }}
+                  </h4>
+                  <div v-if="metrics.fluent_running" class="d-flex gap-4 flex-wrap">
+                    <div>
+                      <div class="text-muted small">PID</div>
+                      <div class="fw-semibold">{{ metrics.fluent_pid }}</div>
+                    </div>
+                    <div>
+                      <div class="text-muted small">CPU</div>
+                      <div class="fw-semibold" :class="colorClass(metrics.fluent_cpu_percent, 30, 70)">{{ metrics.fluent_cpu_percent?.toFixed(1) }}%</div>
+                    </div>
+                    <div>
+                      <div class="text-muted small">Memory</div>
+                      <div class="fw-semibold">{{ metrics.fluent_mem_mb?.toFixed(1) }} MB</div>
+                    </div>
+                    <div>
+                      <div class="text-muted small">FDs</div>
+                      <div class="fw-semibold">{{ metrics.fluent_open_fds }}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- System Metrics - Secondary -->
+          <div class="col-md-4">
             <div class="card border-0 shadow-sm">
               <div class="card-body text-center">
                 <div class="text-muted small">{{ t('node_detail.cpu_usage') }}</div>
-                <h3 :class="colorClass(metrics.cpu_usage_percent, 80, 90)">{{ metrics.cpu_usage_percent?.toFixed(1) }}%</h3>
-                <div class="progress" style="height: 6px;">
+                <h4 :class="colorClass(metrics.cpu_usage_percent, 80, 90)">{{ metrics.cpu_usage_percent?.toFixed(1) }}%</h4>
+                <div class="progress" style="height: 4px;">
                   <div class="progress-bar" :class="barClass(metrics.cpu_usage_percent, 80, 90)" :style="{ width: metrics.cpu_usage_percent + '%' }"></div>
                 </div>
                 <div class="text-muted small mt-1">Load: {{ metrics.load_avg_1?.toFixed(2) }} / {{ metrics.load_avg_5?.toFixed(2) }} / {{ metrics.load_avg_15?.toFixed(2) }}</div>
               </div>
             </div>
           </div>
-          <div class="col-md-3">
+          <div class="col-md-4">
             <div class="card border-0 shadow-sm">
               <div class="card-body text-center">
                 <div class="text-muted small">{{ t('node_detail.memory_usage') }}</div>
-                <h3 :class="colorClass(metrics.mem_usage_percent, 80, 90)">{{ metrics.mem_usage_percent?.toFixed(1) }}%</h3>
-                <div class="progress" style="height: 6px;">
+                <h4 :class="colorClass(metrics.mem_usage_percent, 80, 90)">{{ metrics.mem_usage_percent?.toFixed(1) }}%</h4>
+                <div class="progress" style="height: 4px;">
                   <div class="progress-bar" :class="barClass(metrics.mem_usage_percent, 80, 90)" :style="{ width: metrics.mem_usage_percent + '%' }"></div>
                 </div>
                 <div class="text-muted small mt-1">{{ metrics.mem_used_mb }} / {{ metrics.mem_total_mb }} MB</div>
               </div>
             </div>
           </div>
-          <div class="col-md-3">
+          <div class="col-md-4">
             <div class="card border-0 shadow-sm">
               <div class="card-body text-center">
                 <div class="text-muted small">{{ t('node_detail.disk_usage') }}</div>
-                <h3 :class="colorClass(metrics.disk_usage_percent, 80, 90)">{{ metrics.disk_usage_percent?.toFixed(1) }}%</h3>
-                <div class="progress" style="height: 6px;">
+                <h4 :class="colorClass(metrics.disk_usage_percent, 80, 90)">{{ metrics.disk_usage_percent?.toFixed(1) }}%</h4>
+                <div class="progress" style="height: 4px;">
                   <div class="progress-bar" :class="barClass(metrics.disk_usage_percent, 80, 90)" :style="{ width: metrics.disk_usage_percent + '%' }"></div>
                 </div>
                 <div class="text-muted small mt-1">{{ metrics.disk_used_gb }} / {{ metrics.disk_total_gb }} GB</div>
-              </div>
-            </div>
-          </div>
-          <div class="col-md-3">
-            <div class="card border-0 shadow-sm">
-              <div class="card-body text-center">
-                <div class="text-muted small">{{ t('node_detail.fluent_process') }}</div>
-                <h3 :class="metrics.fluent_running ? 'text-success' : 'text-danger'">
-                  {{ metrics.fluent_running ? t('node_detail.running') : t('node_detail.stopped') }}
-                </h3>
-                <div class="text-muted small" v-if="metrics.fluent_running">
-                  PID: {{ metrics.fluent_pid }} |
-                  CPU: {{ metrics.fluent_cpu_percent?.toFixed(1) }}% |
-                  Mem: {{ metrics.fluent_mem_mb?.toFixed(1) }}MB
-                </div>
-                <div class="text-muted small" v-if="metrics.fluent_running">
-                  FDs: {{ metrics.fluent_open_fds }}
-                </div>
               </div>
             </div>
           </div>
