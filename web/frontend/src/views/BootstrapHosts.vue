@@ -587,7 +587,7 @@
             </div>
           </div>
           <span class="badge bg-secondary-subtle text-secondary-emphasis">{{
-            tasks.length
+            taskTotal
           }}</span>
         </div>
         <div class="table-responsive">
@@ -653,6 +653,34 @@
             </tbody>
           </table>
         </div>
+        <nav v-if="taskTotal > taskPageSize" class="p-3 pt-0">
+          <ul class="pagination justify-content-center mb-0">
+            <li class="page-item" :class="{ disabled: taskPage <= 1 }">
+              <a
+                class="page-link"
+                href="#"
+                @click.prevent="changeTaskPage(taskPage - 1)"
+                >{{ t("common.previous") }}</a
+              >
+            </li>
+            <li class="page-item disabled">
+              <span class="page-link">{{
+                `${taskPage} / ${taskTotalPages()}`
+              }}</span>
+            </li>
+            <li
+              class="page-item"
+              :class="{ disabled: taskPage >= taskTotalPages() }"
+            >
+              <a
+                class="page-link"
+                href="#"
+                @click.prevent="changeTaskPage(taskPage + 1)"
+                >{{ t("common.next") }}</a
+              >
+            </li>
+          </ul>
+        </nav>
       </div>
     </div>
 
@@ -1096,6 +1124,9 @@ const hostTotal = ref(0);
 const hostPage = ref(1);
 const hostPageSize = 50;
 const tasks = ref([]);
+const taskTotal = ref(0);
+const taskPage = ref(1);
+const taskPageSize = 10;
 const clusters = ref([]);
 const datacenters = ref([]);
 const regions = ref([]);
@@ -1284,8 +1315,31 @@ function handleRegionChange() {
 }
 
 function changeHostPage(nextPage) {
+  if (
+    nextPage < 1 ||
+    nextPage > Math.max(1, Math.ceil(hostTotal.value / hostPageSize)) ||
+    nextPage === hostPage.value
+  ) {
+    return;
+  }
   hostPage.value = nextPage;
   loadHosts();
+}
+
+function taskTotalPages() {
+  return Math.max(1, Math.ceil(taskTotal.value / taskPageSize));
+}
+
+async function changeTaskPage(nextPage) {
+  if (
+    nextPage < 1 ||
+    nextPage > taskTotalPages() ||
+    nextPage === taskPage.value
+  ) {
+    return;
+  }
+  taskPage.value = nextPage;
+  await loadTasks();
 }
 
 function openHostModal(host = null) {
@@ -1377,8 +1431,13 @@ async function refreshHosts() {
 }
 
 async function loadTasks() {
-  const data = await getBootstrapTasks({ page_size: 50 });
+  const data = await getBootstrapTasks({
+    page: taskPage.value,
+    page_size: taskPageSize,
+  });
   tasks.value = data.data || [];
+  taskTotal.value = data.total || 0;
+  taskPage.value = data.page || taskPage.value;
 }
 
 async function loadLookups() {
@@ -1561,6 +1620,7 @@ async function submitTask() {
     });
     resetTaskForm();
     selectedHostIDs.value = [];
+    taskPage.value = 1;
     await loadTasks();
   } catch (error) {
     alert(getErrorMessage(error));
@@ -1582,12 +1642,6 @@ async function openDetail(task) {
 function startPolling() {
   stopPolling();
   pollTimer = window.setInterval(async () => {
-    if (
-      !tasks.value.some(
-        (task) => task.status === "pending" || task.status === "running",
-      )
-    )
-      return;
     try {
       await loadTasks();
       if (detail.value?.task?.id) {
