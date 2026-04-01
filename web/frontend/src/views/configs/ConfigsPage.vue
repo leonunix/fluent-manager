@@ -704,7 +704,7 @@
             </div>
             <div class="mb-3">
               <label class="form-label d-flex align-items-center gap-2">
-                <span>{{ t('configs_page.version_content') }}</span>
+                <span>{{ moduleForm.fluent_type === 'shared' ? 'Fluent Bit ' + t('configs_page.version_content') : t('configs_page.version_content') }}</span>
                 <span v-if="aiModuleDraftState.active" class="badge text-bg-light">{{ t('configs_page.ai_draft_filled') }}</span>
               </label>
               <div class="small text-muted mb-2">
@@ -717,6 +717,17 @@
                 rows="16"
                 :placeholder="currentModuleExample.content"
               ></textarea>
+            </div>
+            <div v-if="moduleForm.fluent_type === 'shared'" class="mb-3">
+              <label class="form-label">Fluentd {{ t('configs_page.version_content') }}</label>
+              <div class="small text-muted mb-2">{{ t('configs_page.version_content_help') }}</div>
+              <textarea
+                v-model="moduleForm.content_fluentd"
+                class="form-control font-monospace fm-config-textarea"
+                rows="16"
+                :placeholder="(moduleExamples.fluentd?.[moduleForm.module_type] || moduleExamples.fluentd?.input || {}).content || ''"
+              ></textarea>
+              <div class="small text-muted mt-1">{{ t('configs_page.module_shared_fluentd_hint', 'Leave empty to reuse Fluent Bit content for Fluentd.') }}</div>
             </div>
             <div class="small text-muted">
               {{ t('configs_page.template_syntax_hint') }}
@@ -1149,6 +1160,7 @@ const moduleForm = reactive({
   module_type: 'input',
   fluent_type: 'fluentbit',
   content: '',
+  content_fluentd: '',
   variables: '',
   is_builtin: false,
 })
@@ -3336,6 +3348,7 @@ function resetModuleForm() {
   moduleForm.module_type = 'input'
   moduleForm.fluent_type = 'fluentbit'
   moduleForm.content = ''
+  moduleForm.content_fluentd = ''
   moduleForm.variables = ''
   moduleForm.is_builtin = false
   moduleVariablesMode.value = 'form'
@@ -3435,6 +3448,7 @@ function openEditModule(module) {
   moduleForm.module_type = module.module_type
   moduleForm.fluent_type = module.fluent_type
   moduleForm.content = module.content
+  moduleForm.content_fluentd = module.content_fluentd || ''
   moduleForm.variables = module.variables || '{}'
   moduleForm.is_builtin = !!module.is_builtin
   moduleVariablesMode.value = 'form'

@@ -38,6 +38,7 @@ export interface ConfigModule {
   module_type: string
   fluent_type: string
   content: string
+  content_fluentd: string
   variables: string
   is_builtin: boolean
   preset_kind: string

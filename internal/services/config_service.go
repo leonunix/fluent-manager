@@ -57,15 +57,16 @@ type ConfigTemplateInput struct {
 }
 
 type ConfigModuleInput struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	ModuleType  string `json:"module_type"`
-	FluentType  string `json:"fluent_type"`
-	Content     string `json:"content"`
-	Variables   string `json:"variables"`
-	IsBuiltin   bool   `json:"is_builtin"`
-	PresetKind  string `json:"preset_kind"`
-	PresetKey   string `json:"preset_key"`
+	Name           string `json:"name"`
+	Description    string `json:"description"`
+	ModuleType     string `json:"module_type"`
+	FluentType     string `json:"fluent_type"`
+	Content        string `json:"content"`
+	ContentFluentd string `json:"content_fluentd"`
+	Variables      string `json:"variables"`
+	IsBuiltin      bool   `json:"is_builtin"`
+	PresetKind     string `json:"preset_kind"`
+	PresetKey      string `json:"preset_key"`
 }
 
 type RenderModuleRef struct {
@@ -365,15 +366,16 @@ func (s *configService) UpdateModule(id uint, input *ConfigModuleInput) (*models
 			return err
 		}
 		return tx.Model(&current).Updates(map[string]interface{}{
-			"name":        module.Name,
-			"description": module.Description,
-			"module_type": module.ModuleType,
-			"fluent_type": module.FluentType,
-			"content":     module.Content,
-			"variables":   module.Variables,
-			"is_builtin":  module.IsBuiltin,
-			"preset_kind": module.PresetKind,
-			"preset_key":  module.PresetKey,
+			"name":            module.Name,
+			"description":     module.Description,
+			"module_type":     module.ModuleType,
+			"fluent_type":     module.FluentType,
+			"content":         module.Content,
+			"content_fluentd": module.ContentFluentd,
+			"variables":       module.Variables,
+			"is_builtin":      module.IsBuiltin,
+			"preset_kind":     module.PresetKind,
+			"preset_key":      module.PresetKey,
 		}).Error
 	}); err != nil {
 		return nil, err
@@ -710,6 +712,9 @@ func (s *configService) resolveRenderModule(ref RenderModuleRef, fluentType stri
 	}
 
 	content := module.Content
+	if module.FluentType == "shared" && fluentType == "fluentd" && strings.TrimSpace(module.ContentFluentd) != "" {
+		content = module.ContentFluentd
+	}
 	var version *models.ConfigModuleVersion
 	if ref.VersionID != nil {
 		var explicit models.ConfigModuleVersion
@@ -829,6 +834,10 @@ func validateConfigModuleInput(input *ConfigModuleInput) (*models.ConfigModule, 
 	if content == "" {
 		return nil, fmt.Errorf("%w: content is required", ErrInvalidArgument)
 	}
+	contentFluentd := strings.TrimSpace(input.ContentFluentd)
+	if contentFluentd != "" && fluentType != "shared" {
+		return nil, fmt.Errorf("%w: content_fluentd is only allowed for shared modules", ErrInvalidArgument)
+	}
 	if _, err := parseRenderVariables(input.Variables); err != nil {
 		return nil, err
 	}
@@ -838,15 +847,16 @@ func validateConfigModuleInput(input *ConfigModuleInput) (*models.ConfigModule, 
 	}
 
 	return &models.ConfigModule{
-		Name:        name,
-		Description: strings.TrimSpace(input.Description),
-		ModuleType:  moduleType,
-		FluentType:  fluentType,
-		Content:     content,
-		Variables:   normalizeJSONString(input.Variables),
-		IsBuiltin:   input.IsBuiltin,
-		PresetKind:  presetKind,
-		PresetKey:   strings.TrimSpace(input.PresetKey),
+		Name:           name,
+		Description:    strings.TrimSpace(input.Description),
+		ModuleType:     moduleType,
+		FluentType:     fluentType,
+		Content:        content,
+		ContentFluentd: contentFluentd,
+		Variables:      normalizeJSONString(input.Variables),
+		IsBuiltin:      input.IsBuiltin,
+		PresetKind:     presetKind,
+		PresetKey:      strings.TrimSpace(input.PresetKey),
 	}, nil
 }
 

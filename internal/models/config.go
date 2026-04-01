@@ -50,8 +50,9 @@ type ConfigModule struct {
 	Description string                `gorm:"size:512" json:"description"`
 	ModuleType  string                `gorm:"size:32;not null;uniqueIndex:idx_config_module_identity,priority:2" json:"module_type"`
 	FluentType  string                `gorm:"size:32;not null;uniqueIndex:idx_config_module_identity,priority:3" json:"fluent_type"`
-	Content     string                `gorm:"type:text;not null" json:"content"`
-	Variables   string                `gorm:"type:text" json:"variables"`
+	Content        string                `gorm:"type:text;not null" json:"content"`
+	ContentFluentd string                `gorm:"type:text" json:"content_fluentd"`
+	Variables      string                `gorm:"type:text" json:"variables"`
 	IsBuiltin   bool                  `gorm:"default:false" json:"is_builtin"`
 	PresetKind  string                `gorm:"size:16" json:"preset_kind"`
 	PresetKey   string                `gorm:"size:64;index" json:"preset_key"`

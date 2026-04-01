@@ -198,15 +198,16 @@ func (h *ConfigHandler) GetModule(c *gin.Context) {
 }
 
 type ConfigModuleRequest struct {
-	Name        string `json:"name" binding:"required"`
-	Description string `json:"description"`
-	ModuleType  string `json:"module_type" binding:"required"`
-	FluentType  string `json:"fluent_type" binding:"required"`
-	Content     string `json:"content" binding:"required"`
-	Variables   string `json:"variables"`
-	IsBuiltin   bool   `json:"is_builtin"`
-	PresetKind  string `json:"preset_kind"`
-	PresetKey   string `json:"preset_key"`
+	Name           string `json:"name" binding:"required"`
+	Description    string `json:"description"`
+	ModuleType     string `json:"module_type" binding:"required"`
+	FluentType     string `json:"fluent_type" binding:"required"`
+	Content        string `json:"content" binding:"required"`
+	ContentFluentd string `json:"content_fluentd"`
+	Variables      string `json:"variables"`
+	IsBuiltin      bool   `json:"is_builtin"`
+	PresetKind     string `json:"preset_kind"`
+	PresetKey      string `json:"preset_key"`
 }
 
 type DeleteModulesRequest struct {
@@ -221,15 +222,16 @@ func (h *ConfigHandler) CreateModule(c *gin.Context) {
 	}
 
 	module, err := h.Svc.CreateModule(&services.ConfigModuleInput{
-		Name:        req.Name,
-		Description: req.Description,
-		ModuleType:  req.ModuleType,
-		FluentType:  req.FluentType,
-		Content:     req.Content,
-		Variables:   req.Variables,
-		IsBuiltin:   req.IsBuiltin,
-		PresetKind:  req.PresetKind,
-		PresetKey:   req.PresetKey,
+		Name:           req.Name,
+		Description:    req.Description,
+		ModuleType:     req.ModuleType,
+		FluentType:     req.FluentType,
+		Content:        req.Content,
+		ContentFluentd: req.ContentFluentd,
+		Variables:      req.Variables,
+		IsBuiltin:      req.IsBuiltin,
+		PresetKind:     req.PresetKind,
+		PresetKey:      req.PresetKey,
 	}, c.GetUint("user_id"))
 	if err != nil {
 		writeConfigError(c, err, "module")
@@ -247,15 +249,16 @@ func (h *ConfigHandler) UpdateModule(c *gin.Context) {
 	}
 
 	module, err := h.Svc.UpdateModule(uint(id), &services.ConfigModuleInput{
-		Name:        req.Name,
-		Description: req.Description,
-		ModuleType:  req.ModuleType,
-		FluentType:  req.FluentType,
-		Content:     req.Content,
-		Variables:   req.Variables,
-		IsBuiltin:   req.IsBuiltin,
-		PresetKind:  req.PresetKind,
-		PresetKey:   req.PresetKey,
+		Name:           req.Name,
+		Description:    req.Description,
+		ModuleType:     req.ModuleType,
+		FluentType:     req.FluentType,
+		Content:        req.Content,
+		ContentFluentd: req.ContentFluentd,
+		Variables:      req.Variables,
+		IsBuiltin:      req.IsBuiltin,
+		PresetKind:     req.PresetKind,
+		PresetKey:      req.PresetKey,
 	})
 	if err != nil {
 		writeConfigError(c, err, "module")
