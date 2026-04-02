@@ -49,6 +49,7 @@ func NewRegistry(db *gorm.DB, fluentSharedKeySecret string, agentSettings AgentS
 	agentAccessKeySvc := NewAgentAccessKeyService(db)
 	agentArtifactSvc := NewAgentArtifactService(db, artifactDir)
 	authSettingsSvc := NewAuthSettingsService(db)
+	fluentOpsSvc := NewFluentOpsService(db)
 	return &Registry{
 		Auth:           NewAuthService(db),
 		User:           NewUserService(db),
@@ -59,12 +60,12 @@ func NewRegistry(db *gorm.DB, fluentSharedKeySecret string, agentSettings AgentS
 		Topology:       NewTopologyService(db),
 		Node:           NewNodeService(db),
 		Fluent:         NewFluentService(db, fluentSharedKeySecret),
-		FluentOps:      NewFluentOpsService(db),
+		FluentOps:      fluentOpsSvc,
 		AgentAccessKey: agentAccessKeySvc,
 		AgentArtifact:  agentArtifactSvc,
 		AgentPolicy:    agentPolicySvc,
 		Config:         NewConfigService(db),
-		Deploy:         NewDeployService(db),
+		Deploy:         NewDeployService(db, fluentOpsSvc),
 		Bootstrap:      NewBootstrapService(db, bootstrapSettings),
 		AgentUpgrade:   NewAgentUpgradeService(db),
 		Agent:          NewAgentService(db, agentPolicySvc, logWriter),

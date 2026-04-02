@@ -318,6 +318,9 @@ export default {
     delete_failed: "Failed to delete pipeline",
     confirm_delete: "Delete pipeline {name}?",
     choose_module: "Please select at least one module before preview",
+    auto_generated_hint: "Pipelines are automatically generated from deployments",
+    auto_generated: "Auto",
+    inactive: "Inactive",
   },
 
   output_targets: {

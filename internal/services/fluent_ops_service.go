@@ -10,6 +10,12 @@ import (
 	"gorm.io/gorm"
 )
 
+type pipelineDest struct {
+	aggGroupID     *uint
+	outputTargetID *uint
+	protocol       string
+}
+
 var (
 	validPipelineFluentTypes = map[string]bool{
 		"fluentbit": true,
@@ -189,6 +195,7 @@ type FluentOpsService interface {
 	CreatePipeline(input *LogPipelineInput, createdBy uint, allowedClusters []uint) (*models.LogPipeline, error)
 	UpdatePipeline(id uint, input *LogPipelineInput, allowedClusters []uint) (*models.LogPipeline, error)
 	DeletePipeline(id uint, allowedClusters []uint) error
+	SyncPipelinesFromDeploy(clusterIDs []uint, configVersionID uint, userID uint)
 	PipelineGraph(allowedClusters []uint) (*PipelineGraph, error)
 	RuntimeHealthGraph(allowedClusters []uint) (*PipelineGraph, error)
 	LintConfig(input *ConfigLintInput, createdBy uint) (*models.ConfigAnalysisResult, error)
@@ -359,6 +366,177 @@ func (s *fluentOpsService) DeletePipeline(id uint, allowedClusters []uint) error
 		return err
 	}
 	return s.db.Delete(&models.LogPipeline{}, pipeline.ID).Error
+}
+
+// SyncPipelinesFromDeploy derives LogPipeline entries from the flow_layout of the
+// deployed config version and upserts/deactivates them for each affected cluster.
+// Errors are silently swallowed — pipeline sync is best-effort and must not block deployment.
+func (s *fluentOpsService) SyncPipelinesFromDeploy(clusterIDs []uint, configVersionID uint, userID uint) {
+	if len(clusterIDs) == 0 {
+		return
+	}
+
+	var configVersion models.ConfigVersion
+	if err := s.db.First(&configVersion, configVersionID).Error; err != nil {
+		return
+	}
+
+	// Parse flow_layout — only wizard-built configs carry structured destination info.
+	type outputTargetEntry struct {
+		ID         int64  `json:"id"`
+		TargetType string `json:"target_type"`
+		FluentType string `json:"fluent_type"`
+	}
+	type pipelineEntry struct {
+		OutputTargets []outputTargetEntry `json:"output_targets"`
+	}
+	type flowLayout struct {
+		Builder   string          `json:"builder"`
+		Runtime   string          `json:"runtime"`
+		Pipelines []pipelineEntry `json:"pipelines"`
+	}
+
+	var layout flowLayout
+	if configVersion.FlowLayout == "" || json.Unmarshal([]byte(configVersion.FlowLayout), &layout) != nil || layout.Builder != "wizard" {
+		// Not a wizard config: deactivate all auto-generated pipelines for these clusters.
+		s.db.Model(&models.LogPipeline{}).
+			Where("source_cluster_id IN ? AND auto_generated = ?", clusterIDs, true).
+			Update("active", false)
+		return
+	}
+
+	fluentType := layout.Runtime
+	if fluentType == "" {
+		fluentType = "shared"
+	}
+
+	// Collect unique destinations from all pipelines in the layout.
+	seen := map[string]bool{}
+	var destinations []pipelineDest
+	for _, p := range layout.Pipelines {
+		for _, ot := range p.OutputTargets {
+			var d pipelineDest
+			var key string
+			if ot.ID < 0 {
+				aggID := uint(-ot.ID)
+				d = pipelineDest{aggGroupID: &aggID, protocol: "forward"}
+				key = fmt.Sprintf("agg:%d", aggID)
+			} else if ot.ID > 0 {
+				targetID := uint(ot.ID)
+				protocol := targetTypeToProtocol(ot.TargetType)
+				d = pipelineDest{outputTargetID: &targetID, protocol: protocol}
+				key = fmt.Sprintf("target:%d", targetID)
+			}
+			if key != "" && !seen[key] {
+				seen[key] = true
+				destinations = append(destinations, d)
+			}
+		}
+	}
+
+	for _, clusterID := range clusterIDs {
+		s.syncClusterPipelines(clusterID, destinations, fluentType, userID)
+	}
+}
+
+func (s *fluentOpsService) syncClusterPipelines(clusterID uint, destinations []pipelineDest, fluentType string, userID uint) {
+	var cluster models.Cluster
+	if err := s.db.First(&cluster, clusterID).Error; err != nil {
+		return
+	}
+	clusterName := firstNonEmpty(cluster.Alias, cluster.Name)
+
+	// Load existing auto-generated pipelines for this cluster.
+	var existing []models.LogPipeline
+	s.db.Where("source_cluster_id = ? AND auto_generated = ?", clusterID, true).Find(&existing)
+	existingByAgg := map[uint]*models.LogPipeline{}
+	existingByTarget := map[uint]*models.LogPipeline{}
+	for i := range existing {
+		p := &existing[i]
+		if p.DestinationAggregationGroupID != nil {
+			existingByAgg[*p.DestinationAggregationGroupID] = p
+		}
+		if p.DestinationOutputTargetID != nil {
+			existingByTarget[*p.DestinationOutputTargetID] = p
+		}
+	}
+
+	activeAggIDs := map[uint]bool{}
+	activeTargetIDs := map[uint]bool{}
+
+	for _, d := range destinations {
+		if d.aggGroupID != nil {
+			aggID := *d.aggGroupID
+			activeAggIDs[aggID] = true
+			if p, ok := existingByAgg[aggID]; ok {
+				s.db.Model(p).Updates(map[string]interface{}{"active": true, "fluent_type": fluentType})
+			} else {
+				var aggGroup models.AggregationGroup
+				if s.db.First(&aggGroup, aggID).Error != nil {
+					continue
+				}
+				destName := firstNonEmpty(aggGroup.Alias, aggGroup.Name)
+				s.db.Create(&models.LogPipeline{
+					Name:                          fmt.Sprintf("%s → %s", clusterName, destName),
+					FluentType:                    fluentType,
+					Protocol:                      d.protocol,
+					SourceClusterID:               &clusterID,
+					DestinationAggregationGroupID: &aggID,
+					Enabled:                       true,
+					AutoGenerated:                 true,
+					Active:                        true,
+					CreatedBy:                     userID,
+				})
+			}
+		} else if d.outputTargetID != nil {
+			targetID := *d.outputTargetID
+			activeTargetIDs[targetID] = true
+			if p, ok := existingByTarget[targetID]; ok {
+				s.db.Model(p).Updates(map[string]interface{}{"active": true, "fluent_type": fluentType})
+			} else {
+				var outputTarget models.OutputTarget
+				if s.db.First(&outputTarget, targetID).Error != nil {
+					continue
+				}
+				s.db.Create(&models.LogPipeline{
+					Name:                      fmt.Sprintf("%s → %s", clusterName, outputTarget.Name),
+					FluentType:                fluentType,
+					Protocol:                  d.protocol,
+					SourceClusterID:           &clusterID,
+					DestinationOutputTargetID: &targetID,
+					Enabled:                   true,
+					AutoGenerated:             true,
+					Active:                    true,
+					CreatedBy:                 userID,
+				})
+			}
+		}
+	}
+
+	// Deactivate pipelines whose destinations are no longer in the config.
+	for aggID, p := range existingByAgg {
+		if !activeAggIDs[aggID] {
+			s.db.Model(p).Update("active", false)
+		}
+	}
+	for targetID, p := range existingByTarget {
+		if !activeTargetIDs[targetID] {
+			s.db.Model(p).Update("active", false)
+		}
+	}
+}
+
+func targetTypeToProtocol(targetType string) string {
+	switch targetType {
+	case "kafka":
+		return "kafka"
+	case "loki":
+		return "loki"
+	case "http":
+		return "http"
+	default:
+		return "custom"
+	}
 }
 
 func (s *fluentOpsService) PipelineGraph(allowedClusters []uint) (*PipelineGraph, error) {

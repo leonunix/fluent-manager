@@ -235,6 +235,7 @@ import { useModules } from './composables/useModules'
 import { useAIAssistant } from './composables/useAIAssistant'
 import { useImport } from './composables/useImport'
 import { getOutputTargets } from '../../api'
+import { getAggregationGroups } from '../../api/fluent'
 
 const activeTab = ref('templates')
 const templates = ref([])
@@ -339,9 +340,7 @@ const {
   previewForm, renderedConfig, analysisResult, compatibilityResult, replayResult, diffResult,
   selectedPreviewModuleIds, selectedPreviewOutputTargetIds, activeTab,
   loadModules, loadModuleTable,
-  loadOutputTargets: async () => {
-    try { outputTargets.value = await getOutputTargets() } catch { outputTargets.value = [] }
-  },
+  loadOutputTargets,
   loadTemplates, router,
 })
 
@@ -510,7 +509,20 @@ function sendAIPipelineToWizard(pipeline) {
 // --- Lifecycle ---
 
 async function loadOutputTargets() {
-  try { outputTargets.value = await getOutputTargets() } catch { outputTargets.value = [] }
+  const [targetsResult, groupsResult] = await Promise.allSettled([getOutputTargets(), getAggregationGroups()])
+  const targets = targetsResult.status === 'fulfilled' ? targetsResult.value : []
+  const groups = groupsResult.status === 'fulfilled' ? groupsResult.value : []
+  const synthGroups = groups.map((g) => ({
+    id: -(g.id),
+    name: g.name,
+    description: g.description || '',
+    fluent_type: 'shared',
+    target_type: 'forward',
+    endpoint: g.endpoint_host ? `${g.endpoint_host}:${g.endpoint_port}` : '',
+    settings: JSON.stringify({ host: g.endpoint_host || '', port: String(g.endpoint_port || ''), tls: String(g.enable_tls || false) }),
+    _is_aggregation_group: true,
+  }))
+  outputTargets.value = [...targets, ...synthGroups]
 }
 
 onMounted(async () => {

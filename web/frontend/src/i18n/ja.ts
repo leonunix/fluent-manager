@@ -265,6 +265,9 @@ export default {
     create_failed: "パイプラインの作成に失敗しました",
     delete_failed: "パイプラインの削除に失敗しました",
     confirm_delete: "パイプライン {name} を削除しますか？",
+    auto_generated_hint: "ログパイプラインはデプロイ操作から自動生成されます",
+    auto_generated: "自動",
+    inactive: "無効",
   },
 
   output_targets: {

@@ -27,11 +27,12 @@ type DeployService interface {
 }
 
 type deployService struct {
-	db *gorm.DB
+	db        *gorm.DB
+	fluentOps FluentOpsService
 }
 
-func NewDeployService(db *gorm.DB) DeployService {
-	return &deployService{db: db}
+func NewDeployService(db *gorm.DB, fluentOps FluentOpsService) DeployService {
+	return &deployService{db: db, fluentOps: fluentOps}
 }
 
 func (s *deployService) Create(configVersionID uint, nodeIDs []uint, clusterID, regionID, dataCenterID, environmentID *uint, userID uint, allowedClusters []uint, force bool) (*models.DeployTask, error) {
@@ -164,7 +165,36 @@ func (s *deployService) Create(configVersionID uint, nodeIDs []uint, clusterID, 
 
 	s.db.Model(&models.Node{}).Where("id IN ?", uniqueIDs).Update("config_id", configVersionID)
 
+	// Derive affected cluster IDs and sync LogPipelines from the deployed config's flow_layout.
+	if s.fluentOps != nil {
+		affectedClusterIDs := s.resolveAffectedClusterIDs(clusterID, regionID, dataCenterID, environmentID, uniqueIDs)
+		if len(affectedClusterIDs) > 0 {
+			s.fluentOps.SyncPipelinesFromDeploy(affectedClusterIDs, configVersionID, userID)
+		}
+	}
+
 	return &task, nil
+}
+
+func (s *deployService) resolveAffectedClusterIDs(clusterID, regionID, dataCenterID, environmentID *uint, nodeIDs []uint) []uint {
+	seen := map[uint]bool{}
+	if clusterID != nil {
+		seen[*clusterID] = true
+	}
+	if len(nodeIDs) > 0 && (regionID != nil || dataCenterID != nil || environmentID != nil || clusterID == nil) {
+		var nodes []models.Node
+		s.db.Select("cluster_id").Where("id IN ? AND cluster_id IS NOT NULL", nodeIDs).Find(&nodes)
+		for _, n := range nodes {
+			if n.ClusterID != nil {
+				seen[*n.ClusterID] = true
+			}
+		}
+	}
+	ids := make([]uint, 0, len(seen))
+	for id := range seen {
+		ids = append(ids, id)
+	}
+	return ids
 }
 
 func (s *deployService) List(page, pageSize int, allowedClusters []uint) ([]models.DeployTask, int64, error) {

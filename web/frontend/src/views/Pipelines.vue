@@ -5,9 +5,9 @@
         <h4 class="mb-1">{{ t('pipelines.title') }}</h4>
         <div class="text-muted">{{ t('pipelines.subtitle') }}</div>
       </div>
-      <button class="btn btn-primary" @click="openCreate">
-        <i class="bi bi-plus-lg me-1"></i>{{ t('pipelines.create') }}
-      </button>
+      <div class="text-muted small">
+        <i class="bi bi-info-circle me-1"></i>{{ t('pipelines.auto_generated_hint', 'Pipelines are automatically generated from deployments') }}
+      </div>
     </div>
 
     <div class="row g-4 mb-4">
@@ -84,17 +84,23 @@
                 <td><span class="badge text-bg-secondary">{{ pipeline.protocol }}</span></td>
                 <td><code>{{ pipeline.tag_strategy || '-' }}</code></td>
                 <td>
-                  <span :class="pipeline.enabled ? 'badge text-bg-success' : 'badge text-bg-light'">
-                    {{ pipeline.enabled ? t('common.enabled') : t('common.disabled') }}
-                  </span>
+                  <div class="d-flex flex-wrap gap-1">
+                    <span v-if="pipeline.auto_generated" class="badge bg-info-subtle text-info-emphasis">{{ t('pipelines.auto_generated', 'Auto') }}</span>
+                    <span :class="pipeline.active === false ? 'badge text-bg-secondary' : pipeline.enabled ? 'badge text-bg-success' : 'badge text-bg-light'">
+                      {{ pipeline.active === false ? t('pipelines.inactive', 'Inactive') : pipeline.enabled ? t('common.enabled') : t('common.disabled') }}
+                    </span>
+                  </div>
                 </td>
                 <td>
-                  <button class="btn btn-sm btn-outline-primary me-1" @click="openEdit(pipeline)">
-                    <i class="bi bi-pencil"></i>
-                  </button>
-                  <button class="btn btn-sm btn-outline-danger" @click="handleDelete(pipeline)">
-                    <i class="bi bi-trash"></i>
-                  </button>
+                  <template v-if="!pipeline.auto_generated">
+                    <button class="btn btn-sm btn-outline-primary me-1" @click="openEdit(pipeline)">
+                      <i class="bi bi-pencil"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger" @click="handleDelete(pipeline)">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </template>
+                  <span v-else class="text-muted small">—</span>
                 </td>
               </tr>
               <tr v-if="!pipelines.length">

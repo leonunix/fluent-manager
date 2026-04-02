@@ -627,7 +627,10 @@
                           class="btn btn-outline-secondary w-100 text-start"
                           @click="actions.addWizardOutputTarget(state.activeWizardPipeline.id, target.id)"
                         >
-                          <div class="fw-semibold">{{ target.name }}</div>
+                          <div class="d-flex justify-content-between align-items-start gap-1 mb-1">
+                            <div class="fw-semibold">{{ target.name }}</div>
+                            <span v-if="target._is_aggregation_group" class="badge bg-info-subtle text-info-emphasis flex-shrink-0" style="font-size:0.65em">{{ t('configs_page.aggregation_group', 'Aggregation Group') }}</span>
+                          </div>
                           <div class="small text-muted">{{ target.target_type }} · {{ target.endpoint || t('common.unspecified') }}</div>
                           <div class="small text-primary mt-1">{{ t('configs_page.wizard_add_output') }}</div>
                         </button>
@@ -650,7 +653,10 @@
                       >
                         <div class="d-flex justify-content-between align-items-start gap-2">
                           <div>
-                            <div class="fw-semibold">{{ outputName(instance.target_id) }}</div>
+                            <div class="d-flex align-items-center gap-2">
+                              <div class="fw-semibold">{{ outputName(instance.target_id) }}</div>
+                              <span v-if="outputIsAggGroup(instance.target_id)" class="badge bg-info-subtle text-info-emphasis" style="font-size:0.65em">{{ t('configs_page.aggregation_group', 'Aggregation Group') }}</span>
+                            </div>
                             <div class="small text-muted">{{ t('configs_page.wizard_output_instance').replace('{index}', String(index + 1)) }}</div>
                           </div>
                           <div class="btn-group btn-group-sm">
@@ -914,6 +920,13 @@ function outputName(targetId) {
     .concat((unref(props.state.wizardPipelineCards) || []).flatMap((card) => card.outputTargets || []))
     .find((item) => item.id === targetId)
   return target?.name || t('configs_page.pipeline_stage_output')
+}
+
+function outputIsAggGroup(targetId) {
+  const target = (unref(props.state.wizardPagedOutputTargets)?.items || [])
+    .concat((unref(props.state.wizardPipelineCards) || []).flatMap((card) => card.outputTargets || []))
+    .find((item) => item.id === targetId)
+  return Boolean(target?._is_aggregation_group)
 }
 </script>
 
