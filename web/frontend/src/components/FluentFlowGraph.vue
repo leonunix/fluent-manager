@@ -15,11 +15,11 @@ import { computed } from 'vue'
 import { useI18n } from '../i18n'
 import { use } from 'echarts/core'
 import { GraphChart } from 'echarts/charts'
-import { TooltipComponent, LegendComponent } from 'echarts/components'
+import { TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import VChart from 'vue-echarts'
 
-use([CanvasRenderer, GraphChart, TooltipComponent, LegendComponent])
+use([CanvasRenderer, GraphChart, TooltipComponent])
 
 const props = defineProps({
   graph: {
@@ -52,7 +52,6 @@ const option = computed(() => ({
       return `<b>${params.data.name}</b><br/>${t('flow_graph.node_type')}: ${params.data.node_type}<br/>${t('flow_graph.node_status')}: ${params.data.health || '-'}<br/>${params.data.description || ''}`
     },
   },
-  legend: [{ data: categories.map((item) => item.name) }],
   series: [{
     type: 'graph',
     layout: 'force',

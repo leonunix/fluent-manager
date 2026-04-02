@@ -13,9 +13,11 @@ import (
 )
 
 const encryptedBootstrapSecretPrefix = "enc:bootstrap:v1:"
+const encryptedAgentKeyPrefix = "enc:agentkey:v1:"
 
 type bootstrapSecretCipher struct {
-	aead cipher.AEAD
+	aead   cipher.AEAD
+	prefix string
 }
 
 func newBootstrapSecretCipher(secret string) (*bootstrapSecretCipher, error) {
@@ -34,7 +36,23 @@ func newBootstrapSecretCipher(secret string) (*bootstrapSecretCipher, error) {
 		return nil, err
 	}
 
-	return &bootstrapSecretCipher{aead: aead}, nil
+	return &bootstrapSecretCipher{aead: aead, prefix: encryptedBootstrapSecretPrefix}, nil
+}
+
+func newAgentAccessKeyCipher(secret string) (*bootstrapSecretCipher, error) {
+	if strings.TrimSpace(secret) == "" {
+		return nil, fmt.Errorf("%w: missing secret", ErrInvalidArgument)
+	}
+	key := sha256.Sum256([]byte("fluent-manager:agent-access-key:" + secret))
+	block, err := aes.NewCipher(key[:])
+	if err != nil {
+		return nil, err
+	}
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	return &bootstrapSecretCipher{aead: aead, prefix: encryptedAgentKeyPrefix}, nil
 }
 
 func (c *bootstrapSecretCipher) Encrypt(plaintext string) (string, error) {
@@ -49,18 +67,18 @@ func (c *bootstrapSecretCipher) Encrypt(plaintext string) (string, error) {
 
 	ciphertext := c.aead.Seal(nil, nonce, []byte(plaintext), nil)
 	payload := append(nonce, ciphertext...)
-	return encryptedBootstrapSecretPrefix + base64.RawStdEncoding.EncodeToString(payload), nil
+	return c.prefix + base64.RawStdEncoding.EncodeToString(payload), nil
 }
 
 func (c *bootstrapSecretCipher) Decrypt(value string) (string, error) {
 	if value == "" {
 		return "", nil
 	}
-	if !strings.HasPrefix(value, encryptedBootstrapSecretPrefix) {
+	if !strings.HasPrefix(value, c.prefix) {
 		return value, nil
 	}
 
-	raw := strings.TrimPrefix(value, encryptedBootstrapSecretPrefix)
+	raw := strings.TrimPrefix(value, c.prefix)
 	payload, err := base64.RawStdEncoding.DecodeString(raw)
 	if err != nil {
 		return "", err

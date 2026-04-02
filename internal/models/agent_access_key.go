@@ -8,11 +8,13 @@ import (
 
 // AgentAccessKey represents a managed server-side credential used by agents.
 // The plaintext key is only shown once at creation time; only a SHA-256 hash is persisted.
+// KeyEncrypted stores an AES-GCM encrypted copy so bootstrap tasks can reference the key by ID.
 type AgentAccessKey struct {
-	ID          uint           `gorm:"primaryKey" json:"id"`
-	Name        string         `gorm:"size:128;not null" json:"name"`
-	KeyHash     string         `gorm:"size:64;uniqueIndex;not null" json:"-"`
-	KeyPreview  string         `gorm:"size:32;not null" json:"key_preview"`
+	ID           uint           `gorm:"primaryKey" json:"id"`
+	Name         string         `gorm:"size:128;not null" json:"name"`
+	KeyHash      string         `gorm:"size:64;uniqueIndex;not null" json:"-"`
+	KeyPreview   string         `gorm:"size:32;not null" json:"key_preview"`
+	KeyEncrypted string         `gorm:"type:text" json:"-"`
 	ClusterID   *uint          `gorm:"index" json:"cluster_id"`
 	Cluster     *Cluster       `json:"cluster,omitempty"`
 	Description string         `gorm:"size:512" json:"description"`

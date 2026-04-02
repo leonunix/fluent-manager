@@ -199,17 +199,26 @@
                 </div>
                 <div class="col-12">
                   <label class="form-label">{{
-                    t("bootstrap_page.agent_api_key")
+                    t("bootstrap_page.select_key_label")
                   }}</label>
-                  <input
-                    v-model.trim="taskForm.agent_api_key"
-                    type="password"
-                    class="form-control"
-                    :placeholder="t('bootstrap_page.agent_api_key_placeholder')"
-                  />
-                  <div class="form-text">
-                    {{ t("bootstrap_page.agent_api_key_hint") }}
+                  <select v-model="taskForm.agent_access_key_id" class="form-select">
+                    <option :value="null">{{ t("bootstrap_page.select_key_server_default") }}</option>
+                    <option
+                      v-for="key in activeAccessKeys"
+                      :key="key.id"
+                      :value="key.id"
+                    >{{ key.name }} ({{ key.key_preview }})</option>
+                    <option value="manual">{{ t("bootstrap_page.select_key_manual") }}</option>
+                  </select>
+                  <div v-if="taskForm.agent_access_key_id === 'manual'" class="mt-2">
+                    <input
+                      v-model.trim="taskForm.agent_api_key"
+                      type="password"
+                      class="form-control"
+                      :placeholder="t('bootstrap_page.agent_api_key_placeholder')"
+                    />
                   </div>
+                  <div class="form-text">{{ t("bootstrap_page.select_key_hint") }}</div>
                 </div>
                 <div class="col-12">
                   <label class="form-label">{{
@@ -1359,6 +1368,7 @@ import {
   createBootstrapHostsBulk,
   createBootstrapTask,
   deleteBootstrapHost,
+  getAgentAccessKeys,
   getBootstrapCapability,
   getBootstrapHostsFiltered,
   getBootstrapTask,
@@ -1374,6 +1384,9 @@ import { useAuthStore } from "../store/auth";
 
 const auth = useAuthStore();
 const { t, dateLocale } = useI18n();
+
+const accessKeys = ref([]);
+const activeAccessKeys = computed(() => accessKeys.value.filter((k) => k.is_active));
 
 const capability = ref({
   supported: false,
@@ -1585,6 +1598,7 @@ const taskPollIntervalSeconds = taskPollIntervalMs / 1000;
 const taskForm = reactive({
   name: "",
   server_url: typeof window !== "undefined" ? window.location.origin : "",
+  agent_access_key_id: null,
   agent_api_key: "",
   cluster_id: null,
   fluent_type: "fluentbit",
@@ -1744,6 +1758,7 @@ function resetTaskForm() {
     typeof window !== "undefined"
       ? window.location.origin
       : taskForm.server_url;
+  taskForm.agent_access_key_id = null;
   taskForm.agent_api_key = "";
   taskForm.cluster_id = null;
   taskForm.fluent_type = "fluentbit";
@@ -1923,16 +1938,18 @@ async function loadTasks() {
 }
 
 async function loadLookups() {
-  const [clusterRes, envRes, dcRes, regionRes] = await Promise.all([
+  const [clusterRes, envRes, dcRes, regionRes, keysRes] = await Promise.all([
     getClusters(),
     getEnvironments(),
     getDataCenters(),
     getRegions(),
+    getAgentAccessKeys().catch(() => ({ data: [] })),
   ]);
   clusters.value = clusterRes.data.data || clusterRes.data || [];
   environments.value = envRes.data.data || envRes.data || [];
   datacenters.value = dcRes.data.data || dcRes.data || [];
   regions.value = regionRes.data.data || regionRes.data || [];
+  accessKeys.value = keysRes.data || [];
 }
 
 async function refreshAll() {
@@ -2087,10 +2104,12 @@ async function deleteHostRow(host) {
 async function submitTask() {
   creatingTask.value = true;
   try {
+    const isManual = taskForm.agent_access_key_id === "manual";
     const createdTask = await createBootstrapTask({
       name: taskForm.name || undefined,
       server_url: taskForm.server_url,
-      agent_api_key: taskForm.agent_api_key || undefined,
+      agent_access_key_id: !isManual && taskForm.agent_access_key_id != null ? taskForm.agent_access_key_id : undefined,
+      agent_api_key: isManual ? taskForm.agent_api_key || undefined : undefined,
       cluster_id: taskForm.cluster_id,
       fluent_type: taskForm.fluent_type,
       install_runtime: taskForm.install_runtime,

@@ -1104,6 +1104,10 @@ export default {
       "Leave blank to use the server default agent.api_key",
     agent_api_key_hint:
       "If this field is blank, the backend falls back to agent.api_key from config.yaml when available.",
+    select_key_label: "Agent Access Key",
+    select_key_server_default: "— Use server default —",
+    select_key_manual: "— Enter manually —",
+    select_key_hint: "Select a key from the Agent Keys page, or enter the key value manually.",
     hosts_title: "Target Hosts",
     hosts_hint:
       "Password auth requires sshpass on the server. Private-key auth writes a temporary key file only for the task run. Stored credentials are encrypted at rest.",

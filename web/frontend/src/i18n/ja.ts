@@ -1276,6 +1276,10 @@ export default {
     agent_api_key_placeholder: "未入力ならサーバー既定の agent.api_key を使用",
     agent_api_key_hint:
       "この欄が空の場合、利用可能なら backend 側で config.yaml の agent.api_key を使います。",
+    select_key_label: "Agent アクセスキー",
+    select_key_server_default: "— サーバー既定を使用 —",
+    select_key_manual: "— 手動入力 —",
+    select_key_hint: "「Agent 密鍵」ページで作成したキーを選択するか、キー値を手動入力してください。",
     hosts_title: "対象ホスト",
     hosts_hint:
       "パスワード認証にはサーバー上の sshpass が必要です。秘密鍵認証ではタスク実行時だけ一時ファイルを書き込みます。保存された資格情報は暗号化して保持します。",

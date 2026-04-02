@@ -39,14 +39,22 @@ type AgentAccessKeyService interface {
 	Update(id uint, input AgentAccessKeyInput, allowedClusters []uint) (*models.AgentAccessKey, error)
 	Delete(id uint, allowedClusters []uint) error
 	Authenticate(rawKey, legacyKey string) (*AuthenticatedAgentKey, error)
+	GetPlaintextKey(id uint) (string, error)
 }
 
 type agentAccessKeyService struct {
-	db *gorm.DB
+	db     *gorm.DB
+	cipher *bootstrapSecretCipher
 }
 
-func NewAgentAccessKeyService(db *gorm.DB) AgentAccessKeyService {
-	return &agentAccessKeyService{db: db}
+func NewAgentAccessKeyService(db *gorm.DB, secret string) AgentAccessKeyService {
+	svc := &agentAccessKeyService{db: db}
+	if secret != "" {
+		if c, err := newAgentAccessKeyCipher(secret); err == nil {
+			svc.cipher = c
+		}
+	}
+	return svc
 }
 
 func (s *agentAccessKeyService) List(allowedClusters []uint) ([]models.AgentAccessKey, error) {
@@ -77,14 +85,22 @@ func (s *agentAccessKeyService) Create(input AgentAccessKeyInput, createdBy uint
 		return nil, err
 	}
 
+	var keyEncrypted string
+	if s.cipher != nil {
+		if enc, err := s.cipher.Encrypt(rawKey); err == nil {
+			keyEncrypted = enc
+		}
+	}
+
 	key := &models.AgentAccessKey{
-		Name:        name,
-		KeyHash:     hashAgentAccessKey(rawKey),
-		KeyPreview:  previewAgentAccessKey(rawKey),
-		ClusterID:   clusterID,
-		Description: strings.TrimSpace(input.Description),
-		IsActive:    true,
-		CreatedBy:   createdBy,
+		Name:         name,
+		KeyHash:      hashAgentAccessKey(rawKey),
+		KeyPreview:   previewAgentAccessKey(rawKey),
+		KeyEncrypted: keyEncrypted,
+		ClusterID:    clusterID,
+		Description:  strings.TrimSpace(input.Description),
+		IsActive:     true,
+		CreatedBy:    createdBy,
 	}
 	if err := s.db.Create(key).Error; err != nil {
 		return nil, err
@@ -165,6 +181,27 @@ func (s *agentAccessKeyService) Authenticate(rawKey, legacyKey string) (*Authent
 	}
 
 	return nil, gorm.ErrRecordNotFound
+}
+
+func (s *agentAccessKeyService) GetPlaintextKey(id uint) (string, error) {
+	if s.cipher == nil {
+		return "", fmt.Errorf("%w: agent key encryption is not configured (server secret is missing)", ErrConflict)
+	}
+	var key models.AgentAccessKey
+	if err := s.db.First(&key, id).Error; err != nil {
+		return "", err
+	}
+	if !key.IsActive {
+		return "", fmt.Errorf("%w: agent access key is disabled", ErrForbidden)
+	}
+	if key.KeyEncrypted == "" {
+		return "", fmt.Errorf("%w: key was created before encrypted storage was available; please recreate the key", ErrConflict)
+	}
+	plaintext, err := s.cipher.Decrypt(key.KeyEncrypted)
+	if err != nil {
+		return "", fmt.Errorf("decrypt agent access key: %w", err)
+	}
+	return plaintext, nil
 }
 
 func (s *agentAccessKeyService) getScopedKey(id uint, allowedClusters []uint) (*models.AgentAccessKey, error) {

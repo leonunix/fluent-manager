@@ -46,7 +46,7 @@ type Registry struct {
 // NewRegistry creates all services with the given database connection.
 func NewRegistry(db *gorm.DB, fluentSharedKeySecret string, agentSettings AgentSettings, bootstrapSettings BootstrapSettings, artifactDir string, logWriter *logwriter.FileLogger) *Registry {
 	agentPolicySvc := NewAgentPolicyService(db, agentSettings)
-	agentAccessKeySvc := NewAgentAccessKeyService(db)
+	agentAccessKeySvc := NewAgentAccessKeyService(db, bootstrapSettings.Secret)
 	agentArtifactSvc := NewAgentArtifactService(db, artifactDir)
 	authSettingsSvc := NewAuthSettingsService(db)
 	fluentOpsSvc := NewFluentOpsService(db)
@@ -66,7 +66,7 @@ func NewRegistry(db *gorm.DB, fluentSharedKeySecret string, agentSettings AgentS
 		AgentPolicy:    agentPolicySvc,
 		Config:         NewConfigService(db),
 		Deploy:         NewDeployService(db, fluentOpsSvc),
-		Bootstrap:      NewBootstrapService(db, bootstrapSettings),
+		Bootstrap:      NewBootstrapService(db, bootstrapSettings, agentAccessKeySvc),
 		AgentUpgrade:   NewAgentUpgradeService(db),
 		Agent:          NewAgentService(db, agentPolicySvc, logWriter),
 		Metrics:        NewMetricsService(db),

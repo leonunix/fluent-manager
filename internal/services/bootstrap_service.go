@@ -69,10 +69,11 @@ type BootstrapHostFilters struct {
 }
 
 type BootstrapTaskInput struct {
-	Name             string               `json:"name"`
-	ServerURL        string               `json:"server_url"`
-	AgentAPIKey      string               `json:"agent_api_key"`
-	ClusterID        *uint                `json:"cluster_id"`
+	Name               string               `json:"name"`
+	ServerURL          string               `json:"server_url"`
+	AgentAPIKey        string               `json:"agent_api_key"`
+	AgentAccessKeyID   *uint                `json:"agent_access_key_id"`
+	ClusterID          *uint                `json:"cluster_id"`
 	FluentType       string               `json:"fluent_type"`
 	InstallRuntime   bool                 `json:"install_runtime"`
 	AgentBinaryPath  string               `json:"agent_binary_path"`
@@ -101,11 +102,12 @@ type bootstrapService struct {
 	settings        BootstrapSettings
 	cipher          *bootstrapSecretCipher
 	cipherInitError string
+	agentKeysSvc    AgentAccessKeyService
 	ctx             context.Context
 	cancel          context.CancelFunc
 }
 
-func NewBootstrapService(db *gorm.DB, settings BootstrapSettings) BootstrapService {
+func NewBootstrapService(db *gorm.DB, settings BootstrapSettings, agentKeysSvc AgentAccessKeyService) BootstrapService {
 	ctx, cancel := context.WithCancel(context.Background())
 	var cipher *bootstrapSecretCipher
 	secret := strings.TrimSpace(settings.Secret)
@@ -120,12 +122,13 @@ func NewBootstrapService(db *gorm.DB, settings BootstrapSettings) BootstrapServi
 				db:              db,
 				settings:        settings,
 				cipherInitError: err.Error(),
+				agentKeysSvc:    agentKeysSvc,
 				ctx:             ctx,
 				cancel:          cancel,
 			}
 		}
 	}
-	return &bootstrapService{db: db, settings: settings, cipher: cipher, ctx: ctx, cancel: cancel}
+	return &bootstrapService{db: db, settings: settings, cipher: cipher, agentKeysSvc: agentKeysSvc, ctx: ctx, cancel: cancel}
 }
 
 func (s *bootstrapService) Close() {
@@ -535,6 +538,13 @@ func (s *bootstrapService) validateAndPrepareTask(input BootstrapTaskInput, allo
 	}
 
 	agentAPIKey := strings.TrimSpace(input.AgentAPIKey)
+	if agentAPIKey == "" && input.AgentAccessKeyID != nil && s.agentKeysSvc != nil {
+		resolved, err := s.agentKeysSvc.GetPlaintextKey(*input.AgentAccessKeyID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("%w: failed to resolve agent_access_key_id: %v", ErrInvalidArgument, err)
+		}
+		agentAPIKey = resolved
+	}
 	if agentAPIKey == "" {
 		agentAPIKey = strings.TrimSpace(s.settings.DefaultAgentAPIKey)
 	}

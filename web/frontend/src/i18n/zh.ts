@@ -1060,6 +1060,10 @@ export default {
     agent_api_key_placeholder: "留空则尝试使用服务端默认 agent.api_key",
     agent_api_key_hint:
       "如果这里不填，后端会优先使用 config.yaml 中的 agent.api_key。",
+    select_key_label: "Agent 接入密钥",
+    select_key_server_default: "— 使用服务端默认 —",
+    select_key_manual: "— 手动输入 —",
+    select_key_hint: "选择在《Agent 密钥》页面中创建的密钥，或手动粘贴 Key 值。",
     hosts_title: "目标主机",
     hosts_hint:
       "密码认证依赖服务器安装 sshpass；私钥认证只会在任务执行期间临时写入私钥文件。保存到主机清单中的凭据会加密存储。",
