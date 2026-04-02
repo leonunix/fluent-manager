@@ -220,7 +220,6 @@
       line-height: 1.8;
       overflow-x: auto;
       color: var(--muted);
-      white-space: pre;
     }
     .arch-diagram .hl-blue { color: var(--accent); }
     .arch-diagram .hl-green { color: var(--accent2); }
@@ -462,8 +461,7 @@
     <p class="section-label">Architecture</p>
     <h2 class="section-title">Three-tier design</h2>
     <p class="section-desc">Vue 3 SPA talks to a Go/Gin REST API which delivers config and commands to lightweight agent clients running on each node.</p>
-    <div class="arch-diagram">
-<span class="hl-blue">┌──────────────┐</span>     <span class="hl-blue">┌─────────────────────────────────────────────┐</span>
+    <pre class="arch-diagram"><span class="hl-blue">┌──────────────┐</span>     <span class="hl-blue">┌─────────────────────────────────────────────┐</span>
 <span class="hl-blue">│  Vue 3 SPA   │────▶│  Go Server (Gin)                            │</span>
 <span class="hl-blue">│  TypeScript  │</span>     <span class="hl-purple">│  ├── Auth (JWT / LDAP / SAML)               │</span>
 <span class="hl-blue">│  ECharts     │</span>     <span class="hl-green">│  ├── Handlers  (REST API, HTTP only)        │</span>
@@ -478,17 +476,13 @@
                      <span class="hl-green">│  ├── Config sync + hot-reload               │</span>
                      <span class="hl-green">│  ├── Remote command execution               │</span>
                      <span class="hl-green">│  └── Log shipping                           │</span>
-                     <span class="hl-green">└─────────────────────────────────────────────┘</span>
-    </div>
-    <br />
-    <div class="arch-diagram" style="margin-top:1.25rem;">
-<span class="hl-orange">Topology Hierarchy:</span>
+                     <span class="hl-green">└─────────────────────────────────────────────┘</span></pre>
+    <pre class="arch-diagram" style="margin-top:1.25rem;"><span class="hl-orange">Topology Hierarchy:</span>
 
   <span class="hl-blue">DataCenter</span>  →  <span class="hl-green">Region</span>  →  <span class="hl-purple">Cluster</span>  →  <span class="hl-orange">Node</span>
                               <span class="hl-purple">├── Environment  (prod / staging / dev / test)</span>
                               <span class="hl-purple">├── MatchRules   (auto-assign new agents)</span>
-                              <span class="hl-purple">└── Config       (inherited by all nodes)</span>
-    </div>
+                              <span class="hl-purple">└── Config       (inherited by all nodes)</span></pre>
   </div>
 </section>
 
