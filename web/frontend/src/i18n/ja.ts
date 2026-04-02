@@ -1072,6 +1072,7 @@ export default {
     select_output_destination: "出力先を選択",
     pipeline_stage_input: "入力",
     pipeline_stage_filter: "フィルタ",
+    pipeline_stage_route: "ルーティング",
     pipeline_stage_output: "出力",
     wizard_architecture_hint:
       "企業向け設定は「グローバル資産 + 複数のログパイプライン」として扱うべきです。グローバル資産は service/parser を持ち、各パイプラインは input -> filter -> output を持ちます。",
@@ -1099,6 +1100,11 @@ export default {
       "input モジュールは単一選択です。1 本のパイプラインに 1 つだけ残します。",
     wizard_filter_group_hint:
       "filter モジュールは複数選択でき、パイプライン内でまとめて組み立てます。",
+    wizard_route_group_hint:
+      "Fluentd 専用のオプションルーティングモジュール（label ルーティング、relabel、copy）です。filter の後に組み立てます。",
+    wizard_route_instance: "ルーティングインスタンス #{index}",
+    wizard_no_routes: "このパイプラインにはまだルーティングモジュールがありません。",
+    wizard_add_route: "現在のパイプラインへ追加",
     wizard_output_group_hint:
       "output は複数選択・重複利用が可能です。各 output インスタンスごとに Match や index prefix などを上書きできます。",
     output_destination_hint:

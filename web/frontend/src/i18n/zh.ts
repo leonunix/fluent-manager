@@ -822,6 +822,7 @@ export default {
     select_output_destination: "请选择输出目的地",
     pipeline_stage_input: "输入",
     pipeline_stage_filter: "过滤",
+    pipeline_stage_route: "路由",
     pipeline_stage_output: "输出",
     wizard_architecture_hint:
       "企业配置文件应拆成“全局资源 + 多条日志流水线”。全局资源负责 service / parser，流水线负责 input -> filter -> output。",
@@ -847,6 +848,10 @@ export default {
     wizard_pipeline_incomplete: "待完善",
     wizard_input_group_hint: "输入模块是单选，一条装配链路只保留一个 input。",
     wizard_filter_group_hint: "过滤模块支持多选，会按链路顺序一起装配。",
+    wizard_route_group_hint: "可选的 Fluentd 专属路由模块（label 路由、relabel、copy），在 filter 之后装配。",
+    wizard_route_instance: "路由实例 #{index}",
+    wizard_no_routes: "当前流水线还没有路由模块。",
+    wizard_add_route: "加入当前流水线",
     wizard_output_group_hint:
       "输出支持多选且可重复，每个输出实例都可以覆盖自己的 Match、索引前缀等变量。",
     output_destination_hint:

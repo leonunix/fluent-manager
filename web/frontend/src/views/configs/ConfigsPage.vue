@@ -184,12 +184,14 @@
         wizardParserSearch,
         wizardInputSearch,
         wizardFilterSearch,
+        wizardRouteSearch,
         wizardOutputSearch,
         wizardStagePages,
         wizardPagedServiceModules,
         wizardPagedParserModules,
         wizardPagedInputModules,
         wizardPagedFilterModules,
+        wizardPagedRouteModules,
         wizardPagedOutputTargets,
         wizardServiceModule,
         wizardSelectedParserModules,
@@ -219,6 +221,9 @@
         addWizardFilter,
         removeWizardFilter,
         moveWizardFilter,
+        addWizardRoute,
+        removeWizardRoute,
+        moveWizardRoute,
         addWizardOutputTarget,
         removeWizardOutput,
         moveWizardOutput,
@@ -1009,7 +1014,7 @@ const moduleQuery = reactive({
 
 const moduleTypes = ['service', 'input', 'parser', 'filter', 'route', 'output']
 const managedModuleTypes = ['service', 'input', 'parser', 'filter', 'route', 'output']
-const wizardPipelineModuleTypes = ['input', 'filter']
+const wizardPipelineModuleTypes = ['input', 'filter', 'route']
 const wizardPipelineStageTotal = 3
 const wizardStagePageSize = 6
 let wizardSequence = 0
@@ -1210,12 +1215,14 @@ const wizardServiceSearch = ref('')
 const wizardParserSearch = ref('')
 const wizardInputSearch = ref('')
 const wizardFilterSearch = ref('')
+const wizardRouteSearch = ref('')
 const wizardOutputSearch = ref('')
 const wizardStagePages = reactive({
   service: 1,
   parser: 1,
   input: 1,
   filter: 1,
+  route: 1,
   output: 1,
 })
 const aiAssistantForm = reactive({
@@ -1281,6 +1288,9 @@ const wizardInputModules = computed(() =>
 const wizardFilterModules = computed(() =>
   wizardEligibleModules.value.filter((item) => item.module_type === 'filter' && matchesModuleSearch(item, wizardFilterSearch.value))
 )
+const wizardRouteModules = computed(() =>
+  wizardEligibleModules.value.filter((item) => item.module_type === 'route' && matchesModuleSearch(item, wizardRouteSearch.value))
+)
 const wizardVisibleModules = computed(() =>
   wizardEligibleModules.value.filter((item) =>
     wizardPipelineModuleTypes.includes(item.module_type) && matchesModuleSearch(item, wizardModuleSearch.value)
@@ -1317,6 +1327,7 @@ const wizardPagedServiceModules = computed(() => paginateItems(wizardServiceModu
 const wizardPagedParserModules = computed(() => paginateItems(wizardParserModules.value, wizardStagePages.parser))
 const wizardPagedInputModules = computed(() => paginateItems(wizardInputModules.value, wizardStagePages.input))
 const wizardPagedFilterModules = computed(() => paginateItems(wizardFilterModules.value, wizardStagePages.filter))
+const wizardPagedRouteModules = computed(() => paginateItems(wizardRouteModules.value, wizardStagePages.route))
 const wizardPagedOutputTargets = computed(() => paginateItems(wizardOutputTargets.value, wizardStagePages.output))
 const wizardServiceModule = computed(() =>
   wizardEligibleModules.value.find((item) => item.id === wizardServiceModuleId.value) || null
@@ -1333,6 +1344,9 @@ const wizardPipelineCards = computed(() =>
     const filterModules = pipeline.filters
       .map((instance) => wizardEligibleModules.value.find((item) => item.id === instance.module_id) || null)
       .filter(Boolean)
+    const routeModules = (pipeline.routes || [])
+      .map((instance) => wizardEligibleModules.value.find((item) => item.id === instance.module_id) || null)
+      .filter(Boolean)
     const outputTargetsForPipeline = pipeline.outputs
       .map((instance) => wizardAvailableOutputTargets.value.find((item) => item.id === instance.target_id) || null)
       .filter(Boolean)
@@ -1340,7 +1354,7 @@ const wizardPipelineCards = computed(() =>
       .map((target) => matchingOutputModuleForTarget(target, wizardEligibleModules.value, wizardForm.fluent_type))
       .filter(Boolean)
     const summary = buildConfigFlowSummary(
-      [inputModule, ...filterModules, ...outputModulesForPipeline].filter(Boolean),
+      [inputModule, ...filterModules, ...routeModules, ...outputModulesForPipeline].filter(Boolean),
       outputTargetsForPipeline
     )
     const missing = []
@@ -1352,6 +1366,7 @@ const wizardPipelineCards = computed(() =>
       name: pipeline.name,
       inputModule,
       filterModules,
+      routeModules,
       outputTargets: outputTargetsForPipeline,
       outputModules: outputModulesForPipeline,
       summary,
@@ -1431,6 +1446,19 @@ const wizardPipelineVariableGroups = computed(() => {
         instance.id,
         module?.name || t('configs_page.pipeline_stage_filter'),
         `${pipelineLabel} · ${t('configs_page.pipeline_stage_filter')} ${filterIndex + 1}`,
+        module,
+        instance.variables,
+        wizardPipelineModuleDefaults(module, pipeline),
+        pipelineSection
+      ))
+    });
+
+    (pipeline.routes || []).forEach((instance, routeIndex) => {
+      const module = wizardEligibleModules.value.find((item) => item.id === instance.module_id)
+      groups.push(buildWizardModuleGroup(
+        instance.id,
+        module?.name || t('configs_page.pipeline_stage_route', 'Route'),
+        `${pipelineLabel} · ${t('configs_page.pipeline_stage_route', 'Route')} ${routeIndex + 1}`,
         module,
         instance.variables,
         wizardPipelineModuleDefaults(module, pipeline),
@@ -2415,6 +2443,7 @@ function createWizardPipeline() {
     name: '',
     input: null,
     filters: [],
+    routes: [],
     outputs: [],
   }
 }
@@ -2790,6 +2819,11 @@ function duplicateWizardPipeline(pipelineId) {
       module_id: instance.module_id,
       variables: { ...instance.variables },
     })),
+    routes: (pipeline.routes || []).map((instance) => ({
+      id: createWizardInstanceID('wizard-route'),
+      module_id: instance.module_id,
+      variables: { ...instance.variables },
+    })),
     outputs: pipeline.outputs.map((instance) => ({
       id: createWizardInstanceID('wizard-output'),
       target_id: instance.target_id,
@@ -2898,6 +2932,42 @@ function moveWizardFilter(pipelineId, instanceId, direction) {
   })
 }
 
+function addWizardRoute(pipelineId, moduleId) {
+  const module = wizardEligibleModules.value.find((item) => item.id === moduleId && item.module_type === 'route')
+  if (!module) return
+  updateWizardPipeline(pipelineId, (pipeline) => ({
+    ...pipeline,
+    routes: [
+      ...(pipeline.routes || []),
+      {
+        id: createWizardInstanceID('wizard-route'),
+        module_id: module.id,
+        variables: buildWizardPipelineDraft(`route:${module.id}`, module, pipeline),
+      },
+    ],
+  }))
+}
+
+function removeWizardRoute(pipelineId, instanceId) {
+  updateWizardPipeline(pipelineId, (pipeline) => ({
+    ...pipeline,
+    routes: (pipeline.routes || []).filter((item) => item.id !== instanceId),
+  }))
+}
+
+function moveWizardRoute(pipelineId, instanceId, direction) {
+  updateWizardPipeline(pipelineId, (pipeline) => {
+    const next = [...(pipeline.routes || [])]
+    const index = next.findIndex((item) => item.id === instanceId)
+    if (index === -1) return pipeline
+    const targetIndex = direction === 'up' ? index - 1 : index + 1
+    if (targetIndex < 0 || targetIndex >= next.length) return pipeline
+    const [moved] = next.splice(index, 1)
+    next.splice(targetIndex, 0, moved)
+    return { ...pipeline, routes: next }
+  })
+}
+
 function buildWizardOutputDraft(target, fluentType, pipeline = null, existingDraft = null, previousTag = '') {
   const outputModule = matchingOutputModuleForTarget(target, wizardEligibleModules.value, fluentType)
   const defaults = {
@@ -2963,6 +3033,7 @@ function pruneWizardStateForRuntime() {
     ...pipeline,
     input: pipeline.input && eligibleModuleIDs.has(pipeline.input.module_id) ? pipeline.input : null,
     filters: pipeline.filters.filter((instance) => eligibleModuleIDs.has(instance.module_id)),
+    routes: (pipeline.routes || []).filter((instance) => eligibleModuleIDs.has(instance.module_id)),
     outputs: pipeline.outputs
       .filter((instance) => availableTargetIDs.has(instance.target_id))
       .map((instance) => {
@@ -2986,6 +3057,7 @@ function removeWizardModuleReferences(moduleId) {
     ...pipeline,
     input: pipeline.input?.module_id === moduleId ? null : pipeline.input,
     filters: pipeline.filters.filter((instance) => instance.module_id !== moduleId),
+    routes: (pipeline.routes || []).filter((instance) => instance.module_id !== moduleId),
   }))
   ensureWizardBaselineModules()
 }
@@ -3000,6 +3072,7 @@ function removeWizardModuleReferencesBatch(moduleIds) {
     ...pipeline,
     input: pipeline.input && deleted.has(pipeline.input.module_id) ? null : pipeline.input,
     filters: pipeline.filters.filter((instance) => !deleted.has(instance.module_id)),
+    routes: (pipeline.routes || []).filter((instance) => !deleted.has(instance.module_id)),
   }))
   ensureWizardBaselineModules()
 }
@@ -3082,11 +3155,13 @@ function resetWizardForm() {
   wizardParserSearch.value = ''
   wizardInputSearch.value = ''
   wizardFilterSearch.value = ''
+  wizardRouteSearch.value = ''
   wizardOutputSearch.value = ''
   wizardStagePages.service = 1
   wizardStagePages.parser = 1
   wizardStagePages.input = 1
   wizardStagePages.filter = 1
+  wizardStagePages.route = 1
   wizardStagePages.output = 1
   const initialPipeline = createWizardPipeline()
   wizardPipelines.value = [initialPipeline]
@@ -3631,6 +3706,11 @@ function buildWizardRenderModuleRefs() {
       refs.push(buildWizardModuleRef(filterModule, instance.variables))
     }
 
+    for (const instance of (pipeline.routes || [])) {
+      const routeModule = wizardEligibleModules.value.find((item) => item.id === instance.module_id)
+      refs.push(buildWizardModuleRef(routeModule, instance.variables))
+    }
+
     for (const instance of pipeline.outputs) {
       const target = wizardAvailableOutputTargets.value.find((item) => item.id === instance.target_id)
       const outputModule = matchingOutputModuleForTarget(target, wizardEligibleModules.value, wizardForm.fluent_type)
@@ -3761,6 +3841,13 @@ async function saveWizardAsTemplate() {
               variables: normalizeWizardDraftValues(instance.variables, moduleVariablesForWizard(module)),
             }
           }),
+          routes: (pipelineState?.routes || []).map((instance) => {
+            const module = wizardEligibleModules.value.find((item) => item.id === instance.module_id)
+            return {
+              module_id: instance.module_id,
+              variables: normalizeWizardDraftValues(instance.variables, moduleVariablesForWizard(module)),
+            }
+          }),
           output_targets: card.outputTargets.map((target) => {
             const instance = (pipelineState?.outputs || []).find((output) => output.target_id === target.id)
             return {
@@ -3816,7 +3903,7 @@ function wizardHasContent() {
   if (wizardServiceModuleId.value) return true
   if (wizardParserModuleIds.value.length) return true
   return wizardPipelines.value.some(
-    (p) => p.input || p.filters.length || p.outputs.length
+    (p) => p.input || p.filters.length || (p.routes || []).length || p.outputs.length
   )
 }
 
@@ -3909,6 +3996,18 @@ function loadWizardFromTemplate(template) {
             id: createWizardInstanceID('wizard-filter'),
             module_id: moduleID,
             variables: ensureWizardModuleDraft(`filter:${moduleID}`, module, entry?.variables),
+          }
+        })
+        .filter(Boolean),
+      routes: (Array.isArray(p.routes) ? p.routes : [])
+        .map((entry) => {
+          const moduleID = Number(entry?.module_id || entry)
+          const module = wizardEligibleModules.value.find((item) => item.id === moduleID && item.module_type === 'route')
+          if (!moduleID) return null
+          return {
+            id: createWizardInstanceID('wizard-route'),
+            module_id: moduleID,
+            variables: ensureWizardModuleDraft(`route:${moduleID}`, module, entry?.variables),
           }
         })
         .filter(Boolean),

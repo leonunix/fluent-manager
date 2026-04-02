@@ -384,6 +384,7 @@
                   <div class="small text-muted">
                     {{ t('configs_page.pipeline_stage_input') }} {{ card.inputModule ? 1 : 0 }}
                     · {{ t('configs_page.pipeline_stage_filter') }} {{ card.filterModules.length }}
+                    <template v-if="state.wizardForm.fluent_type === 'fluentd'">· {{ t('configs_page.pipeline_stage_route', 'Route') }} {{ card.routeModules.length }}</template>
                     · {{ t('configs_page.pipeline_stage_output') }} {{ card.outputTargets.length }}
                   </div>
                 </button>
@@ -524,6 +525,78 @@
                     </div>
                     <div v-else class="text-center text-muted py-3">
                       {{ t('configs_page.wizard_no_filters') }}
+                    </div>
+                  </div>
+                </div>
+
+                <div v-if="state.wizardForm.fluent_type === 'fluentd'" class="card border-0 bg-light-subtle mb-3">
+                  <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                      <div>
+                        <div class="fw-semibold">{{ t('configs_page.pipeline_stage_route', 'Route') }}</div>
+                        <div class="small text-muted">{{ t('configs_page.wizard_route_group_hint', 'Optional Fluentd label routing / relabel / copy modules.') }}</div>
+                      </div>
+                      <span class="badge text-bg-light">{{ (state.activeWizardPipeline.routes || []).length }}</span>
+                    </div>
+                    <div class="input-group mb-3">
+                      <span class="input-group-text"><i class="bi bi-search"></i></span>
+                      <input
+                        v-model="state.wizardRouteSearch"
+                        type="text"
+                        class="form-control"
+                        :placeholder="t('configs_page.module_picker_search_placeholder')"
+                        @input="actions.changeWizardStagePage('route', 1)"
+                      >
+                    </div>
+                    <div class="row g-2 mb-3">
+                      <div v-for="module in state.wizardPagedRouteModules.items" :key="module.id" class="col-md-6">
+                        <button
+                          type="button"
+                          class="btn btn-outline-secondary w-100 text-start"
+                          @click="actions.addWizardRoute(state.activeWizardPipeline.id, module.id)"
+                        >
+                          <div class="fw-semibold">{{ module.name }}</div>
+                          <div class="small text-muted">{{ module.description || t('common.no_description') }}</div>
+                          <div class="small text-primary mt-1">{{ t('configs_page.wizard_add_route') }}</div>
+                        </button>
+                      </div>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                      <button class="btn btn-sm btn-outline-secondary" :disabled="state.wizardPagedRouteModules.currentPage <= 1" @click="actions.changeWizardStagePage('route', state.wizardPagedRouteModules.currentPage - 1)">
+                        {{ t('common.previous') }}
+                      </button>
+                      <span class="small text-muted">{{ state.wizardPagedRouteModules.currentPage }} / {{ state.wizardPagedRouteModules.totalPages }}</span>
+                      <button class="btn btn-sm btn-outline-secondary" :disabled="state.wizardPagedRouteModules.currentPage >= state.wizardPagedRouteModules.totalPages" @click="actions.changeWizardStagePage('route', state.wizardPagedRouteModules.currentPage + 1)">
+                        {{ t('common.next') }}
+                      </button>
+                    </div>
+                    <div v-if="(state.activeWizardPipeline.routes || []).length" class="d-grid gap-2">
+                      <div
+                        v-for="(instance, index) in (state.activeWizardPipeline.routes || [])"
+                        :key="instance.id"
+                        class="border rounded-3 bg-white p-3"
+                      >
+                        <div class="d-flex justify-content-between align-items-start gap-2">
+                          <div>
+                            <div class="fw-semibold">{{ routeName(instance.module_id) }}</div>
+                            <div class="small text-muted">{{ t('configs_page.wizard_route_instance').replace('{index}', String(index + 1)) }}</div>
+                          </div>
+                          <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-secondary" :disabled="index === 0" @click="actions.moveWizardRoute(state.activeWizardPipeline.id, instance.id, 'up')">
+                              <i class="bi bi-arrow-up"></i>
+                            </button>
+                            <button class="btn btn-outline-secondary" :disabled="index === (state.activeWizardPipeline.routes || []).length - 1" @click="actions.moveWizardRoute(state.activeWizardPipeline.id, instance.id, 'down')">
+                              <i class="bi bi-arrow-down"></i>
+                            </button>
+                            <button class="btn btn-outline-danger" @click="actions.removeWizardRoute(state.activeWizardPipeline.id, instance.id)">
+                              <i class="bi bi-trash"></i>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div v-else class="text-center text-muted py-3">
+                      {{ t('configs_page.wizard_no_routes') }}
                     </div>
                   </div>
                 </div>
@@ -675,6 +748,9 @@
                   <div class="small text-muted">
                     {{ t('configs_page.pipeline_stage_filter') }}: {{ card.filterModules.length ? card.filterModules.map((item) => item.name).join(' -> ') : t('configs_page.no_processors') }}
                   </div>
+                  <div v-if="state.wizardForm.fluent_type === 'fluentd'" class="small text-muted">
+                    {{ t('configs_page.pipeline_stage_route', 'Route') }}: {{ card.routeModules.length ? card.routeModules.map((item) => item.name).join(' -> ') : '-' }}
+                  </div>
                   <div class="small text-muted">
                     {{ t('configs_page.pipeline_stage_output') }}: {{ card.outputTargets.length ? card.outputTargets.map((item) => item.name).join(' + ') : '-' }}
                   </div>
@@ -824,6 +900,13 @@ function filterName(moduleId) {
     .concat((unref(props.state.wizardPipelineCards) || []).flatMap((card) => card.filterModules || []))
     .find((item) => item.id === moduleId)
   return module?.name || t('configs_page.pipeline_stage_filter')
+}
+
+function routeName(moduleId) {
+  const module = (unref(props.state.wizardPagedRouteModules)?.items || [])
+    .concat((unref(props.state.wizardPipelineCards) || []).flatMap((card) => card.routeModules || []))
+    .find((item) => item.id === moduleId)
+  return module?.name || t('configs_page.pipeline_stage_route', 'Route')
 }
 
 function outputName(targetId) {

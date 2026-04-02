@@ -850,6 +850,7 @@ export default {
     select_output_destination: "Select Output Destination",
     pipeline_stage_input: "Input",
     pipeline_stage_filter: "Filter",
+    pipeline_stage_route: "Route",
     pipeline_stage_output: "Output",
     wizard_architecture_hint:
       "Enterprise configs should be modeled as global resources plus multiple log pipelines. Global resources own service/parser assets, while each pipeline owns input -> filter -> output.",
@@ -877,6 +878,11 @@ export default {
       "Input modules are single-select. One pipeline keeps exactly one input.",
     wizard_filter_group_hint:
       "Filter modules support multi-select and are assembled together in the pipeline.",
+    wizard_route_group_hint:
+      "Optional Fluentd-only route modules (label routing, relabel, copy). Assembled after filters.",
+    wizard_route_instance: "Route instance #{index}",
+    wizard_no_routes: "This pipeline does not have any route modules yet.",
+    wizard_add_route: "Add to Pipeline",
     wizard_output_group_hint:
       "Outputs support multiple bindings and repeated use. Each output instance can override Match, index prefix, and other delivery variables.",
     output_destination_hint:
