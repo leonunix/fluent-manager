@@ -211,7 +211,7 @@ func TestRequirePermission_LacksPermission(t *testing.T) {
 
 func TestAgentAuth_ValidKey(t *testing.T) {
 	db := setupMiddlewareDB(t)
-	svc := services.NewAgentAccessKeyService(db)
+	svc := services.NewAgentAccessKeyService(db, "test-secret")
 	result, err := svc.Create(services.AgentAccessKeyInput{Name: "test-key"}, 0, nil)
 	if err != nil {
 		t.Fatalf("create key: %v", err)
@@ -236,7 +236,7 @@ func TestAgentAuth_ValidKey(t *testing.T) {
 
 func TestAgentAuth_InvalidKey(t *testing.T) {
 	db := setupMiddlewareDB(t)
-	svc := services.NewAgentAccessKeyService(db)
+	svc := services.NewAgentAccessKeyService(db, "test-secret")
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -253,7 +253,7 @@ func TestAgentAuth_InvalidKey(t *testing.T) {
 
 func TestAgentAuth_MissingKey(t *testing.T) {
 	db := setupMiddlewareDB(t)
-	svc := services.NewAgentAccessKeyService(db)
+	svc := services.NewAgentAccessKeyService(db, "test-secret")
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -269,7 +269,7 @@ func TestAgentAuth_MissingKey(t *testing.T) {
 
 func TestAgentAuth_LegacyKeyFallback(t *testing.T) {
 	db := setupMiddlewareDB(t)
-	svc := services.NewAgentAccessKeyService(db)
+	svc := services.NewAgentAccessKeyService(db, "test-secret")
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

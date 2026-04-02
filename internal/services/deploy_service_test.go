@@ -12,7 +12,7 @@ import (
 func setupDeployTest(t *testing.T) (*gorm.DB, DeployService) {
 	t.Helper()
 	db := testutil.NewTestDB()
-	svc := NewDeployService(db)
+	svc := NewDeployService(db, NewFluentOpsService(db))
 	return db, svc
 }
 

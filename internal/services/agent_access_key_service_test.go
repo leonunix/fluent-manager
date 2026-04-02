@@ -12,7 +12,7 @@ import (
 func setupAgentAccessKeyTest(t *testing.T) (*gorm.DB, AgentAccessKeyService) {
 	t.Helper()
 	db := testutil.NewTestDB()
-	svc := NewAgentAccessKeyService(db)
+	svc := NewAgentAccessKeyService(db, "test-secret")
 	return db, svc
 }
 

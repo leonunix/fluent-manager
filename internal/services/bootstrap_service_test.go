@@ -11,7 +11,7 @@ import (
 
 func TestUpdateHostPreservesPrivateKeyWhenOmitted(t *testing.T) {
 	db := testutil.NewTestDB()
-	svc := NewBootstrapService(db, BootstrapSettings{Secret: "test-secret"})
+	svc := NewBootstrapService(db, BootstrapSettings{Secret: "test-secret"}, nil)
 
 	created, err := svc.CreateHost(BootstrapHostInput{
 		Hostname:   "node-private",
@@ -62,7 +62,7 @@ func TestUpdateHostPreservesPasswordWhenOmitted(t *testing.T) {
 	installFakeExecutable(t, "sshpass")
 
 	db := testutil.NewTestDB()
-	svc := NewBootstrapService(db, BootstrapSettings{Secret: "test-secret"})
+	svc := NewBootstrapService(db, BootstrapSettings{Secret: "test-secret"}, nil)
 
 	created, err := svc.CreateHost(BootstrapHostInput{
 		Hostname: "node-password",
@@ -110,7 +110,7 @@ func TestUpdateHostSwitchingAuthClearsPreviousSecretFields(t *testing.T) {
 	installFakeExecutable(t, "sshpass")
 
 	db := testutil.NewTestDB()
-	svc := NewBootstrapService(db, BootstrapSettings{Secret: "test-secret"})
+	svc := NewBootstrapService(db, BootstrapSettings{Secret: "test-secret"}, nil)
 
 	created, err := svc.CreateHost(BootstrapHostInput{
 		Hostname: "node-switch",
