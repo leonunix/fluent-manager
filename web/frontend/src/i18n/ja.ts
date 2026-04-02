@@ -1157,6 +1157,7 @@ export default {
     wizard_no_filters: "このパイプラインにはまだ filter がありません。",
     wizard_add_output: "現在のパイプラインへ接続",
     wizard_output_instance: "出力インスタンス #{index}",
+    wizard_output_params: "送信先パラメータ",
     wizard_no_outputs: "このパイプラインにはまだ output がありません。",
     wizard_pipeline_empty:
       "アクティブなパイプラインがありません。先に作成してください。",

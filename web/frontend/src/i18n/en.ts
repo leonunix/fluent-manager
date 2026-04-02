@@ -936,6 +936,7 @@ export default {
     wizard_no_filters: "This pipeline does not have any filters yet.",
     wizard_add_output: "Attach to Pipeline",
     wizard_output_instance: "Output instance #{index}",
+    wizard_output_params: "Destination Parameters",
     wizard_no_outputs: "This pipeline does not have any outputs yet.",
     wizard_pipeline_empty: "No active pipeline yet. Create one first.",
     wizard_pipeline_count: "Pipelines {count}",

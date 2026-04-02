@@ -659,16 +659,45 @@
                             </div>
                             <div class="small text-muted">{{ t('configs_page.wizard_output_instance').replace('{index}', String(index + 1)) }}</div>
                           </div>
-                          <div class="btn-group btn-group-sm">
-                            <button class="btn btn-outline-secondary" :disabled="index === 0" @click="actions.moveWizardOutput(state.activeWizardPipeline.id, instance.id, 'up')">
-                              <i class="bi bi-arrow-up"></i>
+                          <div class="d-flex align-items-center gap-1">
+                            <button
+                              v-if="outputSettingsFields(instance.target_id, instance).length"
+                              class="btn btn-sm btn-outline-secondary"
+                              :title="t('configs_page.wizard_output_params')"
+                              @click="toggleOutputExpand(instance.id)"
+                            >
+                              <i class="bi" :class="expandedOutputIds.has(instance.id) ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
                             </button>
-                            <button class="btn btn-outline-secondary" :disabled="index === state.activeWizardPipeline.outputs.length - 1" @click="actions.moveWizardOutput(state.activeWizardPipeline.id, instance.id, 'down')">
-                              <i class="bi bi-arrow-down"></i>
-                            </button>
-                            <button class="btn btn-outline-danger" @click="actions.removeWizardOutput(state.activeWizardPipeline.id, instance.id)">
-                              <i class="bi bi-trash"></i>
-                            </button>
+                            <div class="btn-group btn-group-sm">
+                              <button class="btn btn-outline-secondary" :disabled="index === 0" @click="actions.moveWizardOutput(state.activeWizardPipeline.id, instance.id, 'up')">
+                                <i class="bi bi-arrow-up"></i>
+                              </button>
+                              <button class="btn btn-outline-secondary" :disabled="index === state.activeWizardPipeline.outputs.length - 1" @click="actions.moveWizardOutput(state.activeWizardPipeline.id, instance.id, 'down')">
+                                <i class="bi bi-arrow-down"></i>
+                              </button>
+                              <button class="btn btn-outline-danger" @click="actions.removeWizardOutput(state.activeWizardPipeline.id, instance.id)">
+                                <i class="bi bi-trash"></i>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                        <!-- Inline destination parameter editor -->
+                        <div v-if="expandedOutputIds.has(instance.id) && outputSettingsFields(instance.target_id, instance).length" class="mt-3 pt-3 border-top">
+                          <div class="small fw-semibold text-muted mb-2">{{ t('configs_page.wizard_output_params') }}</div>
+                          <div class="row g-2">
+                            <div
+                              v-for="[key] in outputSettingsFields(instance.target_id, instance)"
+                              :key="key"
+                              class="col-md-6"
+                            >
+                              <label class="form-label small mb-1 text-truncate d-block" :title="key">{{ key }}</label>
+                              <input
+                                :value="instance.variables != null && Object.prototype.hasOwnProperty.call(instance.variables, key) ? instance.variables[key] : ''"
+                                type="text"
+                                class="form-control form-control-sm font-monospace"
+                                @input="actions.updateWizardOutputVariable(state.activeWizardPipeline.id, instance.id, key, $event.target.value)"
+                              >
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -775,7 +804,7 @@
 </template>
 
 <script setup>
-import { computed, ref, unref } from 'vue'
+import { computed, ref, unref, watch } from 'vue'
 import { useI18n } from '../../../i18n'
 
 const props = defineProps({
@@ -928,6 +957,67 @@ function outputIsAggGroup(targetId) {
     .find((item) => item.id === targetId)
   return Boolean(target?._is_aggregation_group)
 }
+
+// --- Inline output parameter editor ---
+
+const expandedOutputIds = ref(new Set())
+
+function toggleOutputExpand(instanceId) {
+  const next = new Set(expandedOutputIds.value)
+  if (next.has(instanceId)) {
+    next.delete(instanceId)
+  } else {
+    next.add(instanceId)
+  }
+  expandedOutputIds.value = next
+}
+
+// Per output type: which settings fields vary per environment.
+// Host/port/credentials stay with the OutputTarget definition and are not shown here.
+const OUTPUT_ENV_FIELDS = {
+  opensearch:    ['index', 'index_name', 'logstash_prefix', 'logstash_dateformat'],
+  elasticsearch: ['index', 'index_name', 'logstash_prefix', 'logstash_dateformat'],
+  kafka:         ['topics', 'topic_key'],
+  loki:          ['labels', 'tenant_id', 'line_format'],
+  s3:            ['bucket', 's3_bucket', 's3_key_format'],
+  splunk:        ['splunk_index', 'splunk_sourcetype', 'splunk_source'],
+  datadog:       ['dd_service', 'dd_source', 'dd_tags'],
+  http:          ['uri'],
+}
+
+function outputSettingsFields(targetId, instance) {
+  const target = (unref(props.state.wizardPagedOutputTargets)?.items || [])
+    .concat((unref(props.state.wizardPipelineCards) || []).flatMap((card) => card.outputTargets || []))
+    .find((item) => item.id === targetId)
+  if (!target) return []
+  const targetType = String(target.target_type || '').toLowerCase()
+  const allowedKeys = OUTPUT_ENV_FIELDS[targetType]
+  // Source: instance.variables (module defaults + target settings already merged)
+  const variables = instance?.variables || {}
+  const entries = Object.entries(variables).filter(([key]) => !key.startsWith('output_target_'))
+  if (allowedKeys !== undefined) {
+    return entries.filter(([key]) => allowedKeys.includes(key))
+  }
+  // Unknown type: show non-boolean, non-match fields as fallback
+  return entries.filter(([key, value]) => {
+    if (key === 'match') return false
+    const lower = String(value).trim().toLowerCase()
+    return !['on', 'off', 'true', 'false', 'yes', 'no'].includes(lower)
+  })
+}
+
+// Auto-expand newly added output instances
+watch(
+  () => (unref(props.state.activeWizardPipeline)?.outputs || []).map((o) => o.id),
+  (newIds, oldIds) => {
+    const oldSet = new Set(oldIds || [])
+    const next = new Set(expandedOutputIds.value)
+    for (const id of newIds) {
+      if (!oldSet.has(id)) next.add(id)
+    }
+    expandedOutputIds.value = next
+  }
+)
 </script>
 
 <style scoped>

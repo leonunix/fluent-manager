@@ -901,6 +901,7 @@ export default {
     wizard_no_filters: "当前流水线还没有 filter。",
     wizard_add_output: "挂到当前流水线",
     wizard_output_instance: "输出实例 #{index}",
+    wizard_output_params: "目标参数",
     wizard_no_outputs: "当前流水线还没有 output。",
     wizard_pipeline_empty: "还没有激活流水线，请先新建一条。",
     wizard_pipeline_count: "流水线 {count}",

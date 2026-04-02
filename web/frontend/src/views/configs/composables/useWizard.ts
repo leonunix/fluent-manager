@@ -575,6 +575,18 @@ export function useWizard({
     }))
   }
 
+  function updateWizardOutputVariable(pipelineId, instanceId, key, value) {
+    updateWizardPipeline(pipelineId, (pipeline) => ({
+      ...pipeline,
+      outputs: pipeline.outputs.map((instance) =>
+        instance.id !== instanceId ? instance : {
+          ...instance,
+          variables: { ...instance.variables, [key]: value },
+        }
+      ),
+    }))
+  }
+
   function removeWizardOutput(pipelineId, instanceId) {
     updateWizardPipeline(pipelineId, (pipeline) => ({ ...pipeline, outputs: pipeline.outputs.filter((item) => item.id !== instanceId) }))
   }
@@ -1041,7 +1053,7 @@ export function useWizard({
     addWizardPipeline, duplicateWizardPipeline, removeWizardPipeline, selectWizardPipeline, updateWizardPipeline,
     setWizardPipelineInput, addWizardFilter, removeWizardFilter, moveWizardFilter,
     addWizardRoute, removeWizardRoute, moveWizardRoute,
-    buildWizardOutputDraft, addWizardOutputTarget, removeWizardOutput, moveWizardOutput,
+    buildWizardOutputDraft, addWizardOutputTarget, updateWizardOutputVariable, removeWizardOutput, moveWizardOutput,
     pruneWizardStateForRuntime, removeWizardModuleReferences, removeWizardModuleReferencesBatch,
     applyWizardInputPreset, toggleWizardOutputTarget,
     buildWizardRenderModuleRefs, preparePreviewMetaFromWizard,

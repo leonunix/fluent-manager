@@ -95,7 +95,7 @@
         addWizardPipeline, duplicateWizardPipeline, removeWizardPipeline, selectWizardPipeline,
         setWizardPipelineInput, addWizardFilter, removeWizardFilter, moveWizardFilter,
         addWizardRoute, removeWizardRoute, moveWizardRoute,
-        addWizardOutputTarget, removeWizardOutput, moveWizardOutput,
+        addWizardOutputTarget, updateWizardOutputVariable, removeWizardOutput, moveWizardOutput,
         changeWizardStagePage, runWizardPreview, saveWizardAsTemplate,
         openAdvancedPreviewFromWizard, loadWizardFromTemplate, clearWizardLoadedTemplate, addWizardPipelineFromSaved,
       }"
@@ -369,7 +369,7 @@ const {
   addWizardPipeline, duplicateWizardPipeline, removeWizardPipeline, selectWizardPipeline, updateWizardPipeline,
   setWizardPipelineInput, addWizardFilter, removeWizardFilter, moveWizardFilter,
   addWizardRoute, removeWizardRoute, moveWizardRoute,
-  buildWizardOutputDraft, addWizardOutputTarget, removeWizardOutput, moveWizardOutput,
+  buildWizardOutputDraft, addWizardOutputTarget, updateWizardOutputVariable, removeWizardOutput, moveWizardOutput,
   pruneWizardStateForRuntime, removeWizardModuleReferences, removeWizardModuleReferencesBatch,
   applyWizardInputPreset, toggleWizardOutputTarget,
   buildWizardRenderModuleRefs, preparePreviewMetaFromWizard,
